@@ -1,0 +1,55 @@
+use crate::pty::session;
+use crate::pty::shell::{self, ShellConfig};
+use tauri::ipc::{Channel, Response};
+use tauri::State;
+use crate::state::AppState;
+
+/// Create a new terminal session with the specified shell (or auto-detect)
+#[tauri::command]
+pub fn terminal_create(
+    cols: u16,
+    rows: u16,
+    cwd: Option<String>,
+    shell_program: Option<String>,
+    on_data: Channel<Response>,
+    on_exit: Channel<i32>,
+    state: State<AppState>,
+) -> Result<u32, String> {
+    let shell = match shell_program {
+        Some(prog) if !prog.is_empty() => shell::get_shell_by_program(&prog, None),
+        _ => shell::detect_shell(),
+    };
+    let cwd = cwd.unwrap_or_else(shell::get_default_cwd);
+    let pty_session = session::spawn(cols, rows, shell, cwd, on_data, on_exit)?;
+    let id = state.pty_manager.insert(pty_session);
+    Ok(id)
+}
+
+/// List available shells on the system
+#[tauri::command]
+pub fn terminal_list_shells() -> Result<Vec<ShellConfig>, String> {
+    Ok(shell::available_shells())
+}
+
+#[tauri::command]
+pub fn terminal_write(id: u32, data: String, state: State<AppState>) -> Result<(), String> {
+    let session = state.pty_manager.get(id).ok_or_else(|| format!("Session not found: {id}"))?;
+    session.write(&data)
+}
+
+#[tauri::command]
+pub fn terminal_resize(id: u32, rows: u16, cols: u16, state: State<AppState>) -> Result<(), String> {
+    let session = state.pty_manager.get(id).ok_or_else(|| format!("Session not found: {id}"))?;
+    session.resize(rows, cols)
+}
+
+#[tauri::command]
+pub fn terminal_close(id: u32, state: State<AppState>) -> Result<(), String> {
+    state.pty_manager.remove(id).ok_or_else(|| format!("Session not found: {id}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn terminal_list(state: State<AppState>) -> Result<Vec<u32>, String> {
+    Ok(state.pty_manager.list_ids())
+}

@@ -1,0 +1,7 @@
+﻿cargo :     Blocking waiting for file lock on package cache
+At line:1 char:1
++ cargo check > cargo_output.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Blocking wa...n package cache:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
