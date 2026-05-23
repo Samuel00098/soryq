@@ -52,8 +52,36 @@ export async function loadThemes() {
   try {
     const themes = await invoke<ThemeInfo[]>('theme_list');
     availableThemes.set(themes);
+
+    // Get the last saved theme ID from localStorage
+    const savedThemeId = typeof window !== 'undefined' ? localStorage.getItem('forge_active_theme') : null;
+
+    if (savedThemeId) {
+      // 1. Check if it's a preset theme
+      const preset = presetThemes.find(t => t.id === savedThemeId);
+      if (preset) {
+        activeTheme.set(preset);
+        currentPresetTheme.set(savedThemeId);
+        applyThemeToCSS(preset);
+        return;
+      }
+
+      // 2. Otherwise, activate it on the backend (bundled or custom theme)
+      try {
+        const theme = await invoke<Theme>('theme_activate', { themeId: savedThemeId });
+        activeTheme.set(theme);
+        currentPresetTheme.set(null);
+        applyThemeToCSS(theme);
+        return;
+      } catch (e) {
+        console.warn(`Failed to activate saved theme ${savedThemeId} on backend, falling back to backend's active theme:`, e);
+      }
+    }
+
+    // Fallback: Get whatever the backend thinks is active
     const theme = await invoke<Theme>('theme_get_active');
     activeTheme.set(theme);
+    currentPresetTheme.set(null);
     applyThemeToCSS(theme);
   } catch (err) {
     console.error('Failed to load themes:', err);
@@ -65,6 +93,9 @@ export async function switchTheme(themeId: string, showNotification = true) {
     const theme = await invoke<Theme>('theme_activate', { themeId });
     activeTheme.set(theme);
     currentPresetTheme.set(null);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('forge_active_theme', themeId);
+    }
     applyThemeToCSS(theme);
     if (showNotification) {
       showToast(`Switched to theme: ${theme.name}`, 'success');
@@ -85,6 +116,9 @@ export function switchPresetTheme(themeId: string, showNotification = true) {
   }
   activeTheme.set(theme);
   currentPresetTheme.set(themeId);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('forge_active_theme', themeId);
+  }
   applyThemeToCSS(theme);
   if (showNotification) {
     showToast(`Switched to theme: ${theme.name}`, 'success');
@@ -158,6 +192,9 @@ export async function saveTheme(theme: Theme) {
     availableThemes.set(themes);
     activeTheme.set(theme);
     currentPresetTheme.set(null);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('forge_active_theme', theme.id);
+    }
     applyThemeToCSS(theme);
     showToast(`Theme "${theme.name}" saved successfully`, 'success');
   } catch (err: any) {
