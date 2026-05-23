@@ -4,12 +4,20 @@ use crate::state::AppState;
 use std::path::PathBuf;
 use std::process::Command;
 
+fn validate_relative_path(file_path: &str) -> Result<(), String> {
+    if file_path.starts_with("--") {
+        return Err("Invalid file path".to_string());
+    }
+    if file_path.split(|c| c == '/' || c == '\\').any(|seg| seg == "..") {
+        return Err("Path traversal is not allowed".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn workspace_open_project(path: String, state: State<AppState>) -> Result<Project, String> {
-    let root_path = PathBuf::from(&path);
-    if !root_path.exists() {
-        return Err(format!("Path does not exist: {}", path));
-    }
+    let root_path = std::fs::canonicalize(PathBuf::from(&path))
+        .map_err(|_| "Invalid path".to_string())?;
     state.workspace_manager.open_project(root_path).map_err(|e| e.to_string())
 }
 
@@ -164,7 +172,10 @@ pub fn workspace_git_fetch(
 
 #[tauri::command]
 pub fn workspace_detect_port(path: String) -> u16 {
-    let root = std::path::PathBuf::from(&path);
+    let root = match std::fs::canonicalize(std::path::PathBuf::from(&path)) {
+        Ok(r) => r,
+        Err(_) => return 5173,
+    };
     
     // 1. Try to read package.json
     let package_json_path = root.join("package.json");
@@ -265,8 +276,10 @@ pub fn workspace_search_codebase(
 
     let root = std::path::PathBuf::from(&project_path);
     if !root.exists() {
-        return Err(format!("Project path does not exist: {}", project_path));
+        return Err("Project path does not exist".to_string());
     }
+
+    let root = std::fs::canonicalize(&root).map_err(|_| "Invalid project path".to_string())?;
 
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();
@@ -352,10 +365,14 @@ fn search_dir_recursive(
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GitStatus {
+    pub branch: String,
     pub modified: Vec<String>,
     pub added: Vec<String>,
     pub deleted: Vec<String>,
     pub untracked: Vec<String>,
+    pub file_stats: std::collections::HashMap<String, (i32, i32)>,
+    pub total_additions: i32,
+    pub total_deletions: i32,
 }
 
 #[tauri::command]
@@ -373,6 +390,18 @@ pub fn workspace_git_status(
         return Err("This project is not a Git repository.".to_string());
     }
 
+    // 1. Get branch name
+    let branch = Command::new("git")
+        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "HEAD".to_string());
+
+    // 2. Get porcelain status
     let output = Command::new("git")
         .args(&["status", "--porcelain"])
         .current_dir(root_path)
@@ -404,12 +433,266 @@ pub fn workspace_git_status(
         }
     }
 
+    // 3. Get additions/deletions stats from git diff HEAD --numstat
+    let mut file_stats = std::collections::HashMap::new();
+    let mut total_additions = 0;
+    let mut total_deletions = 0;
+
+    let numstat_output = Command::new("git")
+        .args(&["diff", "HEAD", "--numstat", "--no-renames"])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output();
+
+    if let Ok(ref output) = numstat_output {
+        let numstat_stdout = String::from_utf8_lossy(&output.stdout);
+        for line in numstat_stdout.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                let additions = parts[0].parse::<i32>().unwrap_or(0);
+                let deletions = parts[1].parse::<i32>().unwrap_or(0);
+                let file_path = parts[2].to_string();
+                file_stats.insert(file_path.clone(), (additions, deletions));
+                total_additions += additions;
+                total_deletions += deletions;
+            }
+        }
+    }
+
+    // 4. Manually add untracked file stats (since they aren't in numstat)
+    for file in &untracked {
+        let absolute_path = root_path.join(file);
+        let additions = if absolute_path.exists() && absolute_path.is_file() {
+            match std::fs::read_to_string(&absolute_path) {
+                Ok(content) => content.lines().count() as i32,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+        file_stats.insert(file.clone(), (additions, 0));
+        total_additions += additions;
+    }
+
     Ok(GitStatus {
+        branch,
         modified,
         added,
         deleted,
         untracked,
+        file_stats,
+        total_additions,
+        total_deletions,
     })
+}
+
+#[tauri::command]
+pub fn workspace_git_discard_file(
+    project_id: String,
+    file_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let projects = state.workspace_manager.list_projects();
+    let project = projects.iter().find(|p| p.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+
+    let root_path = &project.root_path;
+
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
+
+    validate_relative_path(&file_path)?;
+
+    // 1. Get current git status to see if file is untracked
+    let status_output = Command::new("git")
+        .args(&["status", "--porcelain", "--", &file_path])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to check file status: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&status_output.stdout);
+    let is_untracked = stdout.lines().any(|line| line.starts_with("??"));
+
+    if is_untracked {
+        // Delete the file
+        let absolute_path = root_path.join(&file_path);
+        if absolute_path.exists() {
+            if absolute_path.is_dir() {
+                std::fs::remove_dir_all(&absolute_path)
+                    .map_err(|e| format!("Failed to delete directory {}: {}", file_path, e))?;
+            } else {
+                std::fs::remove_file(&absolute_path)
+                    .map_err(|e| format!("Failed to delete file {}: {}", file_path, e))?;
+            }
+        }
+    } else {
+        // Tracked file: unstage and discard changes
+        // Unstage first (in case it was added/staged)
+        let _ = Command::new("git")
+            .args(&["reset", "HEAD", "--", &file_path])
+            .current_dir(root_path)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output();
+
+        // Discard changes in worktree
+        let checkout_output = Command::new("git")
+            .args(&["checkout", "--", &file_path])
+            .current_dir(root_path)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .map_err(|e| format!("Failed to checkout file: {}", e))?;
+
+        if !checkout_output.status.success() {
+            // If checkout failed, it might be a new file that has been reset and is now untracked.
+            // Let's check status again, or check if it's untracked now.
+            let status_output2 = Command::new("git")
+                .args(&["status", "--porcelain", "--", &file_path])
+                .current_dir(root_path)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .output();
+
+            if let Ok(out) = status_output2 {
+                let stdout2 = String::from_utf8_lossy(&out.stdout);
+                if stdout2.lines().any(|line| line.starts_with("??")) {
+                    let absolute_path = root_path.join(&file_path);
+                    if absolute_path.exists() {
+                        let _ = std::fs::remove_file(&absolute_path);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn workspace_git_discard_all(
+    project_id: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let projects = state.workspace_manager.list_projects();
+    let project = projects.iter().find(|p| p.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+
+    let root_path = &project.root_path;
+
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
+
+    // 1. Reset all tracked changes
+    let reset_output = Command::new("git")
+        .args(&["reset", "--hard", "HEAD"])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to run git reset: {}", e))?;
+
+    if !reset_output.status.success() {
+        let stderr = String::from_utf8_lossy(&reset_output.stderr);
+        return Err(format!("Discard all failed on reset: {}", stderr));
+    }
+
+    // 2. Clean untracked files
+    let clean_output = Command::new("git")
+        .args(&["clean", "-fd"])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to run git clean: {}", e))?;
+
+    if !clean_output.status.success() {
+        let stderr = String::from_utf8_lossy(&clean_output.stderr);
+        return Err(format!("Discard all failed on clean: {}", stderr));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn workspace_git_diff(
+    project_id: String,
+    file_path: Option<String>,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let projects = state.workspace_manager.list_projects();
+    let project = projects.iter().find(|p| p.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+
+    let root_path = &project.root_path;
+
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
+
+    if let Some(ref path) = file_path {
+        if !path.trim().is_empty() {
+            validate_relative_path(path)?;
+            // First check if the file is tracked in git.
+            let is_tracked = Command::new("git")
+                .args(&["ls-files", "--error-unmatch", "--", path])
+                .current_dir(root_path)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            if !is_tracked {
+                // Read the file and format as a diff where every line is an addition
+                let absolute_path = root_path.join(path);
+                if absolute_path.exists() {
+                    match std::fs::read_to_string(&absolute_path) {
+                        Ok(content) => {
+                            let mut diff = format!("--- /dev/null\n+++ b/{}\n@@ -0,0 +1,{} @@\n", path, content.lines().count());
+                            for line in content.lines() {
+                                diff.push_str("+");
+                                diff.push_str(line);
+                                diff.push_str("\n");
+                            }
+                            return Ok(diff);
+                        }
+                        Err(e) => return Err(format!("Failed to read untracked file: {}", e)),
+                    }
+                }
+            }
+
+            // Otherwise, get git diff for this specific file
+            let output = Command::new("git")
+                .args(&["diff", "HEAD", "--", path])
+                .current_dir(root_path)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .output()
+                .map_err(|e| format!("Failed to run git diff: {}", e))?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+            if output.status.success() {
+                return Ok(stdout);
+            } else {
+                return Err(format!("Git diff failed:\n{}{}", stderr, stdout));
+            }
+        }
+    }
+
+    // Default: get full repo git diff
+    let output = Command::new("git")
+        .args(&["diff", "HEAD"])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to run git diff: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        Err(format!("Git diff failed:\n{}{}", stderr, stdout))
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

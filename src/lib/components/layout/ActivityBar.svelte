@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { layout, setActiveView, toggleSidebar, openSettings } from '$lib/stores/layout';
+  import { layout, setActiveView, toggleSidebar, openSettings, toggleEditorVisible, togglePreviewVisible } from '$lib/stores/layout';
   import type { ActiveView } from '$lib/types/layout';
 
   type NavItem = { id: ActiveView | 'explorer'; label: string; bottom?: boolean };
@@ -18,12 +18,24 @@
   function handleClick(item: NavItem) {
     if (item.id === 'explorer') { toggleSidebar(); return; }
     if (item.id === 'settings') { openSettings(); return; }
+    if (item.id === 'editor') { toggleEditorVisible(); return; }
+    if (item.id === 'preview') { togglePreviewVisible(); return; }
+    if (item.id === 'terminal') {
+      if ($layout.editorVisible || $layout.previewVisible) {
+        layout.update((l) => ({ ...l, editorVisible: false, previewVisible: false, activeView: 'terminal' }));
+      } else {
+        setActiveView('terminal');
+      }
+      return;
+    }
     setActiveView(item.id as ActiveView);
   }
 
   function isActive(item: NavItem): boolean {
     if (item.id === 'explorer') return $layout.sidebarVisible;
-    if (item.id === 'settings') return false; // modal, never "active" view
+    if (item.id === 'settings') return false;
+    if (item.id === 'editor') return $layout.editorVisible;
+    if (item.id === 'preview') return $layout.previewVisible;
     return $layout.activeView === item.id;
   }
 </script>
@@ -62,9 +74,10 @@
 
         <!-- Preview icon -->
         {:else if item.id === 'preview'}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-            <rect x="2" y="3" width="20" height="14" rx="2"/>
-            <path d="M8 21h8M12 17v4"/>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+            <path d="M2 12h20"/>
           </svg>
         {/if}
       </button>

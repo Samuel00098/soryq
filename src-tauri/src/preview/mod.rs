@@ -61,11 +61,22 @@ impl PreviewManager {
             active_external_origins: self.active_external_origins.clone(),
             active_project_id: self.active_project_id.clone(),
             client: Client::builder()
-                .danger_accept_invalid_certs(true)
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
                 .gzip(true)
                 .brotli(true)
-                .redirect(reqwest::redirect::Policy::limited(10))
+                .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                    let url = attempt.url();
+                    let url_str = url.as_str();
+                    if is_private_target(url_str) {
+                        return attempt.error("redirect to private IP blocked");
+                    }
+                    if let Some(port) = url.port() {
+                        if is_restricted_port(port) {
+                            return attempt.error("redirect to restricted port blocked");
+                        }
+                    }
+                    attempt.follow()
+                }))
                 .build()
                 .unwrap_or_default(),
         };
@@ -147,6 +158,33 @@ fn get_target_url(query: &str) -> Option<String> {
         .map(|(_, value)| value.into_owned())
 }
 
+fn is_private_target(url: &str) -> bool {
+    if let Ok(parsed) = url::Url::parse(url) {
+        if let Some(host) = parsed.host_str() {
+            if host == "127.0.0.1" || host == "localhost" || host == "0.0.0.0" {
+                return true;
+            }
+            if let Ok(addr) = host.parse::<std::net::IpAddr>() {
+                return match addr {
+                    std::net::IpAddr::V4(v4) => {
+                        v4.is_loopback()
+                            || v4.is_private()
+                            || v4.is_link_local()
+                            || v4.is_multicast()
+                            || v4.octets()[0] == 169 && v4.octets()[1] == 254
+                    }
+                    std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_multicast() || v6.is_unspecified(),
+                };
+            }
+        }
+    }
+    false
+}
+
+fn is_restricted_port(port: u16) -> bool {
+    matches!(port, 22 | 23 | 25 | 53 | 110 | 135 | 139 | 143 | 445 | 993 | 995 | 3306 | 3389 | 5432 | 6379 | 27017)
+}
+
 async fn proxy_handler(
     State(state): State<ProxyState>,
     req: Request<Body>,
@@ -164,6 +202,17 @@ async fn proxy_handler(
     if is_ws {
         if path.starts_with("/proxy") {
             return StatusCode::BAD_REQUEST.into_response();
+        }
+        // Validate WebSocket origin
+        let ws_origin_valid = parts.headers.get("origin")
+            .and_then(|v| v.to_str().ok())
+            .map(|o| {
+                o == "http://127.0.0.1" || o.starts_with("http://127.0.0.1:")
+                || o == "http://localhost" || o.starts_with("http://localhost:")
+            })
+            .unwrap_or(false);
+        if !ws_origin_valid {
+            return StatusCode::FORBIDDEN.into_response();
         }
         let ws_url = format!("ws://127.0.0.1:{}{}", target_port, path);
 
@@ -183,6 +232,20 @@ async fn proxy_handler(
         let target_url = get_target_url(query);
         match target_url {
             Some(url) if !url.is_empty() => {
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return (StatusCode::BAD_REQUEST, "Only HTTP(S) URLs are allowed").into_response();
+                }
+                if is_private_target(&url) {
+                    return (StatusCode::FORBIDDEN, "Access to private/internal resources is not allowed").into_response();
+                }
+                if let Ok(parsed) = url::Url::parse(&url) {
+                    if let Some(port) = parsed.port() {
+                        if is_restricted_port(port) {
+                            return (StatusCode::FORBIDDEN, "Access to restricted ports is not allowed").into_response();
+                        }
+                    }
+                }
+
                 let mut origin_to_store = None;
                 if let Ok(target) = url.parse::<url::Url>() {
                     let scheme = target.scheme();
@@ -237,10 +300,14 @@ async fn proxy_handler(
     }
 
     // Local dev server proxying (original behavior)
-    let url = format!("http://127.0.0.1:{}{}", target_port, path);
+    let url_str = format!("http://127.0.0.1:{}{}", target_port, path);
+    let url = match url_str.parse::<reqwest::Url>() {
+        Ok(u) => u,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
 
     let method = parts.method.clone();
-    let mut reqwest_req = reqwest::Request::new(method, url.parse().unwrap());
+    let mut reqwest_req = reqwest::Request::new(method, url);
 
     *reqwest_req.headers_mut() = parts.headers.clone();
     reqwest_req.headers_mut().remove("host");
@@ -262,7 +329,9 @@ async fn proxy_handler(
 
             let body_stream = res.bytes_stream();
             let body = Body::from_stream(body_stream);
-            builder.body(body).unwrap()
+            builder.body(body).unwrap_or_else(|_| {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response()
+            })
         }
         Err(err) => {
             (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response()
@@ -282,6 +351,15 @@ async fn proxy_external_url(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid target URL").into_response(),
     };
+
+    if is_private_target(target_url) {
+        return (StatusCode::FORBIDDEN, "Access to private/internal resources is not allowed").into_response();
+    }
+    if let Some(port) = target.port() {
+        if is_restricted_port(port) {
+            return (StatusCode::FORBIDDEN, "Access to restricted ports is not allowed").into_response();
+        }
+    }
 
     let method = parts.method.clone();
     let mut reqwest_req = reqwest::Request::new(method, target.clone());
@@ -354,7 +432,9 @@ async fn proxy_external_url(
 
             let body_stream = res.bytes_stream();
             let body = Body::from_stream(body_stream);
-            builder.body(body).unwrap()
+            builder.body(body).unwrap_or_else(|_| {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response()
+            })
         }
         Err(err) => {
             (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response()

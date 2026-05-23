@@ -416,7 +416,7 @@
         class="preview-iframe"
         onload={handleIframeLoad}
         allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+        sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"
       ></iframe>
     {:else}
       <div class="proxy-placeholder">
@@ -458,6 +458,7 @@
     height: 100%;
     background: var(--bg-primary);
     overflow: hidden;
+    container-type: inline-size;
   }
 
   /* Browser bar */
@@ -511,6 +512,7 @@
     padding: 0 4px 0 12px;
     gap: 6px;
     transition: border-color 0.15s;
+    min-width: 0;
   }
 
   .address-bar:focus-within {
@@ -790,4 +792,44 @@
     font-family: inherit;
   }
   .banner-open-btn:hover { background: var(--bg-secondary); }
+
+  /* Container queries for responsive toolbar */
+  @container (max-width: 480px) {
+    .label {
+      display: none;
+    }
+    .browser-bar {
+      gap: 6px;
+      padding: 0 6px;
+    }
+  }
+
+  @container (max-width: 380px) {
+    .protocol-badge {
+      display: none;
+    }
+    .browser-bar {
+      gap: 4px;
+      padding: 0 4px;
+    }
+    .proxy-settings {
+      gap: 4px;
+    }
+    .address-bar {
+      padding: 0 4px 0 8px;
+      gap: 4px;
+    }
+  }
+
+  @container (max-width: 320px) {
+    .port-input {
+      width: 44px;
+      padding: 0;
+    }
+    .proxy-btn {
+      padding: 0 6px;
+      font-size: 10.5px;
+      gap: 3px;
+    }
+  }
 </style>

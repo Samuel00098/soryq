@@ -1,18 +1,19 @@
 <script lang="ts">
   import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
 
   let { content = '' }: { content: string } = $props();
 
   let html = $derived.by(() => {
     try {
-      // Configure marked option to allow GFM (GitHub Flavored Markdown)
-      return marked.parse(content || '', {
+      const raw = marked.parse(content || '', {
         gfm: true,
         breaks: true,
       }) as string;
+      return DOMPurify.sanitize(raw);
     } catch (err) {
       console.error('Failed to parse markdown:', err);
-      return `<p style="color: var(--error)">Error rendering markdown: ${err}</p>`;
+      return `<p style="color: var(--error)">Error rendering markdown</p>`;
     }
   });
 </script>
@@ -31,14 +32,12 @@
     background: var(--bg-primary);
     color: var(--text-primary);
     padding: 2.5rem 2rem;
-    display: flex;
-    justify-content: center;
-    scroll-behavior: smooth;
   }
 
   .markdown-body {
     width: 100%;
     max-width: 800px;
+    margin: 0 auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 14.5px;
     line-height: 1.62;

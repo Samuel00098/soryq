@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import type { Project, RecentProject } from '$lib/types/workspace';
+import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn } from './editor';
 import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession } from './terminal';
 import { targetPort, proxyPort, proxyStarted, currentUrl, setTargetPort, startProxy } from './preview';
@@ -7,10 +7,31 @@ import { expandedPaths, selectedPath } from './explorer';
 import { resetSettingsToDefault } from './settings';
 import { resetLayoutToDefault } from './layout';
 
+function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
+  if (typeof window === 'undefined') {
+    return writable(defaultValue);
+  }
+  const stored = localStorage.getItem(`forge_ws_${key}`);
+  const initialValue = stored !== null ? JSON.parse(stored) : defaultValue;
+  const store = writable<T>(initialValue);
+  store.subscribe((val) => {
+    localStorage.setItem(`forge_ws_${key}`, JSON.stringify(val));
+  });
+  return store;
+}
+
+export const recentWorkspaces = persistentWritable<Workspace[]>('recentWorkspaces', []);
+export const activeWorkspaceId = persistentWritable<string | null>('activeWorkspaceId', null);
+
+export const activeWorkspace = derived(
+  [recentWorkspaces, activeWorkspaceId],
+  ([$recentWorkspaces, $activeWorkspaceId]) =>
+    $activeWorkspaceId ? $recentWorkspaces.find((w) => w.id === $activeWorkspaceId) ?? null : null
+);
+
 export const projects = writable<Map<string, Project>>(new Map());
 export const activeProjectId = writable<string | null>(null);
 export const openProjectIds = writable<string[]>([]); // ordered list of open project tabs
-export const recentProjects = writable<RecentProject[]>([]);
 export const isLoading = writable(false);
 
 export const activeProject = derived(
@@ -178,7 +199,16 @@ export function setActiveProject(project: Project) {
   });
 
   activeProjectId.set(project.id);
-  loadRecentProjects();
+
+  // Update active workspace's active path
+  const wsId = get(activeWorkspaceId);
+  if (wsId) {
+    recentWorkspaces.update((wsList) =>
+      wsList.map((w) =>
+        w.id === wsId ? { ...w, active_project_path: project.root_path } : w
+      )
+    );
+  }
 
   restoreProjectState(project.id, project.root_path);
 }
@@ -192,6 +222,170 @@ export function clearActiveProject() {
       console.error('Failed to clear active project on backend:', e);
     });
   });
+}
+
+function getFilename(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  return parts[parts.length - 1] || path;
+}
+
+export function createNewWorkspace() {
+  const id = `ws-${Date.now()}`;
+  const newWorkspace: Workspace = {
+    id,
+    name: 'New Workspace',
+    project_paths: [],
+    active_project_path: null,
+    last_opened: Date.now().toString(),
+  };
+
+  recentWorkspaces.update((ws) => [newWorkspace, ...ws]);
+  activeWorkspaceId.set(id);
+
+  // Clear current active project and folder list
+  clearActiveProject();
+  projects.set(new Map());
+  openProjectIds.set([]);
+}
+
+export async function openWorkspace(workspaceId: string) {
+  // Set as active
+  activeWorkspaceId.set(workspaceId);
+
+  // Update last_opened timestamp and move to top of the list
+  recentWorkspaces.update((list) => {
+    const updated = list.map((w) => {
+      if (w.id === workspaceId) {
+        return { ...w, last_opened: Date.now().toString() };
+      }
+      return w;
+    });
+    const ws = updated.find((w) => w.id === workspaceId);
+    if (ws) {
+      return [ws, ...updated.filter((w) => w.id !== workspaceId)];
+    }
+    return updated;
+  });
+
+  const wsList = get(recentWorkspaces);
+  const targetWs = wsList.find((w) => w.id === workspaceId);
+  if (!targetWs) return;
+
+  // Clear current project stores
+  clearAllStores();
+  projects.set(new Map());
+  openProjectIds.set([]);
+  activeProjectId.set(null);
+
+  // Load all projects in the workspace
+  if (targetWs.project_paths.length > 0) {
+    for (const path of targetWs.project_paths) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const project = await invoke<Project>('workspace_open_project', { path });
+        projects.update((p) => { p.set(project.id, project); return p; });
+        openProjectIds.update((ids) => {
+          if (!ids.includes(project.id)) return [...ids, project.id];
+          return ids;
+        });
+      } catch (err) {
+        console.error(`Failed to open project ${path} in workspace:`, err);
+      }
+    }
+
+    // Restore active project
+    if (targetWs.active_project_path) {
+      const allProjects = get(projects);
+      const activeProj = Array.from(allProjects.values()).find((p) => p.root_path === targetWs.active_project_path);
+      if (activeProj) {
+        activeProjectId.set(activeProj.id);
+        restoreProjectState(activeProj.id, activeProj.root_path);
+      } else {
+        const firstProjId = get(openProjectIds)[0];
+        if (firstProjId) {
+          const firstProj = allProjects.get(firstProjId);
+          if (firstProj) {
+            activeProjectId.set(firstProjId);
+            restoreProjectState(firstProjId, firstProj.root_path);
+          }
+        }
+      }
+    } else {
+      const firstProjId = get(openProjectIds)[0];
+      if (firstProjId) {
+        const firstProj = get(projects).get(firstProjId);
+        if (firstProj) {
+          activeProjectId.set(firstProjId);
+          restoreProjectState(firstProjId, firstProj.root_path);
+        }
+      }
+    }
+  }
+}
+
+export async function addFolderToWorkspace(path: string) {
+  let wsId = get(activeWorkspaceId);
+  if (!wsId) {
+    createNewWorkspace();
+    wsId = get(activeWorkspaceId);
+  }
+  if (!wsId) return;
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const project = await invoke<Project>('workspace_open_project', { path });
+
+    const currentActiveId = get(activeProjectId);
+    if (currentActiveId) {
+      saveProjectState(currentActiveId);
+    }
+
+    projects.update((p) => { p.set(project.id, project); return p; });
+    
+    openProjectIds.update((ids) => {
+      if (!ids.includes(project.id)) return [...ids, project.id];
+      return ids;
+    });
+
+    activeProjectId.set(project.id);
+    await restoreProjectState(project.id, project.root_path);
+
+    // Update active workspace
+    recentWorkspaces.update((wsList) => {
+      return wsList.map((w) => {
+        if (w.id === wsId) {
+          const paths = [...w.project_paths];
+          if (!paths.includes(path)) {
+            paths.push(path);
+          }
+          
+          let wsName = w.name;
+          if (w.name === 'New Workspace' || w.name.trim() === '' || w.name === 'Empty Workspace') {
+            wsName = getFilename(path);
+          } else {
+            const currentNames = w.name.split(', ');
+            const newName = getFilename(path);
+            if (!currentNames.includes(newName)) {
+              wsName = [...currentNames, newName].join(', ');
+            }
+          }
+
+          return {
+            ...w,
+            name: wsName,
+            project_paths: paths,
+            active_project_path: path,
+            last_opened: Date.now().toString(),
+          };
+        }
+        return w;
+      });
+    });
+  } catch (err) {
+    console.error('Failed to add folder to workspace:', err);
+    throw err;
+  }
 }
 
 export function closeProject(projectId: string) {
@@ -214,6 +408,35 @@ export function closeProject(projectId: string) {
   // Remove from cache
   projectStateCache.delete(projectId);
 
+  const wsId = get(activeWorkspaceId);
+  const p = get(projects).get(projectId);
+  if (wsId && p) {
+    recentWorkspaces.update((wsList) => {
+      return wsList.map((w) => {
+        if (w.id === wsId) {
+          const paths = w.project_paths.filter((x) => x !== p.root_path);
+          let activePath = w.active_project_path;
+          if (activePath === p.root_path) {
+            activePath = paths.length > 0 ? paths[paths.length - 1] : null;
+          }
+          
+          let newName = 'Empty Workspace';
+          if (paths.length > 0) {
+            newName = paths.map((path) => getFilename(path)).join(', ');
+          }
+
+          return {
+            ...w,
+            name: newName,
+            project_paths: paths,
+            active_project_path: activePath,
+          };
+        }
+        return w;
+      });
+    });
+  }
+
   if (current === projectId) {
     const ids = get(openProjectIds);
     const remainingIds = ids.filter((id) => id !== projectId);
@@ -225,6 +448,13 @@ export function closeProject(projectId: string) {
     if (nextId) {
       const nextProject = get(projects).get(nextId);
       if (nextProject) {
+        if (wsId) {
+          recentWorkspaces.update((wsList) =>
+            wsList.map((w) =>
+              w.id === wsId ? { ...w, active_project_path: nextProject.root_path } : w
+            )
+          );
+        }
         restoreProjectState(nextId, nextProject.root_path);
       }
     } else {
@@ -251,32 +481,22 @@ export function switchToProject(projectId: string) {
   const p = get(projects).get(projectId);
   if (p) {
     activeProjectId.set(projectId);
+    
+    const wsId = get(activeWorkspaceId);
+    if (wsId) {
+      recentWorkspaces.update((wsList) =>
+        wsList.map((w) =>
+          w.id === wsId ? { ...w, active_project_path: p.root_path } : w
+        )
+      );
+    }
+    
     restoreProjectState(projectId, p.root_path);
   }
 }
 
-export function addRecent(project: RecentProject) {
-  recentProjects.update((r) => [project, ...r.filter((x) => x.id !== project.id)].slice(0, 20));
-}
-
-export async function loadRecentProjects() {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const recents = await invoke<RecentProject[]>('workspace_get_recent');
-    recentProjects.set(recents);
-  } catch (err) {
-    console.error('Failed to load recent projects:', err);
-  }
-}
-
 export async function openProjectByPath(path: string) {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const project = await invoke<Project>('workspace_open_project', { path });
-    setActiveProject(project);
-  } catch (err) {
-    console.error('Failed to open project by path:', err);
-  }
+  await addFolderToWorkspace(path);
 }
 
 export async function openProject() {
@@ -284,10 +504,10 @@ export async function openProject() {
   const selected = await open({
     directory: true,
     multiple: false,
-    title: 'Open Folder',
+    title: 'Add Folder to Workspace',
   });
   if (selected) {
-    await openProjectByPath(selected);
+    await addFolderToWorkspace(selected);
   }
 }
 
@@ -306,5 +526,19 @@ export async function clearAllApplicationState() {
   resetSettingsToDefault();
   resetLayoutToDefault();
   clearAllStores();
-  recentProjects.set([]);
+  recentWorkspaces.set([]);
+  activeWorkspaceId.set(null);
+}
+
+export async function initializeWorkspaces() {
+  const wsId = get(activeWorkspaceId);
+  if (wsId) {
+    await openWorkspace(wsId);
+  }
+}
+
+export function renameWorkspace(workspaceId: string, newName: string) {
+  recentWorkspaces.update((list) =>
+    list.map((w) => (w.id === workspaceId ? { ...w, name: newName } : w))
+  );
 }

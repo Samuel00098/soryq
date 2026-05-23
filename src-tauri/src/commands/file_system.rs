@@ -1,5 +1,51 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+fn resolve_path(path: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    if p.exists() {
+        std::fs::canonicalize(&p).map_err(|_| "Invalid path".to_string())
+    } else {
+        let file_name = p.file_name().unwrap_or_default();
+        if file_name == ".." {
+            return Err("Invalid path".to_string());
+        }
+        if let Some(parent) = p.parent() {
+            if parent.exists() {
+                let canonical_parent = std::fs::canonicalize(parent).map_err(|_| "Invalid path".to_string())?;
+                Ok(canonical_parent.join(file_name))
+            } else {
+                let parent_str = parent.to_string_lossy();
+                if parent_str.split(|c| c == '/' || c == '\\').any(|seg| seg == "..") {
+                    return Err("Invalid path: directory traversal detected".to_string());
+                }
+                Ok(p)
+            }
+        } else {
+            Ok(p)
+        }
+    }
+}
+
+fn require_path(path: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    if !p.exists() {
+        return Err("Path does not exist".to_string());
+    }
+    std::fs::canonicalize(&p).map_err(|_| "Invalid path".to_string())
+}
+
+fn redact_path(path: &str) -> String {
+    let p = Path::new(path);
+    p.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| format!("[redacted]/{}", n))
+        .unwrap_or_else(|| "[redacted]".to_string())
+}
+
+fn sanitize_io_error(e: std::io::Error, path: &str) -> String {
+    format!("{}: {}", e.kind(), redact_path(path))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
@@ -12,15 +58,15 @@ pub struct FileEntry {
 
 #[tauri::command]
 pub fn fs_read_dir(path: String) -> Result<Vec<FileEntry>, String> {
-    let dir = PathBuf::from(&path);
+    let dir = require_path(&path)?;
     if !dir.is_dir() {
-        return Err(format!("Not a directory: {}", path));
+        return Err("Not a directory".to_string());
     }
 
     let mut entries = Vec::new();
-    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let metadata = entry.metadata().map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(&dir).map_err(|e| sanitize_io_error(e, &path))? {
+        let entry = entry.map_err(|e| sanitize_io_error(e, &path))?;
+        let metadata = entry.metadata().map_err(|e| sanitize_io_error(e, &path))?;
         let modified = metadata
             .modified()
             .ok()
@@ -54,45 +100,50 @@ pub fn fs_read_dir(path: String) -> Result<Vec<FileEntry>, String> {
 
 #[tauri::command]
 pub fn fs_create_file(path: String) -> Result<(), String> {
-    let file_path = PathBuf::from(&path);
+    let file_path = resolve_path(&path)?;
     if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent).map_err(|e| sanitize_io_error(e, &path))?;
     }
-    std::fs::File::create(&file_path).map_err(|e| e.to_string())?;
+    std::fs::File::create(&file_path).map_err(|e| sanitize_io_error(e, &path))?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn fs_create_dir(path: String) -> Result<(), String> {
-    std::fs::create_dir_all(PathBuf::from(&path)).map_err(|e| e.to_string())
+    let p = resolve_path(&path)?;
+    std::fs::create_dir_all(&p).map_err(|e| sanitize_io_error(e, &path))
 }
 
 #[tauri::command]
 pub fn fs_rename(from: String, to: String) -> Result<(), String> {
-    std::fs::rename(PathBuf::from(&from), PathBuf::from(&to)).map_err(|e| e.to_string())
+    let from_path = require_path(&from)?;
+    let to_path = resolve_path(&to)?;
+    std::fs::rename(&from_path, &to_path).map_err(|e| {
+        format!("Failed to rename: {}", e.kind())
+    })
 }
 
 #[tauri::command]
 pub fn fs_delete(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
+    let p = require_path(&path)?;
     if p.is_dir() {
-        std::fs::remove_dir_all(&p).map_err(|e| e.to_string())
+        std::fs::remove_dir_all(&p).map_err(|e| sanitize_io_error(e, &path))
     } else {
-        std::fs::remove_file(&p).map_err(|e| e.to_string())
+        std::fs::remove_file(&p).map_err(|e| sanitize_io_error(e, &path))
     }
 }
 
 #[tauri::command]
 pub fn fs_copy(from: String, to: String) -> Result<(), String> {
-    let from_path = PathBuf::from(&from);
-    let to_path = PathBuf::from(&to);
+    let from_path = require_path(&from)?;
+    let to_path = resolve_path(&to)?;
     if from_path.is_dir() {
-        copy_dir_recursive(&from_path, &to_path).map_err(|e| e.to_string())
+        copy_dir_recursive(&from_path, &to_path).map_err(|e| format!("Copy failed: {}", e.kind()))
     } else {
         if let Some(parent) = to_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(parent).map_err(|e| sanitize_io_error(e, &to))?;
         }
-        std::fs::copy(&from_path, &to_path).map_err(|e| e.to_string())?;
+        std::fs::copy(&from_path, &to_path).map_err(|e| sanitize_io_error(e, &from))?;
         Ok(())
     }
 }
@@ -115,22 +166,26 @@ fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::
 
 #[tauri::command]
 pub fn fs_read_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(PathBuf::from(&path)).map_err(|e| e.to_string())
+    let p = require_path(&path)?;
+    if p.metadata().map(|m| m.len()).unwrap_or(0) > 50 * 1024 * 1024 {
+        return Err("File too large to read".to_string());
+    }
+    std::fs::read_to_string(&p).map_err(|e| sanitize_io_error(e, &path))
 }
 
 #[tauri::command]
 pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
-    let file_path = PathBuf::from(&path);
+    let file_path = resolve_path(&path)?;
     if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent).map_err(|e| sanitize_io_error(e, &path))?;
     }
-    std::fs::write(&file_path, &content).map_err(|e| e.to_string())
+    std::fs::write(&file_path, &content).map_err(|e| sanitize_io_error(e, &path))
 }
 
 #[tauri::command]
 pub fn fs_get_file_info(path: String) -> Result<FileEntry, String> {
-    let p = PathBuf::from(&path);
-    let metadata = std::fs::metadata(&p).map_err(|e| e.to_string())?;
+    let p = require_path(&path)?;
+    let metadata = std::fs::metadata(&p).map_err(|e| sanitize_io_error(e, &path))?;
     let modified = metadata
         .modified()
         .ok()

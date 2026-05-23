@@ -17,3 +17,11 @@ export interface RecentProject {
   root_path: string;
   last_opened: string;
 }
+
+export interface Workspace {
+  id: string;
+  name: string;
+  project_paths: string[];
+  active_project_path: string | null;
+  last_opened: string;
+}

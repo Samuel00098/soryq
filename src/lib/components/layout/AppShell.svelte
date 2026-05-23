@@ -6,11 +6,11 @@
   import TerminalPanel from '$lib/components/terminal/TerminalPanel.svelte';
   import EditorPanel from '$lib/components/editor/EditorPanel.svelte';
   import PreviewPanel from '$lib/components/preview/PreviewPanel.svelte';
-  import MarkdownPreview from '$lib/components/preview/MarkdownPreview.svelte';
   import WelcomeScreen from '$lib/components/workspace/WelcomeScreen.svelte';
+  import ReviewPanel from '$lib/components/review/ReviewPanel.svelte';
 
-  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab } from '$lib/stores/layout';
-  import { activeProject, openProject } from '$lib/stores/workspace';
+  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible } from '$lib/stores/layout';
+  import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
@@ -18,6 +18,33 @@
   import { setTargetPort, startProxy, stopProxy } from '$lib/stores/preview';
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
   import { createTerminalSession } from '$lib/stores/terminal';
+
+  // Workspace renaming state
+  let editingWorkspaceName = $state(false);
+  let tempWorkspaceName = $state('');
+
+  function startSidebarRename() {
+    if ($activeWorkspace) {
+      tempWorkspaceName = $activeWorkspace.name;
+      editingWorkspaceName = true;
+    }
+  }
+
+  function saveSidebarRename() {
+    const trimmed = tempWorkspaceName.trim();
+    if (trimmed && $activeWorkspace) {
+      renameWorkspace($activeWorkspace.id, trimmed);
+    }
+    editingWorkspaceName = false;
+  }
+
+  function handleSidebarRenameKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      saveSidebarRename();
+    } else if (e.key === 'Escape') {
+      editingWorkspaceName = false;
+    }
+  }
 
   // Watch active project and automatically detect/open preview
   let lastProjectId = $state<string | null>(null);
@@ -50,20 +77,32 @@
   let sidebarStartWidth = 0;
   let windowWidth = $state(window.innerWidth);
 
+  // Auxiliary panel resize state
+  let auxPanelWidth = $state(400);
+  let auxEditorHeight = $state(50); // percentage (e.g. 50%) for the editor pane height when both are open
+  let auxResizing = $state(false);
+  let auxRowResizing = $state(false);
+
+  let auxStartX = 0;
+  let auxStartWidth = 0;
+  let auxStartY = 0;
+  let auxStartHeight = 0;
+
   // Collapse threshold scales with zoom so at zoom-in the sidebar collapses more eagerly
-  const BASE_COLLAPSE_THRESHOLD = 180;
+  const BASE_COLLAPSE_THRESHOLD = 120;
 
   let effectiveCollapseThreshold = $derived(BASE_COLLAPSE_THRESHOLD * ($uiZoom / 100));
 
   let tabsCollapsed = $derived($layout.sidebarWidth < effectiveCollapseThreshold);
 
-  let activeFileIsMarkdown = $derived(
-    $activeFile !== null && ($activeFile.endsWith('.md') || $activeFile.endsWith('.markdown'))
-  );
+  let visiblePanels = $derived([
+    { id: 'editor', visible: $layout.editorVisible },
+    { id: 'preview', visible: $layout.previewVisible },
+    { id: 'review', visible: $layout.reviewVisible }
+  ].filter(p => p.visible));
 
-  let markdownContent = $derived(
-    activeFileIsMarkdown ? ($fileCache.get($activeFile!)?.content ?? '') : ''
-  );
+  let firstPanelId = $derived(visiblePanels[0]?.id);
+  let secondPanelId = $derived(visiblePanels[1]?.id);
 
   // Adjust sidebar width dynamically when screen size changes, and collapse if very narrow screen
   $effect(() => {
@@ -85,11 +124,22 @@
     }
   });
 
+  // Clamp auxiliary panel width dynamically when screen size, zoom, or sidebar changes
+  $effect(() => {
+    const zoom = $uiZoom / 100;
+    const currentSidebarWidth = $layout.sidebarVisible ? (tabsCollapsed ? 48 : $layout.sidebarWidth) : 0;
+    const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
+    
+    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible) && auxPanelWidth > maxAllowedWidth) {
+      auxPanelWidth = Math.max(200, maxAllowedWidth);
+    }
+  });
+
   function openSidebarTab(tab: 'files' | 'git') {
     layout.update((l) => ({
       ...l,
       sidebarVisible: true,
-      sidebarWidth: l.sidebarWidth < effectiveCollapseThreshold ? 260 : l.sidebarWidth,
+      sidebarWidth: l.sidebarWidth < effectiveCollapseThreshold ? 220 : l.sidebarWidth,
       sidebarTab: tab
     }));
   }
@@ -102,18 +152,54 @@
     document.body.style.userSelect = 'none';
   }
 
+  function onAuxMouseDown(e: MouseEvent) {
+    auxResizing = true;
+    auxStartX = e.clientX;
+    auxStartWidth = auxPanelWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
+
+  function onAuxRowMouseDown(e: MouseEvent) {
+    auxRowResizing = true;
+    auxStartY = e.clientY;
+    auxStartHeight = auxEditorHeight;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }
+
   function onMouseMove(e: MouseEvent) {
-    if (!sidebarResizing) return;
-    const delta = e.clientX - sidebarStartX;
-    const maxAllowedWidth = Math.min(600, windowWidth - 250);
-    layout.update((l) => ({
-      ...l,
-      sidebarWidth: Math.max(48, Math.min(maxAllowedWidth, sidebarStartWidth + delta)),
-    }));
+    const zoom = $uiZoom / 100;
+    if (sidebarResizing) {
+      const delta = (e.clientX - sidebarStartX) / zoom;
+      const maxAllowedWidth = Math.min(600, (windowWidth / zoom) - 250);
+      layout.update((l) => ({
+        ...l,
+        sidebarWidth: Math.max(48, Math.min(maxAllowedWidth, sidebarStartWidth + delta)),
+      }));
+    } else if (auxResizing) {
+      const delta = (e.clientX - auxStartX) / zoom;
+      const nextWidth = auxStartWidth - delta;
+      const currentSidebarWidth = $layout.sidebarVisible ? (tabsCollapsed ? 48 : $layout.sidebarWidth) : 0;
+      const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
+      auxPanelWidth = Math.max(200, Math.min(maxAllowedWidth, nextWidth));
+    } else if (auxRowResizing) {
+      const deltaY = (e.clientY - auxStartY) / zoom;
+      const container = document.querySelector('.auxiliary-panel');
+      if (container) {
+        const totalHeight = container.clientHeight;
+        if (totalHeight > 0) {
+          const deltaPercent = (deltaY / totalHeight) * 100;
+          auxEditorHeight = Math.max(10, Math.min(90, auxStartHeight + deltaPercent));
+        }
+      }
+    }
   }
 
   function onMouseUp() {
     sidebarResizing = false;
+    auxResizing = false;
+    auxRowResizing = false;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   }
@@ -175,12 +261,12 @@
   <TitleBar />
 
   <div class="zoom-wrapper">
-  {#if $activeProject}
+  {#if $activeWorkspaceId}
     <!-- Project is open: show full workspace -->
     <div class="zoom-content">
-    <div class="app-body" class:resizing={sidebarResizing}>
-      {#if sidebarResizing}
-        <div class="resize-overlay"></div>
+    <div class="app-body" class:resizing={sidebarResizing || auxResizing || auxRowResizing}>
+      {#if sidebarResizing || auxResizing || auxRowResizing}
+        <div class="resize-overlay" class:row-resize={auxRowResizing}></div>
       {/if}
       <!-- Sidebar with view tabs above explorer -->
       {#if $layout.sidebarVisible}
@@ -228,8 +314,8 @@
 
             <button
               class="svt-btn"
-              class:svt-active={$layout.activeView === 'editor'}
-              onclick={() => setActiveView('editor')}
+              class:svt-active={$layout.editorVisible}
+              onclick={toggleEditorVisible}
               title="Editor"
               aria-label="Editor"
             >
@@ -237,12 +323,11 @@
                 <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
               </svg>
-              {#if !tabsCollapsed}<span>Editor</span>{/if}
             </button>
             <button
               class="svt-btn"
               class:svt-active={$layout.activeView === 'terminal'}
-              onclick={() => setActiveView('terminal')}
+              onclick={toggleTerminal}
               title="Terminal"
               aria-label="Terminal"
             >
@@ -251,27 +336,74 @@
                 <polyline points="8,9 4,12 8,15"/>
                 <line x1="12" y1="15" x2="20" y2="15"/>
               </svg>
-              {#if !tabsCollapsed}<span>Terminal</span>{/if}
             </button>
             <button
               class="svt-btn"
-              class:svt-active={$layout.activeView === 'preview'}
-              onclick={() => setActiveView('preview')}
+              class:svt-active={$layout.previewVisible}
+              onclick={togglePreviewVisible}
               title="Preview"
               aria-label="Preview"
             >
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="3" width="20" height="14" rx="2"/>
-                <path d="M8 21h8M12 17v4"/>
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+                <path d="M2 12h20"/>
               </svg>
-              {#if !tabsCollapsed}<span>Preview</span>{/if}
+            </button>
+            <button
+              class="svt-btn"
+              class:svt-active={$layout.reviewVisible}
+              onclick={toggleReviewVisible}
+              title="Code Review"
+              aria-label="Code Review"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="18" cy="18" r="3"/>
+                <circle cx="6" cy="6" r="3"/>
+                <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+                <path d="M11 18H8a2 2 0 0 1-2-2V9"/>
+              </svg>
             </button>
           </div>
 
           <!-- Section Header (hide when very narrow) -->
           {#if !tabsCollapsed}
-            <div class="sidebar-header">
-              <span class="sidebar-section-label">{$activeProject.name}</span>
+            <div class="sidebar-header-wrapper">
+              <div class="sidebar-header">
+                {#if editingWorkspaceName}
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input
+                    class="sidebar-rename-input"
+                    type="text"
+                    bind:value={tempWorkspaceName}
+                    onkeydown={handleSidebarRenameKeyDown}
+                    onblur={saveSidebarRename}
+                    onclick={(e) => e.stopPropagation()}
+                    autofocus
+                  />
+                {:else}
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <span 
+                    class="sidebar-section-label workspace-label-editable" 
+                    onclick={startSidebarRename}
+                    title="Click to rename workspace"
+                  >
+                    {$activeWorkspace ? $activeWorkspace.name : 'Workspace'}
+                  </span>
+                  <button class="sidebar-rename-btn" onclick={startSidebarRename} title="Rename workspace">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                      <path d="M18.5 2.5a2.122 2.122 0 1 1 3 3L12 15l-4 1 1-4z"/>
+                    </svg>
+                  </button>
+                {/if}
+              </div>
+              {#if $activeProject}
+                <div class="sidebar-subheader">
+                  <span class="sidebar-subheader-label">Active: {$activeProject.name}</span>
+                </div>
+              {/if}
             </div>
 
             <div class="sidebar-header-tabs">
@@ -328,37 +460,87 @@
       {/if}
 
       <!-- Main Content Area -->
-      <div class="main-content" class:pointer-none={sidebarResizing}>
-        <!-- Editor View -->
-        <div class="view-editor" class:split={$layout.editorSplitPreview} class:hidden={$layout.activeView !== 'editor'}>
-          <div class="editor-pane">
-            <EditorPanel />
-          </div>
-          {#if $layout.editorSplitPreview}
-            <div class="split-divider"></div>
-            <div class="preview-pane">
-              {#if activeFileIsMarkdown}
-                <MarkdownPreview content={markdownContent} />
-              {:else}
-                <PreviewPanel />
-              {/if}
-            </div>
-          {/if}
-        </div>
-
-        <!-- Terminal View -->
-        <div class="view-fill" class:hidden={$layout.activeView !== 'terminal'}>
+      <div class="main-content" class:pointer-none={sidebarResizing || auxResizing || auxRowResizing}>
+        <!-- Left Pane: Terminal Panel (always visible, resizing dynamically) -->
+        <div class="terminal-container">
           <TerminalPanel />
         </div>
 
-        <!-- Standalone Preview View -->
-        <div class="view-fill" class:hidden={$layout.activeView !== 'preview'}>
-          {#if activeFileIsMarkdown}
-            <MarkdownPreview content={markdownContent} />
-          {:else}
-            <PreviewPanel />
-          {/if}
-        </div>
+        <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
+        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible}
+          <!-- Vertical Resize Handle between Terminal and Auxiliary Panel -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <div
+            class="aux-resize-handle"
+            class:resizing={auxResizing}
+            onmousedown={onAuxMouseDown}
+            role="separator"
+            aria-label="Resize panels"
+          ></div>
+
+          <!-- Right Auxiliary Panel -->
+          <div 
+            class="auxiliary-panel" 
+            style="width: {auxPanelWidth}px; min-width: 200px;"
+          >
+            {#if visiblePanels.length === 3}
+              <!-- All three panels are visible: split equally in thirds -->
+              <div class="aux-pane split-pane-third" style="height: 33.3%; min-height: 10%;">
+                <EditorPanel />
+              </div>
+              <div class="aux-separator-line"></div>
+              <div class="aux-pane split-pane-third" style="height: 33.3%; min-height: 10%;">
+                <PreviewPanel />
+              </div>
+              <div class="aux-separator-line"></div>
+              <div class="aux-pane split-pane-third" style="height: 33.4%; min-height: 10%;">
+                <ReviewPanel />
+              </div>
+            {:else if visiblePanels.length === 2}
+              <!-- Two panels are visible: resizable split layout -->
+              <div class="aux-pane split-pane-top" style="height: {auxEditorHeight}%; min-height: 10%;">
+                {#if firstPanelId === 'editor'}
+                  <EditorPanel />
+                {:else if firstPanelId === 'preview'}
+                  <PreviewPanel />
+                {:else if firstPanelId === 'review'}
+                  <ReviewPanel />
+                {/if}
+              </div>
+              
+              <!-- Horizontal Split Resize Handle -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <div 
+                class="aux-row-resize-handle"
+                class:resizing={auxRowResizing}
+                onmousedown={onAuxRowMouseDown}
+                role="separator"
+                aria-label="Resize panels"
+              ></div>
+
+              <div class="aux-pane split-pane-bottom" style="height: {100 - auxEditorHeight}%; min-height: 10%;">
+                {#if secondPanelId === 'editor'}
+                  <EditorPanel />
+                {:else if secondPanelId === 'preview'}
+                  <PreviewPanel />
+                {:else if secondPanelId === 'review'}
+                  <ReviewPanel />
+                {/if}
+              </div>
+            {:else if visiblePanels.length === 1}
+              <!-- Only one panel is visible: full height -->
+              <div class="aux-pane full-pane">
+                {#if firstPanelId === 'editor'}
+                  <EditorPanel />
+                {:else if firstPanelId === 'preview'}
+                  <PreviewPanel />
+                {:else if firstPanelId === 'review'}
+                  <ReviewPanel />
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
 
@@ -394,13 +576,13 @@
 
   .zoom-content {
     --zoom-factor: calc(var(--ui-zoom-percent, 100) / 100);
-    width: calc(100% / var(--zoom-factor));
-    height: calc(100% / var(--zoom-factor));
-    transform: scale(var(--zoom-factor));
-    transform-origin: top left;
-    flex-shrink: 0;
+    zoom: var(--zoom-factor);
+    width: 100%;
+    height: 100%;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    flex: 1;
   }
 
   .app-body {
@@ -505,6 +687,17 @@
     justify-content: center;
   }
 
+  .sidebar-view-tabs:not(.tabs-icon-only) .svt-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .sidebar-view-tabs:not(.tabs-icon-only) .svt-btn::before {
+    display: none;
+  }
+
   .svt-btn:hover {
     color: var(--text-primary);
     background: var(--bg-hover);
@@ -523,12 +716,87 @@
     flex-shrink: 0;
   }
 
+  .sidebar-header-wrapper {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 14px 6px;
+    flex-shrink: 0;
+    background: var(--sidebar-bg);
+  }
+
   .sidebar-header {
-    height: 28px;
     display: flex;
     align-items: center;
-    padding: 0 14px;
+    justify-content: space-between;
+    height: 20px;
+    gap: 6px;
     flex-shrink: 0;
+  }
+
+  .workspace-label-editable {
+    cursor: pointer;
+    transition: color 0.15s;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace-label-editable:hover {
+    color: var(--accent);
+  }
+
+  .sidebar-rename-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+  }
+
+  .sidebar-header:hover .sidebar-rename-btn {
+    opacity: 0.8;
+  }
+
+  .sidebar-rename-btn:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+    opacity: 1;
+  }
+
+  .sidebar-rename-input {
+    background: var(--input-bg);
+    border: 1px solid var(--accent);
+    color: var(--text-primary);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    height: 18px;
+  }
+
+  .sidebar-subheader {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sidebar-subheader-label {
+    opacity: 0.7;
   }
 
   .sidebar-header-tabs {
@@ -617,49 +885,112 @@
     box-shadow: 0 0 6px var(--accent);
   }
 
-  /* ─── Main Content ────────────────────── */
+  /* ─── Main Content (Split Workspace Layout) ─── */
   .main-content {
     flex: 1;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    background: var(--bg-primary, var(--editor-bg));
+    min-width: 0;
+    position: relative;
+  }
+
+  .terminal-container {
+    flex: 1;
+    min-width: 250px;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Auxiliary Panel col resize handle */
+  .aux-resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: var(--border);
+    flex-shrink: 0;
+    z-index: 10;
+    position: relative;
+    transition: background-color 0.15s;
+  }
+
+  .aux-resize-handle::after {
+    content: '';
+    position: absolute;
+    left: 1px;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: transparent;
+    transition: background-color 0.15s, box-shadow 0.15s;
+  }
+
+  .aux-resize-handle:hover,
+  .aux-resize-handle.resizing {
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+  }
+
+  /* Auxiliary Panel right side container */
+  .auxiliary-panel {
+    height: 100%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     background: var(--editor-bg);
-    min-width: 0;
+    border-left: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
   }
 
-  /* ─── Views ───────────────────────────── */
-  .view-fill {
+  /* Panes within the auxiliary panel */
+  .aux-pane {
     width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .view-editor {
-    display: flex;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .editor-pane {
-    flex: 1;
-    min-width: 0;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    background: var(--editor-bg);
   }
 
-  .split-divider {
-    width: 4px;
+  .aux-pane.full-pane {
+    height: 100%;
+  }
+
+  .aux-separator-line {
+    height: 1px;
+    background: var(--border-subtle, #2e2e2e);
+    width: 100%;
+    flex-shrink: 0;
+  }
+
+  /* Horizontal split resize handle */
+  .aux-row-resize-handle {
+    height: 4px;
+    cursor: row-resize;
     background: var(--border);
     flex-shrink: 0;
-    cursor: col-resize;
+    z-index: 10;
+    position: relative;
+    transition: background-color 0.15s;
   }
 
-  .preview-pane {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
+  .aux-row-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 0;
+    height: 2px;
+    width: 100%;
+    background: transparent;
+    transition: background-color 0.15s, box-shadow 0.15s;
+  }
+
+  .aux-row-resize-handle:hover,
+  .aux-row-resize-handle.resizing {
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
   }
 
   .resize-overlay {
@@ -670,8 +1001,8 @@
     background: transparent;
   }
 
-  .hidden {
-    display: none !important;
+  .resize-overlay.row-resize {
+    cursor: row-resize;
   }
 
   @media (max-width: 640px) {
@@ -679,6 +1010,7 @@
       width: 48px !important;
       min-width: 48px !important;
     }
+    .sidebar-header-wrapper,
     .sidebar-header,
     .sidebar-header-tabs,
     .sidebar-content {
@@ -690,9 +1022,6 @@
       gap: 4px;
       border-bottom: none;
       align-items: center;
-    }
-    .sidebar-view-tabs .svt-btn span {
-      display: none;
     }
   }
 </style>

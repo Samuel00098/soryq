@@ -805,7 +805,6 @@
     background: var(--bg-primary);
     min-height: 0;
     width: 100%;
-    height: 100%;
     position: relative;
   }
 
@@ -828,7 +827,6 @@
   .terminal-cell > :global(.terminal-pane) {
     flex: 1;
     width: 100%;
-    height: 100%;
   }
 
   /* ── Empty pane ──────────────────────────── */

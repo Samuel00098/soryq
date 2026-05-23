@@ -109,25 +109,6 @@ fn which(prog: &str) -> Option<String> {
     None
 }
 
-pub fn get_shell_by_program(program: &str, args: Option<Vec<String>>) -> ShellConfig {
-    // Find matching shell from available list, or construct one with provided args
-    let available = available_shells();
-    if let Some(found) = available.iter().find(|s| {
-        s.program.to_lowercase().contains(&program.to_lowercase())
-            || program.to_lowercase().contains(
-                Path::new(&s.program)
-                    .file_stem()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .as_str(),
-            )
-    }) {
-        return found.clone();
-    }
-    ShellConfig { program: program.to_string(), args: args.unwrap_or_default() }
-}
-
 pub fn detect_shell() -> ShellConfig {
     available_shells().into_iter().next().unwrap_or_else(|| {
         if cfg!(target_os = "windows") {

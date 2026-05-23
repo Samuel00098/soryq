@@ -35,6 +35,10 @@ pub fn preview_clear_proxy_target(state: State<AppState>) -> Result<(), String> 
 #[tauri::command]
 pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("Only HTTP and HTTPS URLs are allowed".to_string());
+    }
+    #[allow(deprecated)]
     app.shell()
         .open(&url, None)
         .map_err(|e| format!("Failed to open browser: {}", e))

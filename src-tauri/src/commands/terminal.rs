@@ -16,7 +16,25 @@ pub fn terminal_create(
     state: State<AppState>,
 ) -> Result<u32, String> {
     let shell = match shell_program {
-        Some(prog) if !prog.is_empty() => shell::get_shell_by_program(&prog, None),
+        Some(prog) if !prog.is_empty() => {
+            let available = shell::available_shells();
+            let found = available.iter().find(|s| {
+                s.program.to_lowercase().contains(&prog.to_lowercase())
+                    || prog.to_lowercase().contains(
+                        std::path::Path::new(&s.program)
+                            .file_stem()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .as_str(),
+                    )
+            });
+            match found {
+                Some(s) => s.clone(),
+                None => return Err(format!("Unrecognized shell program: {}. Available shells: {}", prog,
+                    available.iter().map(|s| s.program.as_str()).collect::<Vec<_>>().join(", "))),
+            }
+        }
         _ => shell::detect_shell(),
     };
     let cwd = cwd.unwrap_or_else(shell::get_default_cwd);

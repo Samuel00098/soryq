@@ -107,6 +107,8 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } | nul
   return null;
 }
 
+let themeTransitionTimeout: any = null;
+
 export function applyThemeToCSS(theme: Theme | null) {
   if (!theme || typeof document === 'undefined') return;
   const root = document.documentElement;
@@ -114,6 +116,11 @@ export function applyThemeToCSS(theme: Theme | null) {
   const isInitialLoad = !root.classList.contains('theme-initialized');
   if (!isInitialLoad) {
     root.classList.add('theme-transitioning');
+    // Force browser reflow to register the transition styles before changing CSS variables
+    void root.offsetHeight;
+    if (themeTransitionTimeout) {
+      clearTimeout(themeTransitionTimeout);
+    }
   } else {
     root.classList.remove('theme-transitioning');
   }
@@ -137,8 +144,9 @@ export function applyThemeToCSS(theme: Theme | null) {
   if (isInitialLoad) {
     root.classList.add('theme-initialized');
   } else {
-    setTimeout(() => {
+    themeTransitionTimeout = setTimeout(() => {
       root.classList.remove('theme-transitioning');
+      themeTransitionTimeout = null;
     }, 350);
   }
 }

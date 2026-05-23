@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { openProject, openProjectByPath, recentProjects, clearAllApplicationState } from '$lib/stores/workspace';
+  import { createNewWorkspace, openWorkspace, recentWorkspaces, clearAllApplicationState, renameWorkspace } from '$lib/stores/workspace';
   import { derived } from 'svelte/store';
   import { search as paletteSearch } from '$lib/stores/commandpalette';
   import { userShortcuts } from '$lib/stores/settings';
@@ -10,25 +10,51 @@
     return defaultKeys;
   }
 
-  // Deduplicate recents by root_path, keeping the most recent entry, and filter by search query
-  const dedupedRecents = derived([recentProjects, paletteSearch], ([$recents, $search]) => {
-    const seen = new Map<string, typeof $recents[0]>();
-    for (const p of $recents) {
-      if (!seen.has(p.root_path)) seen.set(p.root_path, p);
-    }
-    const list = Array.from(seen.values());
+  // Filter workspaces by search query
+  const filteredWorkspaces = derived([recentWorkspaces, paletteSearch], ([$recentWorkspaces, $search]) => {
+    const list = $recentWorkspaces || [];
     if (!$search) return list;
     const query = $search.toLowerCase();
     return list.filter(
-      (p) =>
-        p.name.toLowerCase().includes(query) ||
-        p.root_path.toLowerCase().includes(query)
+      (w) =>
+        w.name.toLowerCase().includes(query) ||
+        (w.project_paths || []).some((path) => path.toLowerCase().includes(query))
     );
   });
 
   function removeRecent(e: MouseEvent, id: string) {
     e.stopPropagation();
-    recentProjects.update((r) => r.filter((p) => p.id !== id));
+    recentWorkspaces.update((r) => r.filter((w) => w.id !== id));
+  }
+
+  let renamingWorkspaceId = $state<string | null>(null);
+  let renamingWorkspaceName = $state('');
+
+  function startRename(e: MouseEvent, id: string, currentName: string) {
+    e.stopPropagation();
+    renamingWorkspaceId = id;
+    renamingWorkspaceName = currentName;
+  }
+
+  function saveRename(id: string) {
+    const trimmed = renamingWorkspaceName.trim();
+    if (trimmed) {
+      renameWorkspace(id, trimmed);
+    }
+    cancelRename();
+  }
+
+  function cancelRename() {
+    renamingWorkspaceId = null;
+    renamingWorkspaceName = '';
+  }
+
+  function handleRenameKeyDown(e: KeyboardEvent, id: string) {
+    if (e.key === 'Enter') {
+      saveRename(id);
+    } else if (e.key === 'Escape') {
+      cancelRename();
+    }
   }
 
   function clearAllRecents(e: MouseEvent) {
@@ -94,42 +120,43 @@
 
   <!-- Actions Row -->
   <div class="actions-row">
-    <!-- Open Project Button -->
+    <!-- New Workspace Button -->
     <div class="action-section">
-      <button class="open-btn" onclick={openProject}>
+      <button class="open-btn" onclick={createNewWorkspace}>
         <span class="open-btn-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <line x1="9" y1="3" x2="9" y2="21"/>
           </svg>
         </span>
-        <span>Open Folder…</span>
-        <kbd>{getShortcutKeys('openFolder', 'Ctrl+O')}</kbd>
+        <span>New Workspace</span>
+        <kbd>Ctrl+N</kbd>
       </button>
     </div>
 
     <!-- Divider -->
     <div class="section-divider"></div>
 
-    <!-- Recent Projects -->
+    <!-- Recent Workspaces -->
     <div class="recent-section">
       <div class="recent-header">
-        <span class="recent-label">Recent</span>
-        {#if $dedupedRecents.length > 0}
-          <button class="clear-btn" onclick={clearAllRecents} title="Clear all recent projects">
+        <span class="recent-label">Recent Workspaces</span>
+        {#if $filteredWorkspaces.length > 0}
+          <button class="clear-btn" onclick={clearAllRecents} title="Clear all recent workspaces">
             Clear all
           </button>
         {/if}
       </div>
 
       <div class="recent-list">
-        {#if $dedupedRecents.length > 0}
-          {#each $dedupedRecents as p (p.id)}
-            {@const hue = getProjectHue(p.name)}
+        {#if $filteredWorkspaces.length > 0}
+          {#each $filteredWorkspaces as w (w.id)}
+            {@const hue = getProjectHue(w.name)}
             <!-- svelte-ignore a11y_interactive_supports_focus -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
               class="recent-card"
-              onclick={() => openProjectByPath(p.root_path)}
+              onclick={() => openWorkspace(w.id)}
               role="button"
             >
               <div class="recent-avatar" style="--hue:{hue}">
@@ -138,18 +165,48 @@
                 </svg>
               </div>
               <div class="recent-info">
-                <span class="recent-name">{p.name}</span>
-                <span class="recent-path" title={p.root_path}>{getShortPath(p.root_path)}</span>
+                {#if renamingWorkspaceId === w.id}
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input
+                    class="rename-ws-input"
+                    type="text"
+                    bind:value={renamingWorkspaceName}
+                    onkeydown={(e) => handleRenameKeyDown(e, w.id)}
+                    onblur={() => saveRename(w.id)}
+                    onclick={(e) => e.stopPropagation()}
+                    autofocus
+                  />
+                {:else}
+                  <span class="recent-name">{w.name}</span>
+                {/if}
+                <span class="recent-path" title={w.project_paths.join(', ')}>
+                  {w.project_paths.length === 0 
+                    ? 'Empty workspace' 
+                    : `${w.project_paths.length} folder${w.project_paths.length > 1 ? 's' : ''}: ${w.project_paths.map(getShortPath).join(', ')}`}
+                </span>
               </div>
               <div class="recent-meta">
-                {#if p.last_opened}
-                  <span class="recent-time">{formatRelativeTime(p.last_opened)}</span>
+                {#if w.last_opened}
+                  <span class="recent-time">{formatRelativeTime(w.last_opened)}</span>
                 {/if}
                 <button
+                  class="rename-btn"
+                  onclick={(e) => startRename(e, w.id, w.name)}
+                  title="Rename workspace"
+                  aria-label="Rename workspace {w.name}"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.122 2.122 0 1 1 3 3L12 15l-4 1 1-4z"/>
+                  </svg>
+                </button>
+                <button
                   class="remove-btn"
-                  onclick={(e) => removeRecent(e, p.id)}
+                  onclick={(e) => removeRecent(e, w.id)}
                   title="Remove from recent"
-                  aria-label="Remove {p.name} from recent"
+                  aria-label="Remove {w.name} from recent"
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M18 6L6 18M6 6l12 12"/>
@@ -164,7 +221,7 @@
               <path d="M12 8v4l3 3"/>
               <circle cx="12" cy="12" r="10"/>
             </svg>
-            <p>No recent projects</p>
+            <p>No recent workspaces</p>
           </div>
         {/if}
       </div>
@@ -460,6 +517,38 @@
   .remove-btn:hover {
     background: color-mix(in srgb, var(--error) 18%, transparent);
     color: var(--error);
+  }
+
+  .rename-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+    margin-right: 4px;
+  }
+  .recent-card:hover .rename-btn { opacity: 1; }
+  .rename-btn:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+  }
+
+  .rename-ws-input {
+    background: var(--input-bg);
+    border: 1px solid var(--accent);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 1px 4px;
+    border-radius: 4px;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    height: 20px;
   }
 
   .empty-recent {

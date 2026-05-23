@@ -2,8 +2,17 @@
   import { onMount } from 'svelte';
   import EditorTabs from './EditorTabs.svelte';
   import CodeEditor from './CodeEditor.svelte';
+  import MarkdownPreview from '$lib/components/preview/MarkdownPreview.svelte';
   import { openFiles, activeFile, fileCache, saveActiveFile } from '$lib/stores/editor';
   import { layout, toggleEditorSplitPreview } from '$lib/stores/layout';
+
+  let showMarkdownPreview = $state(false);
+
+  // Automatically reset to editor mode when switching files
+  $effect(() => {
+    const file = $activeFile;
+    showMarkdownPreview = false;
+  });
 
   function handleKeydown(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -24,27 +33,44 @@
     {#if file}
       <div class="editor-toolbar">
         <EditorTabs />
-        <button
-          class="split-preview-btn"
-          class:active={$layout.editorSplitPreview}
-          onclick={toggleEditorSplitPreview}
-          title={$layout.editorSplitPreview ? 'Close Preview Split' : 'Split Editor + Preview'}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="18" rx="2"/>
-            <line x1="12" y1="3" x2="12" y2="21"/>
-          </svg>
-          <span>Preview</span>
-        </button>
+        {#if file.language === 'markdown'}
+          <button
+            class="markdown-toggle-btn"
+            class:active={showMarkdownPreview}
+            onclick={() => showMarkdownPreview = !showMarkdownPreview}
+            title={showMarkdownPreview ? "Show Editor" : "Show Preview"}
+            aria-label="Toggle markdown preview"
+          >
+            {#if showMarkdownPreview}
+              <!-- Code icon -->
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+              <span>Show Code</span>
+            {:else}
+              <!-- Eye icon -->
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              <span>Show Preview</span>
+            {/if}
+          </button>
+        {/if}
       </div>
       <div class="editor-workspace-area">
-        {#key file.path}
-          <CodeEditor
-            filePath={file.path}
-            initialContent={file.content}
-            language={file.language}
-          />
-        {/key}
+        {#if file.language === 'markdown' && showMarkdownPreview}
+          <MarkdownPreview content={file.content} />
+        {:else}
+          {#key file.path}
+            <CodeEditor
+              filePath={file.path}
+              initialContent={file.content}
+              language={file.language}
+            />
+          {/key}
+        {/if}
       </div>
     {/if}
   {:else}
@@ -69,39 +95,49 @@
   .editor-toolbar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     background: var(--tab-inactive-bg);
+    width: 100%;
+    height: 35px;
   }
 
-  .split-preview-btn {
+  .markdown-toggle-btn {
     display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 4px 10px;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 4px;
     font-size: 11px;
-    color: var(--text-muted);
-    border-left: 1px solid var(--border);
-    height: 100%;
-    flex-shrink: 0;
-    transition: color 0.15s, background 0.15s;
-    white-space: nowrap;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    margin-right: 8px;
+    user-select: none;
   }
 
-  .split-preview-btn:hover {
-    color: var(--text-primary);
+  .markdown-toggle-btn:hover {
     background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent);
   }
 
-  .split-preview-btn.active {
-    color: var(--accent);
+  .markdown-toggle-btn.active {
     background: var(--accent-light);
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .editor-workspace-area {
     flex: 1;
     overflow: hidden;
     position: relative;
+    width: 100%;
   }
 
   .editor-empty-placeholder {
@@ -112,7 +148,6 @@
     flex: 1;
     gap: 8px;
     color: var(--text-muted);
-    height: 100%;
   }
 
   .placeholder-icon {

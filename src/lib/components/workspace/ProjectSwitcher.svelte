@@ -14,7 +14,15 @@
 </script>
 
 {#if $openProjectsList.length > 0}
-  <div class="project-switcher">
+  <div
+    class="project-switcher"
+    onwheel={(e) => {
+      if (e.deltaY !== 0 && e.deltaX === 0) {
+        e.preventDefault();
+        e.currentTarget.scrollLeft += e.deltaY;
+      }
+    }}
+  >
     {#each $openProjectsList as project (project.id)}
       <!-- svelte-ignore a11y_interactive_supports_focus -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -38,7 +46,7 @@
         </button>
       </div>
     {/each}
-    <button class="project-add" onclick={handleOpen} title="Open new folder">
+    <button class="project-add" onclick={handleOpen} title="Add folder to workspace">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <line x1="12" y1="5" x2="12" y2="19"/>
         <line x1="5" y1="12" x2="19" y2="12"/>
@@ -47,12 +55,12 @@
   </div>
 {:else}
   <div class="project-switcher project-switcher-empty">
-    <button class="project-add-full" onclick={handleOpen} title="Open folder">
+    <button class="project-add-full" onclick={handleOpen} title="Add folder to workspace">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <line x1="12" y1="5" x2="12" y2="19"/>
         <line x1="5" y1="12" x2="19" y2="12"/>
       </svg>
-      Open folder
+      Add folder
     </button>
   </div>
 {/if}

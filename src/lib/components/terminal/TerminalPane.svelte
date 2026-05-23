@@ -128,10 +128,9 @@
     canvasAddon?.dispose();
     term?.dispose();
   });
-
-  // When isActive or activeView changes and the pane is active/visible, refit, focus, and notify PTY
+  // Focus and fit effect
   $effect(() => {
-    if (isActive && $layout.activeView === 'terminal' && fitAddon) {
+    if (isActive && fitAddon) {
       requestAnimationFrame(() => {
         if (container && container.clientWidth > 0 && container.clientHeight > 0) {
           fitAddon?.fit();
@@ -139,7 +138,9 @@
           if (dims && dims.cols > 0 && dims.rows > 0) {
             resizeSession(sessionId, dims.rows, dims.cols);
           }
-          term?.focus();
+          if ($layout.activeView === 'terminal') {
+            term?.focus();
+          }
         }
       });
     }
@@ -182,8 +183,8 @@
   $effect(() => {
     if (!term) return;
     
-    // Only use Canvas if the setting is enabled, this tab is active, and terminal view is visible
-    const shouldShowCanvas = $terminalRenderer === 'canvas' && isActive && $layout.activeView === 'terminal';
+    // Only use Canvas if the setting is enabled and this tab is active
+    const shouldShowCanvas = $terminalRenderer === 'canvas' && isActive;
     const hasCanvas = !!canvasAddon;
 
     if (shouldShowCanvas && !hasCanvas) {

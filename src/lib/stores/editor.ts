@@ -4,6 +4,7 @@ import type { EditorFile } from '$lib/types/editor';
 import { showToast } from './notification';
 import { formatCode } from '$lib/utils/formatter';
 import { formatOnSave } from './settings';
+import { layout } from './layout';
 
 export const openFiles = writable<string[]>([]);
 export const activeFile = writable<string | null>(null);
@@ -94,6 +95,7 @@ export async function openFile(path: string) {
 
   if (currentOpenFiles.includes(path)) {
     activeFile.set(path);
+    layout.update((l) => ({ ...l, editorVisible: true, activeView: 'editor' }));
     return;
   }
 
@@ -117,6 +119,7 @@ export async function openFile(path: string) {
 
     openFiles.update((files) => [...files, path]);
     activeFile.set(path);
+    layout.update((l) => ({ ...l, editorVisible: true, activeView: 'editor' }));
   } catch (err: any) {
     console.error('Failed to open file:', err);
     showToast(`Failed to open file: ${err?.message || err}`, 'error');

@@ -74,3 +74,41 @@ input {
 input:focus {
   border-color: var(--input-focus-border);
 }
+
+/* Prevent scroll jitter/flicker and overscroll elastic bouncing inside sub-containers */
+.cm-scroller,
+.colors-list,
+.file-tree,
+.modal-body,
+.review-body,
+.sc-scrollable,
+.markdown-container,
+.results-container,
+.search-results-dropdown,
+.editor-tabs,
+.project-switcher,
+.session-tabs,
+.xterm-viewport,
+.welcome,
+.recent-list,
+.file-card-body,
+.markdown-body pre,
+.sticky-content {
+  overscroll-behavior: none;
+}
+
+/* Prevent horizontal layout shifts when scrollbars appear */
+.review-body,
+.sc-scrollable,
+.colors-list,
+.modal-body,
+.file-tree,
+.markdown-container,
+.results-container,
+.search-results-dropdown,
+.welcome,
+.recent-list,
+.sticky-content {
+  scrollbar-gutter: stable;
+}
+

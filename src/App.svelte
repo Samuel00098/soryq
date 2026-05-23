@@ -6,7 +6,7 @@
   import { settingsOpen, closeSettings } from '$lib/stores/layout';
   import { onMount } from 'svelte';
   import { loadThemes } from '$lib/stores/theme';
-  import { loadRecentProjects } from '$lib/stores/workspace';
+  import { initializeWorkspaces } from '$lib/stores/workspace';
   import { initDefaultCommands } from '$lib/stores/commandpalette';
   import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut } from '$lib/stores/settings';
 
@@ -28,7 +28,7 @@
 
   onMount(() => {
     loadThemes();
-    loadRecentProjects();
+    initializeWorkspaces();
     initDefaultCommands();
 
     // Lock window scrolling to prevent viewport shifting when dragging elements/selection
@@ -93,12 +93,15 @@
 
   :global(.theme-transitioning),
   :global(.theme-transitioning *) {
-    transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
                 color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
                 border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
                 box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
                 stroke 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                fill 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                fill 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                outline-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   }
 
   :global(:root) {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { activeProject, closeProject, activeProjectId } from '$lib/stores/workspace';
+  import { activeProject, closeProject, activeProjectId, activeWorkspaceId, activeWorkspace, clearAllStores } from '$lib/stores/workspace';
   import { openSettings, layout, toggleSidebar, setSidebarTab } from '$lib/stores/layout';
   import { isOpen as paletteOpen, search as paletteSearch, toggleCommandPalette } from '$lib/stores/commandpalette';
   import { get } from 'svelte/store';
@@ -125,10 +125,10 @@
     }
   }
 
-  // Go home: close current active project to return to welcome screen
+  // Go home: return to welcome screen by clearing active workspace
   function goHome() {
-    const id = get(activeProjectId);
-    if (id) closeProject(id);
+    activeWorkspaceId.set(null);
+    clearAllStores();
   }
 
   function goBack() { window.history.back(); }
@@ -177,7 +177,7 @@
         <polyline points="9 18 15 12 9 6"/>
       </svg>
     </button>
-    {#if $activeProjectId}
+    {#if $activeWorkspaceId}
       <button
         class="nav-btn toggle-sidebar-btn"
         class:active={$layout.sidebarVisible}
@@ -195,12 +195,12 @@
 
   <!-- Centre breadcrumb (drag region) -->
   <div class="titlebar-center" data-tauri-drag-region>
-    {#if $activeProject}
+    {#if $activeWorkspace}
       <span class="titlebar-project">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7a2 2 0 012-2h3.586a2 2 0 011.414.586L11.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
         </svg>
-        {$activeProject.name}
+        {$activeWorkspace.name}{$activeProject ? ` - ${$activeProject.name}` : ''}
       </span>
     {:else}
       <span class="titlebar-no-project">Forge</span>
@@ -231,7 +231,7 @@
       class="titlebar-search"
       class:focused={searchFocused}
       onclick={handleSearchClick}
-      title={$activeProject ? "Search (Ctrl+Shift+P)" : "Filter recent projects"}
+      title={$activeProject ? "Search (Ctrl+Shift+P)" : ($activeWorkspaceId ? "No active folder" : "Filter recent workspaces")}
     >
       <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
         <circle cx="11" cy="11" r="8"/>
@@ -240,7 +240,7 @@
       <input
         class="search-input"
         type="text"
-        placeholder={$activeProject ? "Ask or search codebase..." : "Filter recent projects..."}
+        placeholder={$activeProject ? "Ask or search codebase..." : ($activeWorkspaceId ? "No active folder..." : "Filter recent workspaces...")}
         bind:value={$paletteSearch}
         onkeydown={handleSearchKeyDown}
         onclick={handleInputClick}
@@ -342,8 +342,6 @@
     border-bottom: 1px solid var(--titlebar-border);
     user-select: none;
     flex-shrink: 0;
-    position: sticky;
-    top: 0;
     z-index: 100;
   }
 
@@ -483,7 +481,7 @@
     width: 320px;
     border-color: var(--accent);
     background: var(--bg-primary);
-    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15);
+    box-shadow: 0 0 0 2px var(--accent-light);
   }
 
   .search-icon {
@@ -511,12 +509,16 @@
     align-items: center;
     color: var(--titlebar-text);
     opacity: 0.7;
-    transition: opacity 0.15s, color 0.15s;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
     flex-shrink: 0;
     padding: 2px;
     border-radius: 3px;
   }
-  .search-clear:hover { opacity: 1; color: var(--titlebar-text); }
+  .search-clear:hover {
+    opacity: 1;
+    color: var(--titlebar-text);
+    background: var(--bg-hover);
+  }
 
   .search-hint {
     font-size: 9px;
@@ -539,11 +541,11 @@
     right: 0;
     width: 320px;
     max-height: 380px;
-    background: rgba(12, 12, 14, 0.85);
+    background: var(--bg-secondary);
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
     border-radius: 8px;
-    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7), 0 1px 1px 0 rgba(255, 255, 255, 0.05) inset;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 1px 1px 0 var(--border) inset;
     z-index: 1000;
     overflow-y: auto;
     display: flex;
@@ -596,8 +598,8 @@
   }
 
   .dropdown-result-item:hover {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.02);
+    background: var(--bg-hover);
+    border-color: var(--border);
   }
 
   .result-meta {
@@ -669,7 +671,7 @@
     height: 100%;
     margin-left: 6px;
     /* Subtle separator on the left */
-    border-left: 1px solid var(--border);
+    border-left: 1px solid var(--titlebar-border);
   }
 
   .wc-btn {

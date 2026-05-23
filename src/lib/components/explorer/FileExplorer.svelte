@@ -1,7 +1,8 @@
 <script lang="ts">
   import FileTree from './FileTree.svelte';
+  import EmptyWorkspace from './EmptyWorkspace.svelte';
   import { contextMenu, hideContextMenu, createFile, createDir, deleteFile, renameFile, loadRootDirectory } from '$lib/stores/explorer';
-  import { activeProject } from '$lib/stores/workspace';
+  import { activeProject, activeWorkspace, openProjectIds } from '$lib/stores/workspace';
 
   let renamingPath: string | null = null;
   let renamingValue = '';
@@ -163,6 +164,8 @@
         </div>
       {/if}
       <FileTree />
+    {:else if $activeWorkspace && $openProjectIds.length === 0}
+      <EmptyWorkspace />
     {:else}
       <div class="no-project">
         <p>Open a folder to explore files</p>

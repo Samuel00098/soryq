@@ -238,16 +238,23 @@
     height: 100%;
     background: var(--sidebar-bg);
     color: var(--text-primary);
-    padding: 16px;
-    gap: 16px;
     font-size: 13px;
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   .customizer-section {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .selection-section {
+    padding: 16px 16px 8px;
+  }
+
+  .details-section {
+    padding: 8px 16px;
   }
 
   .section-label {
@@ -301,6 +308,8 @@
     display: flex;
     border-bottom: 1px solid var(--border);
     gap: 8px;
+    flex-shrink: 0;
+    padding: 8px 16px 0;
   }
 
   .tab-btn {
@@ -330,7 +339,8 @@
     flex-direction: column;
     gap: 8px;
     overflow-y: auto;
-    padding-right: 4px;
+    padding: 16px;
+    margin: 0;
   }
 
   .color-item {
@@ -402,7 +412,9 @@
     justify-content: flex-end;
     gap: 8px;
     border-top: 1px solid var(--border);
-    padding-top: 12px;
+    padding: 12px 16px 16px;
+    background: var(--sidebar-bg);
+    flex-shrink: 0;
   }
 
   .action-btn {

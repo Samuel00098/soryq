@@ -291,115 +291,109 @@
       </div>
 
       <div class="sc-scrollable">
-        <!-- Changes section -->
-        <div class="sc-section">
-          <button class="sc-section-header" onclick={() => changesExpanded = !changesExpanded} aria-expanded={changesExpanded}>
-            <svg class="chevron" class:expanded={changesExpanded} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
-            <span class="sc-section-title">Changes ({totalChanges})</span>
-          </button>
+        <button class="sc-section-header" onclick={() => changesExpanded = !changesExpanded} aria-expanded={changesExpanded}>
+          <svg class="chevron" class:expanded={changesExpanded} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+          <span class="sc-section-title">Changes ({totalChanges})</span>
+        </button>
 
-          {#if changesExpanded}
-            {#if gitStatus && totalChanges > 0}
-              <div class="sc-files">
-                {#each gitStatus.modified as file}
-                  <button class="sc-file-item modified" onclick={() => handleFileClick(file)}>
-                    <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                    <span class="file-path" title={file}>{file}</span>
-                    <span class="status-badge modified">M</span>
-                  </button>
-                {/each}
+        {#if changesExpanded}
+          {#if gitStatus && totalChanges > 0}
+            <div class="sc-files">
+              {#each gitStatus.modified as file}
+                <button class="sc-file-item modified" onclick={() => handleFileClick(file)}>
+                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
+                  <span class="file-path" title={file}>{file}</span>
+                  <span class="status-badge modified">M</span>
+                </button>
+              {/each}
 
-                {#each gitStatus.added as file}
-                  <button class="sc-file-item added" onclick={() => handleFileClick(file)}>
-                    <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                    <span class="file-path" title={file}>{file}</span>
-                    <span class="status-badge added">A</span>
-                  </button>
-                {/each}
+              {#each gitStatus.added as file}
+                <button class="sc-file-item added" onclick={() => handleFileClick(file)}>
+                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
+                  <span class="file-path" title={file}>{file}</span>
+                  <span class="status-badge added">A</span>
+                </button>
+              {/each}
 
-                {#each gitStatus.deleted as file}
-                  <button class="sc-file-item deleted" disabled title="Deleted file cannot be opened">
-                    <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                    <span class="file-path" title={file}>{file}</span>
-                    <span class="status-badge deleted">D</span>
-                  </button>
-                {/each}
+              {#each gitStatus.deleted as file}
+                <button class="sc-file-item deleted" disabled title="Deleted file cannot be opened">
+                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
+                  <span class="file-path" title={file}>{file}</span>
+                  <span class="status-badge deleted">D</span>
+                </button>
+              {/each}
 
-                {#each gitStatus.untracked as file}
-                  <button class="sc-file-item untracked" onclick={() => handleFileClick(file)}>
-                    <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                    <span class="file-path" title={file}>{file}</span>
-                    <span class="status-badge untracked">U</span>
-                  </button>
-                {/each}
-              </div>
-            {:else}
-              <div class="sc-clean">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
-                <p>No changes detected.</p>
-                <p class="sub">Your working tree is clean.</p>
-              </div>
-            {/if}
-          {/if}
-        </div>
-
-        <!-- Commit History Graph section -->
-        <div class="sc-section">
-          <button class="sc-section-header" onclick={() => commitsExpanded = !commitsExpanded} aria-expanded={commitsExpanded}>
-            <svg class="chevron" class:expanded={commitsExpanded} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
-            <span class="sc-section-title">Commits (Graph)</span>
-          </button>
-
-          {#if commitsExpanded}
-            <div class="sc-commits-list">
-              {#if gitHistory && gitHistory.length > 0}
-                {#each gitHistory as entry}
-                  <div class="history-row" class:graph-only={!entry.hash}>
-                    <span class="graph-col">
-                      {#each entry.graph.split('') as char, idx}
-                        {#if char === '*'}
-                          <span class="graph-node" style="color: {getGraphColor(idx)}">●</span>
-                        {:else if char === '|'}
-                          <span class="graph-line" style="color: {getGraphColor(idx)}">│</span>
-                        {:else if char === '/'}
-                          <span class="graph-line" style="color: {getGraphColor(idx)}">/</span>
-                        {:else if char === '\\'}
-                          <span class="graph-line" style="color: {getGraphColor(idx)}">\</span>
-                        {:else if char === '_'}
-                          <span class="graph-line" style="color: {getGraphColor(idx)}">─</span>
-                        {:else}
-                          <span class="graph-space">{char}</span>
-                        {/if}
-                      {/each}
-                    </span>
-                    {#if entry.hash}
-                      <div class="commit-info">
-                        <div class="commit-meta">
-                          <span class="commit-hash" title={entry.hash}>{entry.hash}</span>
-                          {#if entry.refs}
-                            <span class="commit-ref-badge" title={entry.refs}>{entry.refs}</span>
-                          {/if}
-                          <span class="commit-date" title="Author: {entry.author || ''}">{entry.date}</span>
-                        </div>
-                        <span class="commit-subject" title={entry.subject}>{entry.subject}</span>
-                      </div>
-                    {/if}
-                  </div>
-                {/each}
-              {:else if isFetchingHistory}
-                <div class="sc-section-empty">Loading history...</div>
-              {:else}
-                <div class="sc-section-empty">No commit history found.</div>
-              {/if}
+              {#each gitStatus.untracked as file}
+                <button class="sc-file-item untracked" onclick={() => handleFileClick(file)}>
+                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
+                  <span class="file-path" title={file}>{file}</span>
+                  <span class="status-badge untracked">U</span>
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <div class="sc-clean">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <p>No changes detected.</p>
+              <p class="sub">Your working tree is clean.</p>
             </div>
           {/if}
-        </div>
+        {/if}
+
+        <button class="sc-section-header" onclick={() => commitsExpanded = !commitsExpanded} aria-expanded={commitsExpanded}>
+          <svg class="chevron" class:expanded={commitsExpanded} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+          <span class="sc-section-title">Commits (Graph)</span>
+        </button>
+
+        {#if commitsExpanded}
+          <div class="sc-commits-list">
+            {#if gitHistory && gitHistory.length > 0}
+              {#each gitHistory as entry}
+                <div class="history-row" class:graph-only={!entry.hash}>
+                  <span class="graph-col">
+                    {#each entry.graph.split('') as char, idx}
+                      {#if char === '*'}
+                        <span class="graph-node" style="color: {getGraphColor(idx)}">●</span>
+                      {:else if char === '|'}
+                        <span class="graph-line" style="color: {getGraphColor(idx)}">│</span>
+                      {:else if char === '/'}
+                        <span class="graph-line" style="color: {getGraphColor(idx)}">/</span>
+                      {:else if char === '\\'}
+                        <span class="graph-line" style="color: {getGraphColor(idx)}">\</span>
+                      {:else if char === '_'}
+                        <span class="graph-line" style="color: {getGraphColor(idx)}">─</span>
+                      {:else}
+                        <span class="graph-space">{char}</span>
+                      {/if}
+                    {/each}
+                  </span>
+                  {#if entry.hash}
+                    <div class="commit-info">
+                      <div class="commit-meta">
+                        <span class="commit-hash" title={entry.hash}>{entry.hash}</span>
+                        {#if entry.refs}
+                          <span class="commit-ref-badge" title={entry.refs}>{entry.refs}</span>
+                        {/if}
+                        <span class="commit-date" title="Author: {entry.author || ''}">{entry.date}</span>
+                      </div>
+                      <span class="commit-subject" title={entry.subject}>{entry.subject}</span>
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            {:else if isFetchingHistory}
+              <div class="sc-section-empty">Loading history...</div>
+            {:else}
+              <div class="sc-section-empty">No commit history found.</div>
+            {/if}
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -503,12 +497,6 @@
   }
 
   /* Collapsible Sections */
-  .sc-section {
-    display: flex;
-    flex-direction: column;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
   .sc-section-header {
     display: flex;
     align-items: center;
@@ -521,6 +509,12 @@
     cursor: pointer;
     user-select: none;
     transition: background 0.15s;
+    background: var(--sidebar-bg);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    position: sticky;
+    top: 0;
+    z-index: 5;
   }
 
   .sc-section-header:hover {

@@ -84,7 +84,13 @@ impl ThemeRegistry {
     }
 
     pub fn save_custom_theme(&self, theme: Theme) -> Result<(), ForgeError> {
-        let theme_path = self.config_dir.join("themes").join(format!("{}.json", theme.id));
+        let safe_id: String = theme.id.chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        if safe_id.is_empty() || safe_id != theme.id {
+            return Err(ForgeError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid theme ID")));
+        }
+        let theme_path = self.config_dir.join("themes").join(format!("{}.json", safe_id));
         crate::theme::loader::save_theme_to_file(&theme, &theme_path)?;
 
         let mut themes = self.themes.write().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;

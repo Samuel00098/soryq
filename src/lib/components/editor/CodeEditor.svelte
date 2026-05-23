@@ -12,6 +12,7 @@
     rectangularSelection,
     crosshairCursor,
     highlightActiveLine,
+    scrollPastEnd,
   } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
   import {
@@ -204,6 +205,7 @@
         highlightSelectionMatches(),
         getLanguageExtension(language),
         customTheme,
+        scrollPastEnd(),
         EditorView.editable.of(true),
         EditorState.readOnly.of(false),
         tabSizeCompartment.of(EditorState.tabSize.of($tabSize)),
