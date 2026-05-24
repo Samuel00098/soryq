@@ -60,6 +60,7 @@ pub fn run() {
             commands::preview::preview_start_proxy,
             commands::preview::preview_stop_proxy,
             commands::preview::preview_set_target_port,
+            commands::preview::preview_set_preferred_local_host,
             commands::preview::preview_get_target_port,
             commands::preview::preview_get_proxy_port,
             commands::preview::preview_clear_proxy_target,

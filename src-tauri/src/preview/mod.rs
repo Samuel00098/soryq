@@ -9,15 +9,235 @@ use axum::{
 use reqwest::Client;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::oneshot;
 use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::connect_async;
 use tauri::async_runtime;
 use url::form_urlencoded;
 
+const INSPECTOR_FLAG: &str = "forge-inspect=1";
+const INSPECTOR_SNIPPET: &str = r#"<script>
+(() => {
+    const active = () => location.hash.includes('forge-inspect=1');
+    let state = { enabled: false, hovered: null, selected: null };
+    let overlay = null;
+    let label = null;
+    const originalConsole = {};
+
+    const serializeValue = (value) => {
+        try {
+            if (value instanceof Error) {
+                return `${value.name}: ${value.message}${value.stack ? `\n${value.stack}` : ''}`;
+            }
+            if (typeof value === 'string') return value;
+            if (value === undefined) return 'undefined';
+            return JSON.stringify(value, (_key, nested) => {
+                if (nested instanceof Element) return `<${nested.tagName.toLowerCase()}>`;
+                if (nested instanceof Error) return `${nested.name}: ${nested.message}`;
+                return nested;
+            });
+        } catch {
+            return String(value);
+        }
+    };
+
+    const postConsole = (level, args) => {
+        try {
+            parent.postMessage({
+                type: 'forge-preview:console',
+                payload: {
+                    level,
+                    message: Array.from(args).map(serializeValue).join(' '),
+                    url: location.href,
+                    timestamp: new Date().toISOString()
+                }
+            }, '*');
+        } catch {}
+    };
+
+    ['log', 'info', 'warn', 'error', 'debug'].forEach((level) => {
+        const original = console[level];
+        if (typeof original !== 'function') return;
+        originalConsole[level] = original.bind(console);
+        console[level] = (...args) => {
+            postConsole(level, args);
+            originalConsole[level](...args);
+        };
+    });
+
+    window.addEventListener('error', (event) => {
+        postConsole('error', [event.message || 'Uncaught error', event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : '', event.error || '']);
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+        postConsole('error', ['Unhandled promise rejection', event.reason]);
+    });
+
+    const escapeCss = (value) => {
+        if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+        return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    };
+
+    const buildSelector = (element) => {
+        if (!element || element.nodeType !== 1) return '';
+        if (element.id) return `#${escapeCss(element.id)}`;
+
+        const parts = [];
+        let node = element;
+        while (node && node.nodeType === 1 && node !== document.body) {
+            let part = node.tagName.toLowerCase();
+            if (node.classList && node.classList.length) {
+                part += '.' + Array.from(node.classList).slice(0, 3).map(escapeCss).join('.');
+            }
+            const parent = node.parentElement;
+            if (parent) {
+                const siblings = Array.from(parent.children).filter((child) => child.tagName === node.tagName);
+                if (siblings.length > 1) {
+                    part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
+                }
+            }
+            parts.unshift(part);
+            node = node.parentElement;
+            if (parts.length >= 4) break;
+        }
+        return parts.join(' > ');
+    };
+
+    const getAttributes = (element) => {
+        const attrs = {};
+        for (const attr of Array.from(element.attributes || [])) {
+            attrs[attr.name] = attr.value;
+        }
+        return attrs;
+    };
+
+    const getStyles = (element) => {
+        const computed = window.getComputedStyle(element);
+        return {
+            display: computed.display,
+            position: computed.position,
+            color: computed.color,
+            backgroundColor: computed.backgroundColor,
+            font: computed.font,
+            margin: computed.margin,
+            padding: computed.padding,
+            width: computed.width,
+            height: computed.height
+        };
+    };
+
+    const getAncestorPath = (element) => {
+        const path = [];
+        let node = element;
+        while (node && node.nodeType === 1 && path.length < 6) {
+            path.unshift(buildSelector(node));
+            node = node.parentElement;
+        }
+        return path;
+    };
+
+    const ensureOverlay = () => {
+        if (overlay) return;
+        overlay = document.createElement('div');
+        overlay.style.position = 'fixed';
+        overlay.style.pointerEvents = 'none';
+        overlay.style.zIndex = '2147483646';
+        overlay.style.border = '2px solid #7c6af7';
+        overlay.style.background = 'rgba(124, 106, 247, 0.12)';
+        overlay.style.borderRadius = '4px';
+        overlay.style.boxSizing = 'border-box';
+        overlay.style.display = 'none';
+
+        label = document.createElement('div');
+        label.style.position = 'fixed';
+        label.style.zIndex = '2147483647';
+        label.style.padding = '6px 8px';
+        label.style.borderRadius = '999px';
+        label.style.background = 'rgba(16, 16, 20, 0.92)';
+        label.style.color = '#fff';
+        label.style.font = '12px system-ui, sans-serif';
+        label.style.pointerEvents = 'none';
+        label.style.display = 'none';
+
+        document.documentElement.appendChild(overlay);
+        document.documentElement.appendChild(label);
+    };
+
+    const hidePreview = () => {
+        if (overlay) overlay.style.display = 'none';
+        if (label) label.style.display = 'none';
+    };
+
+    const renderPreview = (element) => {
+        if (!overlay || !label || !element) return;
+        const rect = element.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) {
+            hidePreview();
+            return;
+        }
+        overlay.style.display = 'block';
+        overlay.style.left = `${Math.max(0, rect.left)}px`;
+        overlay.style.top = `${Math.max(0, rect.top)}px`;
+        overlay.style.width = `${rect.width}px`;
+        overlay.style.height = `${rect.height}px`;
+        label.style.display = 'block';
+        label.textContent = `${element.tagName.toLowerCase()} ${buildSelector(element)}`.trim();
+        label.style.left = `${Math.max(8, rect.left)}px`;
+        label.style.top = `${Math.max(8, rect.top - 30)}px`;
+    };
+
+    const setEnabled = (enabled) => {
+        state.enabled = enabled;
+        document.documentElement.style.cursor = enabled ? 'crosshair' : '';
+        if (enabled) ensureOverlay(); else hidePreview();
+    };
+
+    document.addEventListener('mousemove', (event) => {
+        if (!state.enabled) return;
+        const element = event.target instanceof Element ? event.target : null;
+        state.hovered = element;
+        renderPreview(element);
+    }, true);
+
+    document.addEventListener('click', (event) => {
+        if (!state.enabled) return;
+        const element = event.target instanceof Element ? event.target : null;
+        if (!element) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = element.getBoundingClientRect();
+        const selector = buildSelector(element);
+        state.selected = {
+            selector,
+            tag: element.tagName.toLowerCase(),
+            text: (element.innerText || element.textContent || '').trim().slice(0, 500),
+            html: (element.outerHTML || '').slice(0, 3000),
+            attributes: getAttributes(element),
+            classes: Array.from(element.classList || []),
+            styles: getStyles(element),
+            ancestorPath: getAncestorPath(element),
+            page: { url: location.href, title: document.title },
+            rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
+        };
+        parent.postMessage({ type: 'forge-inspector:selected', payload: state.selected }, '*');
+    }, true);
+
+    window.addEventListener('message', (event) => {
+        const data = event.data || {};
+        if (data.type !== 'forge-inspector:set') return;
+        setEnabled(Boolean(data.enabled));
+    });
+
+    window.addEventListener('hashchange', () => setEnabled(active()));
+    setEnabled(active());
+})();
+</script>"#;
+
 #[derive(Clone)]
 pub struct ProxyState {
     pub target_port: Arc<Mutex<u16>>,
+    pub preferred_local_host: Arc<Mutex<Option<String>>>,
     pub active_external_origins: Arc<Mutex<std::collections::HashMap<String, Option<String>>>>,
     pub active_project_id: Arc<std::sync::RwLock<Option<String>>>,
     pub client: Client,
@@ -25,6 +245,7 @@ pub struct ProxyState {
 
 pub struct PreviewManager {
     target_port: Arc<Mutex<u16>>,
+    preferred_local_host: Arc<Mutex<Option<String>>>,
     proxy_port: Arc<Mutex<Option<u16>>>,
     pub active_external_origins: Arc<Mutex<std::collections::HashMap<String, Option<String>>>>,
     pub active_project_id: Arc<std::sync::RwLock<Option<String>>>,
@@ -35,6 +256,7 @@ impl PreviewManager {
     pub fn new(active_project_id: Arc<std::sync::RwLock<Option<String>>>) -> Self {
         PreviewManager {
             target_port: Arc::new(Mutex::new(5173)),
+            preferred_local_host: Arc::new(Mutex::new(None)),
             proxy_port: Arc::new(Mutex::new(None)),
             active_external_origins: Arc::new(Mutex::new(std::collections::HashMap::new())),
             active_project_id,
@@ -58,16 +280,20 @@ impl PreviewManager {
 
         let state = ProxyState {
             target_port: self.target_port.clone(),
+            preferred_local_host: self.preferred_local_host.clone(),
             active_external_origins: self.active_external_origins.clone(),
             active_project_id: self.active_project_id.clone(),
             client: Client::builder()
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
                 .gzip(true)
                 .brotli(true)
+                .connect_timeout(Duration::from_millis(800))
+                .timeout(Duration::from_secs(20))
+                .danger_accept_invalid_certs(true)
                 .redirect(reqwest::redirect::Policy::custom(|attempt| {
                     let url = attempt.url();
                     let url_str = url.as_str();
-                    if is_private_target(url_str) {
+                    if !is_loopback_target(url_str) && is_private_target(url_str) {
                         return attempt.error("redirect to private IP blocked");
                     }
                     if let Some(port) = url.port() {
@@ -131,6 +357,14 @@ impl PreviewManager {
         *self.target_port.lock().unwrap()
     }
 
+    pub fn set_preferred_local_host(&self, host: Option<String>) -> Result<(), String> {
+        let normalized = host
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| matches!(value.as_str(), "127.0.0.1" | "localhost" | "0.0.0.0"));
+        *self.preferred_local_host.lock().unwrap() = normalized;
+        Ok(())
+    }
+
     pub fn get_proxy_port(&self) -> Option<u16> {
         *self.proxy_port.lock().unwrap()
     }
@@ -158,6 +392,30 @@ fn get_target_url(query: &str) -> Option<String> {
         .map(|(_, value)| value.into_owned())
 }
 
+fn get_target_url_from_proxy_path(path: &str, query: Option<&str>) -> Option<String> {
+    let proxy_path = path.strip_prefix("/proxy/")?;
+    let mut segments = proxy_path.splitn(3, '/');
+    let scheme = segments.next()?;
+    let authority = segments.next()?;
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+
+    let remainder = segments.next().unwrap_or("");
+    let mut target = if remainder.is_empty() {
+        format!("{scheme}://{authority}/")
+    } else {
+        format!("{scheme}://{authority}/{remainder}")
+    };
+
+    if let Some(query) = query.filter(|value| !value.is_empty()) {
+        target.push('?');
+        target.push_str(query);
+    }
+
+    Some(target)
+}
+
 fn is_private_target(url: &str) -> bool {
     if let Ok(parsed) = url::Url::parse(url) {
         if let Some(host) = parsed.host_str() {
@@ -181,8 +439,28 @@ fn is_private_target(url: &str) -> bool {
     false
 }
 
+fn is_loopback_target(url: &str) -> bool {
+    if let Ok(parsed) = url::Url::parse(url) {
+        if let Some(host) = parsed.host_str() {
+            return host == "127.0.0.1" || host == "localhost";
+        }
+    }
+    false
+}
+
 fn is_restricted_port(port: u16) -> bool {
     matches!(port, 22 | 23 | 25 | 53 | 110 | 135 | 139 | 143 | 445 | 993 | 995 | 3306 | 3389 | 5432 | 6379 | 27017)
+}
+
+fn local_dev_hosts(preferred_host: Option<&str>) -> Vec<&'static str> {
+    let mut hosts = vec!["127.0.0.1", "localhost"];
+    match preferred_host {
+        Some("localhost") => hosts.swap(0, 1),
+        Some("0.0.0.0") => {}
+        Some("127.0.0.1") => {}
+        _ => {}
+    }
+    hosts
 }
 
 async fn proxy_handler(
@@ -191,6 +469,7 @@ async fn proxy_handler(
 ) -> Response<Body> {
     let (mut parts, body) = req.into_parts();
     let target_port = *state.target_port.lock().unwrap();
+    let preferred_local_host = state.preferred_local_host.lock().unwrap().clone();
 
     let path = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/").to_string();
 
@@ -207,18 +486,18 @@ async fn proxy_handler(
         let ws_origin_valid = parts.headers.get("origin")
             .and_then(|v| v.to_str().ok())
             .map(|o| {
-                o == "http://127.0.0.1" || o.starts_with("http://127.0.0.1:")
+                o == "null" || o == "http://127.0.0.1" || o.starts_with("http://127.0.0.1:")
                 || o == "http://localhost" || o.starts_with("http://localhost:")
             })
             .unwrap_or(false);
         if !ws_origin_valid {
             return StatusCode::FORBIDDEN.into_response();
         }
-        let ws_url = format!("ws://127.0.0.1:{}{}", target_port, path);
-
         match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
             Ok(ws) => {
-                return ws.on_upgrade(move |socket| handle_websocket(socket, ws_url)).into_response();
+                let ws_path = path.clone();
+                let preferred_host = preferred_local_host.clone();
+                return ws.on_upgrade(move |socket| handle_websocket(socket, target_port, ws_path, preferred_host)).into_response();
             }
             Err(_) => {
                 return StatusCode::BAD_REQUEST.into_response();
@@ -229,7 +508,8 @@ async fn proxy_handler(
     // External URL proxy
     if path.starts_with("/proxy") {
         let query = parts.uri.query().unwrap_or("");
-        let target_url = get_target_url(query);
+        let target_url = get_target_url_from_proxy_path(parts.uri.path(), parts.uri.query())
+            .or_else(|| get_target_url(query));
         match target_url {
             Some(url) if !url.is_empty() => {
                 if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -273,7 +553,11 @@ async fn proxy_handler(
                 ).await;
             }
             _ => {
-                return (StatusCode::BAD_REQUEST, "Missing 'url' query parameter").into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Missing target URL. Use /proxy/{scheme}/{host}/path or provide a 'url' query parameter",
+                )
+                    .into_response();
             }
         }
     }
@@ -299,44 +583,70 @@ async fn proxy_handler(
         ).await;
     }
 
-    // Local dev server proxying (original behavior)
-    let url_str = format!("http://127.0.0.1:{}{}", target_port, path);
-    let url = match url_str.parse::<reqwest::Url>() {
-        Ok(u) => u,
-        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
-    };
-
-    let method = parts.method.clone();
-    let mut reqwest_req = reqwest::Request::new(method, url);
-
-    *reqwest_req.headers_mut() = parts.headers.clone();
-    reqwest_req.headers_mut().remove("host");
-
     // Retrieve request body
     let bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
         Ok(b) => b,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
-    *reqwest_req.body_mut() = Some(reqwest::Body::from(bytes));
 
-    match state.client.execute(reqwest_req).await {
-        Ok(res) => {
-            let mut builder = Response::builder().status(res.status());
-
-            for (key, value) in res.headers() {
-                builder = builder.header(key, value);
-            }
-
-            let body_stream = res.bytes_stream();
-            let body = Body::from_stream(body_stream);
-            builder.body(body).unwrap_or_else(|_| {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response()
-            })
+        match proxy_local_dev_request(&state.client, parts, bytes, target_port, preferred_local_host.as_deref()).await {
+            Ok(res) => build_preview_response(res, false).await,
+            Err(err) => (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
         }
-        Err(err) => {
-            (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response()
+}
+
+async fn proxy_local_dev_request(
+    client: &Client,
+    parts: axum::http::request::Parts,
+    body: axum::body::Bytes,
+    target_port: u16,
+    preferred_host: Option<&str>,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let path = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/").to_string();
+
+    let mut last_err: Option<reqwest::Error> = None;
+
+    for host in local_dev_hosts(preferred_host) {
+        let url_str = format!("http://{}:{}{}", host, target_port, path);
+        let url = match url_str.parse::<reqwest::Url>() {
+            Ok(u) => u,
+            Err(_) => continue,
+        };
+
+        let method = parts.method.clone();
+        let mut reqwest_req = reqwest::Request::new(method, url.clone());
+        *reqwest_req.headers_mut() = parts.headers.clone();
+
+        // Rewrite Origin and Referer headers to match target dev server
+        let target_origin = format!("http://{}:{}", host, target_port);
+        if reqwest_req.headers().contains_key("origin") {
+            if let Ok(val) = target_origin.parse() {
+                reqwest_req.headers_mut().insert("origin", val);
+            }
+        }
+        if let Some(referer) = reqwest_req.headers_mut().get_mut("referer") {
+            if let Ok(referer_str) = referer.to_str() {
+                let proxy_host = parts.headers.get("host")
+                    .and_then(|h| h.to_str().ok())
+                    .unwrap_or("127.0.0.1");
+                let proxy_origin = format!("http://{}", proxy_host);
+                let new_referer = referer_str.replace(&proxy_origin, &target_origin);
+                if let Ok(val) = new_referer.parse() {
+                    *referer = val;
+                }
+            }
+        }
+
+        reqwest_req.headers_mut().remove("host");
+        *reqwest_req.body_mut() = Some(reqwest::Body::from(body.clone()));
+
+        match client.execute(reqwest_req).await {
+            Ok(response) => return Ok(response),
+            Err(err) => last_err = Some(err),
         }
     }
+
+    Err(last_err.expect("at least one local dev host should have been attempted"))
 }
 
 async fn proxy_external_url(
@@ -416,25 +726,7 @@ async fn proxy_external_url(
                 origins.insert(project_id, Some(origin));
             }
 
-            let mut builder = Response::builder().status(res.status());
-
-            for (key, value) in res.headers() {
-                let key_lower = key.as_str().to_lowercase();
-                // Strip headers that prevent iframe embedding
-                if key_lower == "x-frame-options"
-                    || key_lower == "content-security-policy"
-                    || key_lower == "content-security-policy-report-only"
-                {
-                    continue;
-                }
-                builder = builder.header(key, value);
-            }
-
-            let body_stream = res.bytes_stream();
-            let body = Body::from_stream(body_stream);
-            builder.body(body).unwrap_or_else(|_| {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response()
-            })
+            build_preview_response(res, true).await
         }
         Err(err) => {
             (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response()
@@ -442,13 +734,114 @@ async fn proxy_external_url(
     }
 }
 
-async fn handle_websocket(client_ws: axum::extract::ws::WebSocket, target_ws_url: String) {
+async fn build_preview_response(res: reqwest::Response, strip_embed_headers: bool) -> Response<Body> {
+    let is_html = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.contains("text/html") || value.contains("application/xhtml+xml"))
+        .unwrap_or(false);
+
+    let status = res.status();
+    let headers = res.headers().clone();
+
+    if is_html {
+        let body_bytes = match res.bytes().await {
+            Ok(bytes) => bytes,
+            Err(err) => return (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
+        };
+        let html = String::from_utf8_lossy(&body_bytes);
+        let injected = inject_inspector_script(html.as_ref());
+
+        let mut builder = Response::builder().status(status);
+        for (key, value) in headers.iter() {
+            let key_lower = key.as_str().to_lowercase();
+            if key_lower == "content-length" {
+              continue;
+            }
+            if strip_embed_headers && (key_lower == "x-frame-options" || key_lower == "content-security-policy" || key_lower == "content-security-policy-report-only") {
+              continue;
+            }
+            builder = builder.header(key, value);
+        }
+
+        return builder
+            .body(Body::from(injected))
+            .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response());
+    }
+
+    let mut builder = Response::builder().status(status);
+    for (key, value) in headers.iter() {
+        let key_lower = key.as_str().to_lowercase();
+        if strip_embed_headers && (key_lower == "x-frame-options" || key_lower == "content-security-policy" || key_lower == "content-security-policy-report-only") {
+            continue;
+        }
+        builder = builder.header(key, value);
+    }
+
+    let body_stream = res.bytes_stream();
+    let body = Body::from_stream(body_stream);
+    builder.body(body).unwrap_or_else(|_| {
+        (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response()
+    })
+}
+
+fn inject_inspector_script(html: &str) -> String {
+    let marker = INSPECTOR_SNIPPET;
+    if html.contains(INSPECTOR_FLAG) || html.contains(marker) {
+        return html.to_string();
+    }
+
+    let injection = format!("{}\n<!-- forge-inspector -->", marker);
+
+    if let Some(index) = html.rfind("</head>") {
+        let mut output = String::with_capacity(html.len() + injection.len() + 16);
+        output.push_str(&html[..index]);
+        output.push_str(&injection);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    if let Some(index) = html.rfind("</body>") {
+        let mut output = String::with_capacity(html.len() + injection.len() + 16);
+        output.push_str(&html[..index]);
+        output.push_str(&injection);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    format!("{}{}", injection, html)
+}
+
+async fn handle_websocket(
+    client_ws: axum::extract::ws::WebSocket,
+    target_port: u16,
+    path: String,
+    preferred_host: Option<String>,
+) {
     let (mut client_write, mut client_read) = client_ws.split();
 
-    let target_conn = match connect_async(&target_ws_url).await {
-        Ok((conn, _)) => conn,
-        Err(e) => {
-            eprintln!("Failed to connect to target WS server {}: {}", target_ws_url, e);
+    let mut target_conn = None;
+    let mut last_error = None;
+    for host in local_dev_hosts(preferred_host.as_deref()) {
+        let target_ws_url = format!("ws://{}:{}{}", host, target_port, path);
+        match connect_async(&target_ws_url).await {
+            Ok((conn, _)) => {
+                target_conn = Some(conn);
+                break;
+            }
+            Err(err) => {
+                last_error = Some((target_ws_url, err));
+            }
+        }
+    }
+
+    let target_conn = match target_conn {
+        Some(conn) => conn,
+        None => {
+            if let Some((target_ws_url, err)) = last_error {
+                eprintln!("Failed to connect to target WS server {}: {}", target_ws_url, err);
+            }
             return;
         }
     };

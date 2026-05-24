@@ -14,8 +14,7 @@
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
-  import { invoke } from '@tauri-apps/api/core';
-  import { setTargetPort, startProxy, stopProxy } from '$lib/stores/preview';
+  import { stopProxy } from '$lib/stores/preview';
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
   import { createTerminalSession } from '$lib/stores/terminal';
 
@@ -45,31 +44,6 @@
       editingWorkspaceName = false;
     }
   }
-
-  // Watch active project and automatically detect/open preview
-  let lastProjectId = $state<string | null>(null);
-
-  $effect(() => {
-    const project = $activeProject;
-    if (project) {
-      if (project.id !== lastProjectId) {
-        lastProjectId = project.id;
-        
-        // Auto-detect and set up preview (but don't open it)
-        (async () => {
-          try {
-            const port = await invoke<number>('workspace_detect_port', { path: project.root_path });
-            await setTargetPort(port);
-            await startProxy();
-          } catch (err) {
-            console.error('Failed to set up preview:', err);
-          }
-        })();
-      }
-    } else {
-      lastProjectId = null;
-    }
-  });
 
   // Sidebar resize state
   let sidebarResizing = $state(false);

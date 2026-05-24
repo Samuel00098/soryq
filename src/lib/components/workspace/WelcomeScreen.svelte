@@ -238,6 +238,11 @@
         ['Go to Editor', 'goToEditor', 'Ctrl+E'],
         ['Toggle Sidebar', 'toggleSidebar', 'Ctrl+B'],
         ['Save File', 'saveFile', 'Ctrl+S'],
+        ['Start Preview Proxy', 'startProxy', 'Ctrl+Alt+P'],
+        ['Stop Preview Proxy', 'stopProxy', 'Ctrl+Alt+O'],
+        ['Zoom In', 'zoomIn', 'Ctrl+='],
+        ['Zoom Out', 'zoomOut', 'Ctrl+-'],
+        ['Reset Zoom', 'resetZoom', 'Ctrl+0'],
       ] as [label, id, defaultKeys]}
         <div class="shortcut-row">
           <span class="sc-label">{label}</span>

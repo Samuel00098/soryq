@@ -17,6 +17,11 @@ pub fn preview_set_target_port(port: u16, state: State<AppState>) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn preview_set_preferred_local_host(host: Option<String>, state: State<AppState>) -> Result<(), String> {
+    state.preview_manager.set_preferred_local_host(host)
+}
+
+#[tauri::command]
 pub fn preview_get_target_port(state: State<AppState>) -> Result<u16, String> {
     Ok(state.preview_manager.get_target_port())
 }

@@ -5,24 +5,72 @@
     targetPort,
     proxyPort,
     proxyStarted,
+    preferredLocalHost,
     currentUrl,
     isConnecting,
     loadProxyState,
     startProxy,
     stopProxy,
     setTargetPort,
-    ensureProxyRunning
+    ensureProxyRunning,
+    setPreferredLocalHost,
+    clearProxyTarget
   } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
+  import { activeSessionId, requestTerminalInput } from '$lib/stores/terminal';
 
   let iframeElement = $state<HTMLIFrameElement>();
   let tempPort = $state($targetPort);
   let inputUrl = $state($currentUrl);
   let isLoading = $state(false);
   let iframeError = $state(false);
+  let slowLoad = $state(false);
+  let inspectMode = $state(false);
+  type SelectedElementInfo = {
+    selector: string;
+    tag: string;
+    text: string;
+    html?: string;
+    attributes?: Record<string, string>;
+    classes?: string[];
+    styles?: Record<string, string>;
+    ancestorPath?: string[];
+    page?: { url: string; title: string };
+    rect: { x: number; y: number; width: number; height: number };
+  };
+  type PreviewConsoleLog = {
+    id: number;
+    level: 'log' | 'info' | 'warn' | 'error' | 'debug';
+    message: string;
+    url?: string;
+    timestamp: string;
+  };
+  let selectedElementInfo = $state<SelectedElementInfo | null>(null);
+  let consoleLogs = $state<PreviewConsoleLog[]>([]);
+  let showConsole = $state(false);
+  let consoleLogId = 0;
+  let loadFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   let unsubscribePort: () => void;
   let unsubscribeUrl: () => void;
+
+  const commonPorts = [
+    3000,
+    3001,
+    4173,
+    4200,
+    5000,
+    5173,
+    6006,
+    7000,
+    8000,
+    8080,
+    8081,
+    8888,
+    9000,
+    9229,
+    1234,
+  ];
 
   onMount(async () => {
     await loadProxyState();
@@ -39,11 +87,15 @@
     unsubscribeUrl = currentUrl.subscribe((val) => {
       inputUrl = val;
     });
+
+    window.addEventListener('message', handleInspectorMessage);
   });
 
   onDestroy(() => {
     if (unsubscribePort) unsubscribePort();
     if (unsubscribeUrl) unsubscribeUrl();
+    window.removeEventListener('message', handleInspectorMessage);
+    clearLoadFeedbackTimer();
   });
 
   // When the user navigates to an external absolute URL, ensure the background
@@ -56,9 +108,29 @@
     }
   });
 
+  $effect(() => {
+    const localDev = parseLocalDevUrl($currentUrl);
+    if (!localDev) {
+      setPreferredLocalHost(null);
+      return;
+    }
+    setPreferredLocalHost(localDev.host);
+    if ($targetPort !== localDev.port) {
+      setTargetPort(localDev.port);
+    }
+  });
+
   function handlePortChange() {
     if (tempPort >= 1 && tempPort <= 65535) {
       setTargetPort(tempPort);
+    }
+  }
+
+  function handlePresetPortChange(event: Event) {
+    const value = Number((event.target as HTMLSelectElement).value);
+    if (value >= 1 && value <= 65535) {
+      tempPort = value;
+      setTargetPort(value);
     }
   }
 
@@ -83,6 +155,7 @@
       }
     } else {
       // Start dev mode — navigate to the root of the local dev server
+      clearProxyTarget();
       startProxy();
       currentUrl.set('/');
     }
@@ -183,12 +256,72 @@
     return /^https?:\/\//i.test(url);
   }
 
-  function handleNavigate(e: Event) {
+  function buildLocalProxyUrl(path: string): string {
+    if (!$proxyPort) return '';
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `http://127.0.0.1:${$proxyPort}${normalizedPath}`;
+  }
+
+  function buildExternalProxyUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      const scheme = parsed.protocol.replace(':', '');
+      const authority = parsed.host;
+      const path = parsed.pathname || '/';
+      const search = parsed.search || '';
+      return `http://127.0.0.1:${$proxyPort}/proxy/${scheme}/${authority}${path}${search}`;
+    } catch {
+      return `http://127.0.0.1:${$proxyPort}/proxy?url=${encodeURIComponent(url)}`;
+    }
+  }
+
+  function parseLocalDevUrl(url: string): { host: string; port: number; path: string } | null {
+    try {
+      const parsed = new URL(url);
+      const isLocalHost =
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1' ||
+        parsed.hostname === '0.0.0.0';
+
+      if (!isLocalHost || !parsed.port) {
+        return null;
+      }
+
+      const port = Number(parsed.port);
+      if (!Number.isFinite(port) || port < 1 || port > 65535) {
+        return null;
+      }
+
+      return {
+        host: parsed.hostname,
+        port,
+        path: `${parsed.pathname}${parsed.search}${parsed.hash}` || '/',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function isYouTubeUrl(url: string): boolean {
+    return /youtube\.com|youtu\.be|youtube-nocookie\.com/i.test(url);
+  }
+
+  async function handleNavigate(e: Event) {
     e.preventDefault();
     const normalized = normalizeUrl(inputUrl);
+    const localDev = parseLocalDevUrl(normalized);
+    if (localDev) {
+      await clearProxyTarget();
+      await setPreferredLocalHost(localDev.host);
+      if ($targetPort !== localDev.port) {
+        await setTargetPort(localDev.port);
+      }
+    } else {
+      await setPreferredLocalHost(null);
+    }
     currentUrl.set(normalized);
     inputUrl = normalized;
-    isLoading = true;
+    startLoadFeedback();
   }
 
   function goBack() {
@@ -213,27 +346,69 @@
 
   function refresh() {
     if (iframeElement) {
-      isLoading = true;
+      startLoadFeedback();
       iframeElement.src = iframeElement.src;
     }
   }
 
+  function clearLoadFeedbackTimer() {
+    if (loadFeedbackTimer) {
+      clearTimeout(loadFeedbackTimer);
+      loadFeedbackTimer = null;
+    }
+  }
+
+  function startLoadFeedback() {
+    isLoading = true;
+    iframeError = false;
+    slowLoad = false;
+    clearLoadFeedbackTimer();
+    loadFeedbackTimer = setTimeout(() => {
+      if (isLoading) {
+        slowLoad = true;
+      }
+    }, 1800);
+  }
+
+  function toggleInspectMode() {
+    inspectMode = !inspectMode;
+    selectedElementInfo = null;
+    if (inspectMode) {
+      ensureProxyRunning();
+    }
+    postInspectorState();
+  }
+
+  function postInspectorState() {
+    if (!iframeElement?.contentWindow) return;
+    iframeElement.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, '*');
+  }
+
   let iframeSrc = $derived.by(() => {
     const norm = normalizeUrl($currentUrl);
+    const inspectHash = inspectMode ? '#forge-inspect=1' : '';
     if (norm === 'about:blank') {
-      return norm;
+      return `${norm}${inspectHash}`;
+    }
+    const localDev = parseLocalDevUrl(norm);
+    if (localDev) {
+      return `${buildLocalProxyUrl(localDev.path)}${inspectHash}`;
+    }
+    // YouTube embeds are more reliable when loaded directly instead of through the local proxy.
+    if (isYouTubeUrl(norm) && norm.includes('/embed/')) {
+      return `${norm}${inspectHash}`;
     }
     // External/absolute URLs: always proxy through background server (needed for iframe embedding)
     if (isAbsoluteUrl(norm)) {
       if ($proxyPort) {
-        return `http://127.0.0.1:${$proxyPort}/proxy?url=${encodeURIComponent(norm)}`;
+        return `${buildExternalProxyUrl(norm)}${inspectHash}`;
       }
       // Background proxy server not yet ready — show blank
       return '';
     }
-    // For local/relative URLs, only route to local dev server when dev mode is active
-    if ($proxyStarted && $proxyPort) {
-      return `http://127.0.0.1:${$proxyPort}${norm}`;
+    // For local/relative URLs, route directly to the local dev server when dev mode is active.
+    if ($proxyStarted) {
+      return `${buildLocalProxyUrl(norm)}${inspectHash}`;
     }
     // Not in dev mode and no external URL — show placeholder
     return '';
@@ -246,15 +421,28 @@
     return 'DEV';
   });
 
+  let iframeSandbox = $derived.by(() => {
+    const norm = normalizeUrl($currentUrl);
+    const base = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin';
+    if (isYouTubeUrl(norm)) {
+      return `${base} allow-presentation`;
+    }
+    return base;
+  });
+
 
 
   function handleIframeLoad() {
     isLoading = false;
+    slowLoad = false;
+    iframeError = false;
+    clearLoadFeedbackTimer();
+    postInspectorState();
     try {
       if (iframeElement && iframeElement.contentWindow) {
         const href = iframeElement.contentWindow.location.href;
         // Don't overwrite the address bar when loading via our proxy
-        if (href && !href.includes('/proxy?')) {
+        if (href && !href.includes('/proxy?') && !href.includes('/proxy/')) {
           const path = iframeElement.contentWindow.location.pathname;
           const search = iframeElement.contentWindow.location.search;
           if (path) {
@@ -268,11 +456,86 @@
     }
   }
 
+  function handleIframeError() {
+    clearLoadFeedbackTimer();
+    isLoading = false;
+    slowLoad = false;
+    iframeError = true;
+  }
+
+  function buildElementPrompt(info: SelectedElementInfo): string {
+    const lines = [
+      'Selected web preview element context:',
+      `Page: ${info.page?.title || 'Untitled'} (${info.page?.url || $currentUrl})`,
+      `Selector: ${info.selector}`,
+      `Element: <${info.tag}> ${info.rect.width}x${info.rect.height} at ${info.rect.x},${info.rect.y}`,
+    ];
+
+    if (info.text) {
+      lines.push(`Text: ${info.text}`);
+    }
+    if (info.classes?.length) {
+      lines.push(`Classes: ${info.classes.join(' ')}`);
+    }
+    if (info.ancestorPath?.length) {
+      lines.push(`Ancestor path: ${info.ancestorPath.join(' -> ')}`);
+    }
+    if (info.styles) {
+      lines.push(`Computed styles: ${JSON.stringify(info.styles)}`);
+    }
+    if (info.html) {
+      lines.push(`HTML:\n${info.html}`);
+    }
+
+    lines.push('Use this selected element as the target for the next requested app change.');
+    return lines.join('\n');
+  }
+
+  function handleInspectorMessage(event: MessageEvent) {
+    if (!event.data) return;
+    if (event.source !== iframeElement?.contentWindow) return;
+
+    if (event.data.type === 'forge-preview:console') {
+      const payload = event.data.payload || {};
+      const level = ['log', 'info', 'warn', 'error', 'debug'].includes(payload.level) ? payload.level : 'log';
+      consoleLogs = [
+        ...consoleLogs.slice(-199),
+        {
+          id: ++consoleLogId,
+          level,
+          message: String(payload.message || ''),
+          url: payload.url,
+          timestamp: payload.timestamp || new Date().toISOString(),
+        },
+      ];
+      if (level === 'error' || level === 'warn') {
+        showConsole = true;
+      }
+      return;
+    }
+
+    if (event.data.type !== 'forge-inspector:selected') return;
+    selectedElementInfo = event.data.payload;
+    inspectMode = false;
+    postInspectorState();
+    if (selectedElementInfo?.selector) {
+      showToast(`Selected ${selectedElementInfo.selector}`, 'success');
+      const textToInsert = buildElementPrompt(selectedElementInfo).trim();
+      if (textToInsert && $activeSessionId !== null) {
+        requestTerminalInput($activeSessionId, textToInsert);
+      }
+    }
+  }
+
   function handleInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       inputUrl = $currentUrl;
       (e.target as HTMLInputElement).blur();
     }
+  }
+
+  function clearConsoleLogs() {
+    consoleLogs = [];
   }
 </script>
 
@@ -295,6 +558,27 @@
           <path d="M21 3v5h-5"/>
           <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16"/>
           <path d="M8 16H3v5"/>
+        </svg>
+      </button>
+      <button
+        class="nav-btn inspect-btn"
+        class:active={inspectMode}
+        onclick={toggleInspectMode}
+        title={inspectMode ? 'Exit Add Element to Chat' : 'Add Element to Chat'}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3l7 18 2.5-7.5L20 13 3 3z"/>
+        </svg>
+      </button>
+      <button
+        class="nav-btn console-btn"
+        class:active={showConsole}
+        onclick={() => showConsole = !showConsole}
+        title="Toggle preview console"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 17 10 11 4 5"/>
+          <line x1="12" y1="19" x2="20" y2="19"/>
         </svg>
       </button>
     </div>
@@ -336,15 +620,16 @@
 
     <div class="proxy-settings">
       <span class="label">Local port:</span>
-      <input
-        type="number"
-        bind:value={tempPort}
-        onchange={handlePortChange}
-        min="1"
-        max="65535"
+      <select
         class="port-input"
-        title="Port of your local dev server (e.g. 5173 for Vite, 3000 for Next.js)"
-      />
+        bind:value={tempPort}
+        onchange={handlePresetPortChange}
+        title="Choose a common local dev server port"
+      >
+        {#each commonPorts as port (port)}
+          <option value={port}>{port}</option>
+        {/each}
+      </select>
       
       <button
         class="proxy-btn"
@@ -374,6 +659,36 @@
   {#if isLoading}
     <div class="loading-bar">
       <div class="loading-progress"></div>
+    </div>
+  {/if}
+
+  {#if slowLoad}
+    <div class="preview-status-banner">
+      <span>
+        {$currentUrl.startsWith('http://localhost') || $currentUrl.startsWith('http://127.0.0.1') || $currentUrl.startsWith('http://0.0.0.0')
+          ? `Waiting for your local dev server on port ${$targetPort} to finish responding.`
+          : 'The preview is still loading through the embedded proxy.'}
+      </span>
+    </div>
+  {/if}
+
+  {#if iframeError}
+    <div class="preview-status-banner error">
+      <span>Preview failed to load. Check that the local dev server is running and reachable on port {$targetPort}.</span>
+    </div>
+  {/if}
+
+  {#if selectedElementInfo}
+    <div class="inspect-banner">
+      <div class="inspect-copy">
+        <span class="inspect-label">Selected</span>
+        <strong>{selectedElementInfo.selector}</strong>
+        <span class="inspect-meta">{selectedElementInfo.tag} {selectedElementInfo.rect.width}x{selectedElementInfo.rect.height}</span>
+      </div>
+      <button class="inspect-copy-btn" onclick={async () => {
+        await navigator.clipboard.writeText(selectedElementInfo?.selector || '');
+        showToast('Selector copied to clipboard', 'success');
+      }}>Copy selector</button>
     </div>
   {/if}
 
@@ -415,8 +730,10 @@
         title="Web Preview"
         class="preview-iframe"
         onload={handleIframeLoad}
+        onerror={handleIframeError}
         allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
-        sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"
+        sandbox={iframeSandbox}
+        allowfullscreen
       ></iframe>
     {:else}
       <div class="proxy-placeholder">
@@ -444,6 +761,31 @@
             </svg>
             Local Dev ({$targetPort})
           </button>
+        </div>
+      </div>
+    {/if}
+
+    {#if showConsole}
+      <div class="preview-console">
+        <div class="console-header">
+          <span>Console</span>
+          <div class="console-actions">
+            <span>{consoleLogs.length} logs</span>
+            <button onclick={clearConsoleLogs}>Clear</button>
+            <button onclick={() => showConsole = false} aria-label="Close console">Close</button>
+          </div>
+        </div>
+        <div class="console-body">
+          {#if consoleLogs.length === 0}
+            <div class="console-empty">No preview console output yet.</div>
+          {:else}
+            {#each consoleLogs as log (log.id)}
+              <div class="console-row {log.level}">
+                <span class="console-level">{log.level}</span>
+                <span class="console-message">{log.message}</span>
+              </div>
+            {/each}
+          {/if}
         </div>
       </div>
     {/if}
@@ -498,11 +840,22 @@
     color: var(--text-primary);
   }
 
+  .nav-btn.active {
+    background: var(--accent-light);
+    color: var(--accent);
+  }
+
+  .console-btn.active {
+    background: rgba(56, 189, 248, 0.14);
+    color: var(--info);
+  }
+
   @keyframes spin { to { transform: rotate(360deg); } }
   :global(.nav-btn.spinning svg) { animation: spin 0.7s linear infinite; }
 
   .address-bar {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     background: var(--bg-primary);
@@ -568,6 +921,7 @@
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
+    min-width: 0;
   }
 
   .label {
@@ -640,6 +994,24 @@
     100% { transform: translateX(350%); width: 40%; }
   }
 
+  .preview-status-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    background: rgba(56, 189, 248, 0.08);
+    border-bottom: 1px solid var(--border);
+    color: var(--info);
+    font-size: 11px;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+
+  .preview-status-banner.error {
+    background: rgba(239, 68, 68, 0.08);
+    color: var(--error);
+  }
+
   /* Preview area */
   .preview-content {
     flex: 1;
@@ -648,12 +1020,178 @@
     overflow: hidden;
   }
 
+  .inspect-banner {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(10, 10, 12, 0.82);
+    backdrop-filter: blur(10px);
+    color: var(--text-primary);
+    max-width: min(520px, calc(100% - 24px));
+  }
+
+  .inspect-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .inspect-label,
+  .inspect-meta {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .inspect-copy strong {
+    font-size: 12px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .inspect-copy-btn {
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    padding: 7px 10px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .inspect-copy-btn:hover {
+    background: var(--bg-hover);
+  }
+
   .preview-iframe {
     width: 100%;
     height: 100%;
     border: none;
     background: #ffffff;
     display: block;
+  }
+
+  .preview-console {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 30;
+    max-height: min(260px, 45%);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+    color: var(--text-primary);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.36);
+    overflow: hidden;
+  }
+
+  .console-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 32px;
+    padding: 0 10px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+
+  .console-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: none;
+  }
+
+  .console-actions button {
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 10px;
+    cursor: pointer;
+  }
+
+  .console-actions button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .console-body {
+    min-height: 72px;
+    overflow: auto;
+    font-family: var(--editor-font-family, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .console-empty {
+    padding: 18px 12px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .console-row {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .console-row.warn {
+    background: rgba(251, 191, 36, 0.07);
+  }
+
+  .console-row.error {
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  .console-row.info,
+  .console-row.debug {
+    color: var(--text-secondary);
+  }
+
+  .console-level {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 9px;
+    font-weight: 800;
+  }
+
+  .console-row.warn .console-level {
+    color: var(--warning);
+  }
+
+  .console-row.error .console-level {
+    color: var(--error);
+  }
+
+  .console-message {
+    min-width: 0;
   }
 
   /* Placeholder */
@@ -795,12 +1333,33 @@
 
   /* Container queries for responsive toolbar */
   @container (max-width: 480px) {
+    .browser-bar {
+      height: auto;
+      min-height: 42px;
+      padding: 6px;
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+
+    .nav-controls {
+      order: 1;
+    }
+
+    .address-bar {
+      order: 2;
+      flex: 1 1 100%;
+      width: 100%;
+    }
+
+    .proxy-settings {
+      order: 3;
+      width: 100%;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
     .label {
       display: none;
-    }
-    .browser-bar {
-      gap: 6px;
-      padding: 0 6px;
     }
   }
 
@@ -810,10 +1369,10 @@
     }
     .browser-bar {
       gap: 4px;
-      padding: 0 4px;
     }
     .proxy-settings {
       gap: 4px;
+      justify-content: flex-start;
     }
     .address-bar {
       padding: 0 4px 0 8px;

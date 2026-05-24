@@ -295,6 +295,7 @@
     return action ? action.category : 'General';
   }
 
+  // Compute actions that are not yet bound to a user shortcut (runes-compatible)
   let availableActions = $derived(
     shortcutActions.filter(action => !($userShortcuts || []).some(s => s && s.id === action.id))
   );
@@ -615,7 +616,7 @@
               {/each}
             {/if}
           </div>
-          <p class="shell-hint">Changes apply to new terminal sessions only.</p>
+          <p class="shell-hint">Changes apply to new sessions. Active terminal sessions will automatically restart using the new shell.</p>
         </div>
 
         <!-- Terminal font size -->

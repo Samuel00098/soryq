@@ -16,11 +16,23 @@
     killSession,
   } from '$lib/stores/terminal';
   import { activeProject, openProjectIds } from '$lib/stores/workspace';
+  import { activeFile } from '$lib/stores/editor';
+
+  function getStartingCwd(): string | undefined {
+    const file = $activeFile;
+    const root = $activeProject?.root_path;
+    if (!file) return root;
+    const lastIndex = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
+    if (lastIndex !== -1) {
+      return file.slice(0, lastIndex);
+    }
+    return root;
+  }
 
   // Ensure at least one session exists on mount
   onMount(async () => {
     if ($sessions.length === 0) {
-      await createTerminalSession($activeProject?.root_path);
+      await createTerminalSession(getStartingCwd());
     } else {
       // Re-assign existing sessions to panes if pane slots are empty
       paneAssignments.update((panes) => {
@@ -61,7 +73,7 @@
   async function handleNewTerminal() {
     const panes = $paneAssignments;
     const emptyIdx = panes.findIndex((p) => p === null);
-    const cwd = projectPath;
+    const cwd = getStartingCwd();
     if (emptyIdx !== -1) {
       await createTerminalSession(cwd, emptyIdx);
     } else {
@@ -71,11 +83,11 @@
 
   function handleEmptyPaneClick(paneIdx: number) {
     focusPane(paneIdx);
-    createTerminalSession(projectPath, paneIdx);
+    createTerminalSession(getStartingCwd(), paneIdx);
   }
 
   async function handleSplitRight() {
-    const cwd = projectPath;
+    const cwd = getStartingCwd();
 
     // Find coordinates of active pane
     const activeIdx = $activePaneIndex;
@@ -113,7 +125,7 @@
   }
 
   async function handleSplitBelow() {
-    const cwd = projectPath;
+    const cwd = getStartingCwd();
 
     // Find coordinates of active pane
     const activeIdx = $activePaneIndex;
@@ -544,10 +556,10 @@
     class:dragging-row={activeDragType === 'row'}
   >
     {#each columns as column, colIdx}
-      <div class="terminal-column" style="width: {colWidths[colIdx] ?? 100}%; flex-grow: 0; flex-shrink: 0;">
+      <div class="terminal-column" style="flex: {colWidths[colIdx] ?? 100} 1 0%;">
         {#each column.cells as cell, cellIdx}
           {@const sessionId = $paneAssignments[cell.index]}
-          <div class="terminal-cell" style="height: {cellHeights[colIdx]?.[cellIdx] ?? 100}%; flex-grow: 0; flex-shrink: 0;">
+          <div class="terminal-cell" style="flex: {cellHeights[colIdx]?.[cellIdx] ?? 100} 1 0%;">
             {#if sessionId !== undefined && sessionId !== null}
               {#key sessionId}
                 <TerminalPane
@@ -636,6 +648,7 @@
     flex-shrink: 0;
     gap: 4px;
     padding: 0 4px;
+    min-width: 0;
   }
 
   /* Session tabs */
@@ -643,6 +656,7 @@
     display: flex;
     align-items: center;
     flex: 1;
+    min-width: 0;
     gap: 2px;
     overflow-x: auto;
     scrollbar-width: none;
@@ -695,6 +709,7 @@
     align-items: center;
     gap: 2px;
     flex-shrink: 0;
+    margin-left: auto;
     border-left: 1px solid var(--border);
     padding-left: 4px;
   }
@@ -813,7 +828,7 @@
     flex-direction: column;
     height: 100%;
     position: relative;
-    min-width: 10%;
+    min-width: 0;
   }
 
   .terminal-cell {
@@ -821,7 +836,7 @@
     flex-direction: column;
     width: 100%;
     position: relative;
-    min-height: 10%;
+    min-height: 0;
   }
 
   .terminal-cell > :global(.terminal-pane) {

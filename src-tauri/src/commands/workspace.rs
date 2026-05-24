@@ -18,6 +18,7 @@ fn validate_relative_path(file_path: &str) -> Result<(), String> {
 pub fn workspace_open_project(path: String, state: State<AppState>) -> Result<Project, String> {
     let root_path = std::fs::canonicalize(PathBuf::from(&path))
         .map_err(|_| "Invalid path".to_string())?;
+    let root_path = crate::commands::clean_path_buf(root_path);
     state.workspace_manager.open_project(root_path).map_err(|e| e.to_string())
 }
 
@@ -173,7 +174,7 @@ pub fn workspace_git_fetch(
 #[tauri::command]
 pub fn workspace_detect_port(path: String) -> u16 {
     let root = match std::fs::canonicalize(std::path::PathBuf::from(&path)) {
-        Ok(r) => r,
+        Ok(r) => crate::commands::clean_path_buf(r),
         Err(_) => return 5173,
     };
     
@@ -280,6 +281,7 @@ pub fn workspace_search_codebase(
     }
 
     let root = std::fs::canonicalize(&root).map_err(|_| "Invalid project path".to_string())?;
+    let root = crate::commands::clean_path_buf(root);
 
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();

@@ -38,7 +38,10 @@ pub fn terminal_create(
         _ => shell::detect_shell(),
     };
     let cwd = cwd.unwrap_or_else(shell::get_default_cwd);
-    let pty_session = session::spawn(cols, rows, shell, cwd, on_data, on_exit)?;
+    let clean_cwd = crate::commands::clean_path_buf(std::path::PathBuf::from(cwd))
+        .to_string_lossy()
+        .to_string();
+    let pty_session = session::spawn(cols, rows, shell, clean_cwd, on_data, on_exit)?;
     let id = state.pty_manager.insert(pty_session);
     Ok(id)
 }

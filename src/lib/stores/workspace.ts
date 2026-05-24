@@ -2,7 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn } from './editor';
 import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession } from './terminal';
-import { targetPort, proxyPort, proxyStarted, currentUrl, setTargetPort, startProxy } from './preview';
+import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, setPreferredLocalHost, setTargetPort } from './preview';
 import { expandedPaths, selectedPath } from './explorer';
 import { resetSettingsToDefault } from './settings';
 import { resetLayoutToDefault } from './layout';
@@ -133,17 +133,23 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
     paneAssignments.set(cached.terminal.paneAssignments);
     activePaneIndex.set(cached.terminal.activePaneIndex);
 
-    targetPort.set(cached.preview.targetPort);
+    const restoredUrl = cached.preview.currentUrl || '/';
+    const localPreview = parseLocalPreviewUrl(restoredUrl);
+    const restoredTargetPort = localPreview?.port ?? cached.preview.targetPort;
+
+    targetPort.set(restoredTargetPort);
     proxyPort.set(cached.preview.proxyPort);
     proxyStarted.set(cached.preview.proxyStarted);
-    currentUrl.set('/'); // Always reset to root to start fresh on project switch/restore
+    currentUrl.set(restoredUrl);
+    preferredLocalHost.set(localPreview?.host || 'localhost');
 
     expandedPaths.set(new Set(cached.explorer.expandedPaths));
     selectedPath.set(cached.explorer.selectedPath);
 
-    // Sync preview target port with the backend
+    // Sync preview target with the backend. A local URL in the address bar wins over stale cached ports.
     try {
-      await invoke('preview_set_target_port', { port: cached.preview.targetPort });
+      await setPreferredLocalHost(localPreview?.host ?? null);
+      await invoke('preview_set_target_port', { port: restoredTargetPort });
     } catch (e) {
       console.error('Failed to restore preview target port:', e);
     }
@@ -151,11 +157,10 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
     // Reset to defaults for a new project
     clearAllStores();
 
-    // Auto-detect and set up preview for a new project
+    // Auto-detect a likely local dev port, but leave preview off until the user enables it.
     try {
       const port = await invoke<number>('workspace_detect_port', { path: rootPath });
-      await setTargetPort(port);
-      await startProxy();
+      await setTargetPort(port, { silent: true });
     } catch (err) {
       console.error('Failed to auto-detect/set up preview for new project:', err);
     }
@@ -182,6 +187,7 @@ export function clearAllStores() {
   proxyPort.set(null);
   proxyStarted.set(false);
   currentUrl.set('/');
+  preferredLocalHost.set('localhost');
 
   expandedPaths.set(new Set());
   selectedPath.set(null);

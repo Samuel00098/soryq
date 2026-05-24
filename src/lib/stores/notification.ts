@@ -9,7 +9,32 @@ export interface Toast {
 
 export const toasts = writable<Toast[]>([]);
 
-export function showToast(message: string, type: Toast['type'] = 'info', duration?: number) {
+function showDesktopNotification(message: string, type: Toast['type']) {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return;
+  }
+
+  if (!document.hidden && document.hasFocus()) {
+    return;
+  }
+
+  const title = type === 'error' ? 'Forge error' : type === 'warning' ? 'Forge warning' : 'Forge notification';
+
+  const createNotification = () => {
+    try {
+      new Notification(title, { body: message });
+    } catch (err) {
+      console.error('Failed to show desktop notification:', err);
+    }
+  };
+
+  if (Notification.permission === 'granted') {
+    createNotification();
+    return;
+  }
+}
+
+export function showToast(message: string, type: Toast['type'] = 'info', duration?: number, notifySystem = false) {
   // Error toasts default to 6 seconds; other toasts default to 3 seconds
   const defaultDuration = type === 'error' ? 6000 : 3000;
   const actualDuration = duration ?? defaultDuration;
@@ -24,6 +49,10 @@ export function showToast(message: string, type: Toast['type'] = 'info', duratio
   const newToast: Toast = { id, message, type, duration: actualDuration };
   
   toasts.update((list) => [...list, newToast]);
+
+  if (notifySystem) {
+    showDesktopNotification(message, type);
+  }
   
   if (actualDuration > 0) {
     setTimeout(() => {

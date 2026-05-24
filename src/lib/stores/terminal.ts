@@ -1,17 +1,52 @@
 import { writable, get } from 'svelte/store';
 import { openPty, type PtySession } from '$lib/services/pty-bridge';
 import { terminalShell } from '$lib/stores/settings';
+import { showToast } from '$lib/stores/notification';
 
 export type TerminalSessionInfo = {
   id: number;
   title: string;
   isRunning: boolean;
+  isExecuting?: boolean;
 };
 
 export type GridLayout = 'single' | '2h' | '2v' | '3h' | '3v' | '4' | '9';
 
 export const sessions = writable<TerminalSessionInfo[]>([]);
 export const activeSessionId = writable<number | null>(null);
+
+export type TerminalInputRequest = {
+  sessionId: number;
+  text: string;
+};
+
+export const terminalInputRequest = writable<TerminalInputRequest | null>(null);
+
+export function requestTerminalInput(sessionId: number, text: string) {
+  if (!text || text.trim() === '') return;
+  terminalInputRequest.set({ sessionId, text });
+}
+
+// Command history store, persisted in localStorage
+export const commandHistory = writable<string[]>(
+  typeof window !== 'undefined'
+    ? JSON.parse(localStorage.getItem('forge_terminal_history') || '[]')
+    : []
+);
+
+if (typeof window !== 'undefined') {
+  commandHistory.subscribe((history) => {
+    localStorage.setItem('forge_terminal_history', JSON.stringify(history));
+  });
+}
+
+export function addHistoryEntry(cmd: string) {
+  if (!cmd || cmd.trim() === '') return;
+  commandHistory.update((hist) => {
+    const filtered = hist.filter((x) => x !== cmd);
+    return [cmd, ...filtered].slice(0, 100); // Keep last 100 entries
+  });
+}
 
 // Grid layout: which format is the terminal area in
 export const gridLayout = writable<GridLayout>('single');
@@ -87,9 +122,11 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
         cb?.(bytes);
       },
       onExit: () => {
+        const session = get(sessions).find((x) => x.id === pty.id);
         sessions.update((s) =>
           s.map((x) => (x.id === pty.id ? { ...x, isRunning: false } : x)),
         );
+        showToast(session ? `${session.title} ended` : `Terminal ${pty.id} ended`, 'warning', undefined, true);
       },
     }, cwd, get(terminalShell) || undefined);
 
@@ -138,6 +175,12 @@ export function writeToSession(id: number, data: string) {
   if (pty) {
     pty.write(data).catch((err) => console.error('Failed to write to terminal:', err));
   }
+}
+
+export function setSessionExecuting(id: number, executing: boolean) {
+  sessions.update((s) =>
+    s.map((x) => (x.id === id ? { ...x, isExecuting: executing } : x))
+  );
 }
 
 export function resizeSession(id: number, rows: number, cols: number) {

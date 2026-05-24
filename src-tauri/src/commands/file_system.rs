@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 fn resolve_path(path: &str) -> Result<PathBuf, String> {
     let p = PathBuf::from(path);
-    if p.exists() {
-        std::fs::canonicalize(&p).map_err(|_| "Invalid path".to_string())
+    let resolved = if p.exists() {
+        std::fs::canonicalize(&p).map_err(|_| "Invalid path".to_string())?
     } else {
         let file_name = p.file_name().unwrap_or_default();
         if file_name == ".." {
@@ -13,18 +13,19 @@ fn resolve_path(path: &str) -> Result<PathBuf, String> {
         if let Some(parent) = p.parent() {
             if parent.exists() {
                 let canonical_parent = std::fs::canonicalize(parent).map_err(|_| "Invalid path".to_string())?;
-                Ok(canonical_parent.join(file_name))
+                canonical_parent.join(file_name)
             } else {
                 let parent_str = parent.to_string_lossy();
                 if parent_str.split(|c| c == '/' || c == '\\').any(|seg| seg == "..") {
                     return Err("Invalid path: directory traversal detected".to_string());
                 }
-                Ok(p)
+                p
             }
         } else {
-            Ok(p)
+            p
         }
-    }
+    };
+    Ok(crate::commands::clean_path_buf(resolved))
 }
 
 fn require_path(path: &str) -> Result<PathBuf, String> {
@@ -32,7 +33,8 @@ fn require_path(path: &str) -> Result<PathBuf, String> {
     if !p.exists() {
         return Err("Path does not exist".to_string());
     }
-    std::fs::canonicalize(&p).map_err(|_| "Invalid path".to_string())
+    let canonical = std::fs::canonicalize(&p).map_err(|_| "Invalid path".to_string())?;
+    Ok(crate::commands::clean_path_buf(canonical))
 }
 
 fn redact_path(path: &str) -> String {
