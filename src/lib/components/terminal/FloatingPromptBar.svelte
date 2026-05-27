@@ -34,7 +34,7 @@
   let manualTargetId = $state<number | null>(null);
   let targetPickerOpen = $state(false);
   let isActive = $derived(
-    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents || isDragOver
+    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents || isDragOver || isGlobalFileDrag
   );
 
   type PastedImage = { objectUrl: string; dataUrl: string; name: string };
@@ -407,13 +407,56 @@
     toggleVoiceInput();
   }
 
+  // Track whether the user is dragging files anywhere over the window
+  let isGlobalFileDrag = $state(false);
+  let globalDragCounter = 0; // dragenter/dragleave fire for every child element, use counter
+
   $effect(() => {
     if (typeof document === 'undefined') return;
     document.addEventListener('mousedown', handleDocumentPointerDown);
     document.addEventListener('keydown', handleGlobalVoiceShortcut);
+
+    function onWindowDragEnter(e: DragEvent) {
+      if (!e.dataTransfer?.types.includes('Files')) return;
+      globalDragCounter++;
+      isGlobalFileDrag = true;
+    }
+
+    function onWindowDragLeave(e: DragEvent) {
+      if (!e.dataTransfer?.types.includes('Files')) return;
+      globalDragCounter--;
+      if (globalDragCounter <= 0) {
+        globalDragCounter = 0;
+        isGlobalFileDrag = false;
+        isDragOver = false;
+      }
+    }
+
+    function onWindowDrop(e: DragEvent) {
+      globalDragCounter = 0;
+      isGlobalFileDrag = false;
+      // If the drop wasn't on our bar, prevent the browser default (opening the file)
+      if (!shellEl?.contains(e.target as Node)) {
+        e.preventDefault();
+      }
+    }
+
+    function onWindowDragOver(e: DragEvent) {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    }
+
+    window.addEventListener('dragenter', onWindowDragEnter);
+    window.addEventListener('dragleave', onWindowDragLeave);
+    window.addEventListener('drop', onWindowDrop);
+    window.addEventListener('dragover', onWindowDragOver);
+
     return () => {
       document.removeEventListener('mousedown', handleDocumentPointerDown);
       document.removeEventListener('keydown', handleGlobalVoiceShortcut);
+      window.removeEventListener('dragenter', onWindowDragEnter);
+      window.removeEventListener('dragleave', onWindowDragLeave);
+      window.removeEventListener('drop', onWindowDrop);
+      window.removeEventListener('dragover', onWindowDragOver);
     };
   });
 
@@ -425,7 +468,7 @@
   }
 
   function handleDragLeave(e: DragEvent) {
-    const bar = (e.currentTarget as HTMLElement);
+    const bar = e.currentTarget as HTMLElement;
     if (!bar.contains(e.relatedTarget as Node)) {
       isDragOver = false;
     }
@@ -433,7 +476,10 @@
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
+    e.stopPropagation();
     isDragOver = false;
+    isGlobalFileDrag = false;
+    globalDragCounter = 0;
     const files = Array.from(e.dataTransfer?.files ?? []);
     if (!files.length) return;
 
@@ -473,6 +519,7 @@
     <div class="floating-prompt-bar"
       class:disabled={!canSend}
       class:drag-over={isDragOver}
+      class:global-drag={isGlobalFileDrag && !isDragOver}
       onmouseenter={() => isHovered = true}
       onmouseleave={() => isHovered = false}
       onfocusin={() => isFocused = true}
@@ -481,6 +528,16 @@
       ondragleave={handleDragLeave}
       ondrop={handleDrop}
     >
+      {#if isGlobalFileDrag}
+        <div class="drop-overlay" ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" x2="12" y1="3" y2="15"/>
+          </svg>
+          Drop file to add as context
+        </div>
+      {/if}
       <button
         class="history-toggle"
         onclick={() => historyOpen = !historyOpen}
@@ -617,6 +674,7 @@
     </div>
 </div>
 
+
 <style>
   .floating-prompt-shell {
     position: absolute;
@@ -698,10 +756,35 @@
     opacity: 0.82;
   }
 
+  .floating-prompt-bar.global-drag {
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  }
+
   .floating-prompt-bar.drag-over {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent), 0 18px 50px rgba(0, 0, 0, 0.32);
+  }
+
+  .drop-overlay {
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    pointer-events: all;
+    z-index: 5;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    backdrop-filter: blur(6px);
+  }
+
+  .floating-prompt-bar.drag-over .drop-overlay {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
   }
 
   .history-toggle,
