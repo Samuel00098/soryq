@@ -23,6 +23,7 @@
     getSessionLabel,
     activateSessionInPane,
   } from '$lib/stores/terminal';
+  import CommandBlockStrip from './CommandBlockStrip.svelte';
   import {
     terminalFontSize,
     terminalCursorStyle,
@@ -706,6 +707,9 @@
       </div>
     </div>
   {/if}
+
+  <!-- Command history blocks above the live terminal -->
+  <CommandBlockStrip {sessionId} />
 
   <!-- xterm.js fills all remaining space — click and type directly -->
   <div class="xterm-container" bind:this={container}></div>
