@@ -12,7 +12,7 @@ use state::AppState;
 pub fn run() {
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("forge");
+        .join("devdock");
 
     std::fs::create_dir_all(&config_dir).ok();
 

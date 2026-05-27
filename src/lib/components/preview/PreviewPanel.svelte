@@ -21,6 +21,8 @@
   import { setActiveView } from '$lib/stores/layout';
   import { activeProject } from '$lib/stores/workspace';
 
+  const isWindows = typeof navigator !== 'undefined' && /Win/i.test(navigator.userAgent);
+
   let iframeElement = $state<HTMLIFrameElement>();
   let previewContentEl = $state<HTMLDivElement>();
   let deviceShellEl = $state<HTMLDivElement>();
@@ -661,7 +663,8 @@
         </svg>
       </button>
 
-      <!-- Screenshot -->
+      <!-- Screenshot (Windows only) -->
+      {#if isWindows}
       <button
         class="nav-btn screenshot-btn"
         class:screenshotting
@@ -680,6 +683,7 @@
           </svg>
         {/if}
       </button>
+      {/if}
 
       <div class="viewport-divider"></div>
 
