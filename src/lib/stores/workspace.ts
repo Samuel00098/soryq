@@ -216,7 +216,7 @@ export function setActiveProject(project: Project) {
     );
   }
 
-  restoreProjectState(project.id, project.root_path);
+  restoreProjectState(project.id, project.root_path).catch((e) => console.error('restoreProjectState failed:', e));
 }
 
 export function clearActiveProject() {
@@ -306,14 +306,14 @@ export async function openWorkspace(workspaceId: string) {
       const activeProj = Array.from(allProjects.values()).find((p) => p.root_path === targetWs.active_project_path);
       if (activeProj) {
         activeProjectId.set(activeProj.id);
-        restoreProjectState(activeProj.id, activeProj.root_path);
+        restoreProjectState(activeProj.id, activeProj.root_path).catch((e) => console.error('restoreProjectState failed:', e));
       } else {
         const firstProjId = get(openProjectIds)[0];
         if (firstProjId) {
           const firstProj = allProjects.get(firstProjId);
           if (firstProj) {
             activeProjectId.set(firstProjId);
-            restoreProjectState(firstProjId, firstProj.root_path);
+            restoreProjectState(firstProjId, firstProj.root_path).catch((e) => console.error('restoreProjectState failed:', e));
           }
         }
       }
@@ -323,7 +323,7 @@ export async function openWorkspace(workspaceId: string) {
         const firstProj = get(projects).get(firstProjId);
         if (firstProj) {
           activeProjectId.set(firstProjId);
-          restoreProjectState(firstProjId, firstProj.root_path);
+          restoreProjectState(firstProjId, firstProj.root_path).catch((e) => console.error('restoreProjectState failed:', e));
         }
       }
     }
@@ -461,7 +461,7 @@ export function closeProject(projectId: string) {
             )
           );
         }
-        restoreProjectState(nextId, nextProject.root_path);
+        restoreProjectState(nextId, nextProject.root_path).catch((e) => console.error('restoreProjectState failed:', e));
       }
     } else {
       clearAllStores();
@@ -497,7 +497,7 @@ export function switchToProject(projectId: string) {
       );
     }
     
-    restoreProjectState(projectId, p.root_path);
+    restoreProjectState(projectId, p.root_path).catch((e) => console.error('restoreProjectState failed:', e));
   }
 }
 

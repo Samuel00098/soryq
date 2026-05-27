@@ -260,10 +260,6 @@
   }
 
   let sessionInfo = $derived($sessions.find((s) => s.id === sessionId));
-  let sessionLabel = $derived(sessionInfo ? getSessionLabel(sessionInfo, $sessions) : promptPath);
-  let isDead = $derived(sessionInfo ? !sessionInfo.isRunning : false);
-  let isLightTheme = $derived($activeTheme?.type === 'light');
-
   let promptPath = $derived((() => {
     const activePath = currentShellCwd || $activeProject?.root_path;
     if (!activePath) return 'shell';
@@ -276,6 +272,9 @@
     const parts = activePath.replace(/[/\\]$/, '').split(/[/\\]/);
     return parts[parts.length - 1] || 'shell';
   })());
+  let sessionLabel = $derived(sessionInfo ? getSessionLabel(sessionInfo, $sessions) : promptPath);
+  let isDead = $derived(sessionInfo ? !sessionInfo.isRunning : false);
+  let isLightTheme = $derived($activeTheme?.type === 'light');
 
   function copyTerminalPath(e: MouseEvent) {
     e.stopPropagation();

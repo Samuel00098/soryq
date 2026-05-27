@@ -113,10 +113,12 @@ pub fn workspace_git_push(
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
 
-    // 2. Push to origin
+    // 2. Push to origin — use "--" separator to prevent branch names starting
+    //    with "-" from being interpreted as git flags.
     let mut push_args: Vec<&str> = vec!["push", "origin"];
     let branch_owned = branch.clone();
     if !branch_owned.is_empty() {
+        push_args.push("--");
         push_args.push(&branch_owned);
     }
 

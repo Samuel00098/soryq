@@ -420,7 +420,7 @@
 
   function postInspectorState() {
     if (!iframeElement?.contentWindow) return;
-    iframeElement.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, '*');
+    iframeElement.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, 'http://127.0.0.1:' + $proxyPort);
   }
 
   let iframeSrc = $derived.by(() => {

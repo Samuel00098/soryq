@@ -44,15 +44,16 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
 
     const postConsole = (level, args) => {
         try {
+            const safeUrl = (() => { try { const u = new URL(location.href); return u.origin + u.pathname; } catch { return ''; } })();
             parent.postMessage({
                 type: 'forge-preview:console',
                 payload: {
                     level,
                     message: Array.from(args).map(serializeValue).join(' '),
-                    url: location.href,
+                    url: safeUrl,
                     timestamp: new Date().toISOString()
                 }
-            }, '*');
+            }, window.location.origin);
         } catch {}
     };
 
@@ -289,7 +290,8 @@ impl PreviewManager {
                 .brotli(true)
                 .connect_timeout(Duration::from_millis(800))
                 .timeout(Duration::from_secs(20))
-                .danger_accept_invalid_certs(true)
+                // Only bypass TLS for loopback; external certs are validated normally
+                .danger_accept_invalid_certs(false)
                 .redirect(reqwest::redirect::Policy::custom(|attempt| {
                     let url = attempt.url();
                     let url_str = url.as_str();

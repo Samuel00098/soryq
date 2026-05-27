@@ -29,16 +29,15 @@
   let shellEl = $state<HTMLDivElement | null>(null);
   let isHovered = $state(false);
   let isFocused = $state(false);
+  // Manually-pinned target session ID — overrides auto-selection when set
+  let manualTargetId = $state<number | null>(null);
+  let targetPickerOpen = $state(false);
   let isActive = $derived(
     isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents
   );
 
   type PastedImage = { objectUrl: string; dataUrl: string; name: string };
   let pastedImages = $state<PastedImage[]>([]);
-
-  // Manually-pinned target session ID — overrides auto-selection when set
-  let manualTargetId = $state<number | null>(null);
-  let targetPickerOpen = $state(false);
 
   let activeTerminal = $derived($sessions.find((session) => session.id === $activeSessionId) ?? null);
   let preferredAgentTerminal = $derived(
