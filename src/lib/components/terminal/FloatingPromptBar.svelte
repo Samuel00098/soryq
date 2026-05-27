@@ -1,7 +1,7 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import {
     activeSessionId,
     sessions,
@@ -417,61 +417,62 @@
     document.addEventListener('keydown', handleGlobalVoiceShortcut);
 
     // Tauri v2 intercepts OS file drops before HTML5 events reach the webview.
-    // We must use Tauri's own drag-drop event system to receive file paths.
-    let unlistenEnter: (() => void) | undefined;
-    let unlistenLeave: (() => void) | undefined;
-    let unlistenOver: (() => void) | undefined;
-    let unlistenDrop: (() => void) | undefined;
+    // Use getCurrentWindow().onDragDropEvent() — the correct Tauri v2 API.
+    let unlistenDragDrop: (() => void) | undefined;
 
-    listen('tauri://drag-enter', () => {
-      isGlobalFileDrag = true;
-    }).then((u) => { unlistenEnter = u; });
+    getCurrentWindow().onDragDropEvent((event) => {
+      const type = event.payload.type;
 
-    listen('tauri://drag-leave', () => {
-      isGlobalFileDrag = false;
-      isDragOver = false;
-    }).then((u) => { unlistenLeave = u; });
+      if (type === 'enter') {
+        isGlobalFileDrag = true;
+        return;
+      }
 
-    listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-over', (event) => {
-      if (!shellEl) return;
-      const rect = shellEl.getBoundingClientRect();
-      const { x, y } = event.payload.position;
-      isDragOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-    }).then((u) => { unlistenOver = u; });
+      if (type === 'leave' || type === 'cancel') {
+        isGlobalFileDrag = false;
+        isDragOver = false;
+        return;
+      }
 
-    listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-drop', (event) => {
-      isGlobalFileDrag = false;
+      if (type === 'over') {
+        if (!shellEl) return;
+        const pos = (event.payload as any).position as { x: number; y: number };
+        const rect = shellEl.getBoundingClientRect();
+        isDragOver = pos.x >= rect.left && pos.x <= rect.right && pos.y >= rect.top && pos.y <= rect.bottom;
+        return;
+      }
 
-      if (!shellEl) { isDragOver = false; return; }
-      const rect = shellEl.getBoundingClientRect();
-      const { x, y } = event.payload.position;
-      const isOverBar = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+      if (type === 'drop') {
+        isGlobalFileDrag = false;
+        const payload = event.payload as any;
+        const paths: string[] = payload.paths ?? [];
 
-      isDragOver = false;
-      if (!isOverBar) return;
+        if (!shellEl || !paths.length) { isDragOver = false; return; }
 
-      const paths = event.payload.paths;
-      if (!paths.length) return;
+        const pos = payload.position as { x: number; y: number };
+        const rect = shellEl.getBoundingClientRect();
+        const isOverBar = pos.x >= rect.left && pos.x <= rect.right && pos.y >= rect.top && pos.y <= rect.bottom;
 
-      const formatted = paths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
-      inputValue = inputValue ? `${inputValue} ${formatted}` : formatted;
-      historyOpen = false;
-      targetPickerOpen = false;
-      resetHistoryCursor();
-      requestAnimationFrame(() => {
-        adjustInputHeight();
-        inputEl?.focus();
-        inputEl?.setSelectionRange(inputValue.length, inputValue.length);
-      });
-    }).then((u) => { unlistenDrop = u; });
+        isDragOver = false;
+        if (!isOverBar) return;
+
+        const formatted = paths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
+        inputValue = inputValue ? `${inputValue} ${formatted}` : formatted;
+        historyOpen = false;
+        targetPickerOpen = false;
+        resetHistoryCursor();
+        requestAnimationFrame(() => {
+          adjustInputHeight();
+          inputEl?.focus();
+          inputEl?.setSelectionRange(inputValue.length, inputValue.length);
+        });
+      }
+    }).then((u) => { unlistenDragDrop = u; });
 
     return () => {
       document.removeEventListener('mousedown', handleDocumentPointerDown);
       document.removeEventListener('keydown', handleGlobalVoiceShortcut);
-      unlistenEnter?.();
-      unlistenLeave?.();
-      unlistenOver?.();
-      unlistenDrop?.();
+      unlistenDragDrop?.();
     };
   });
 </script>

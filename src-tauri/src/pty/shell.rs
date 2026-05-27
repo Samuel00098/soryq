@@ -110,6 +110,14 @@ fn which(prog: &str) -> Option<String> {
 }
 
 pub fn detect_shell() -> ShellConfig {
+    // On Unix, honour the user's configured login shell first.
+    #[cfg(not(target_os = "windows"))]
+    if let Ok(shell) = std::env::var("SHELL") {
+        if Path::new(&shell).is_file() {
+            return ShellConfig { program: shell, args: vec!["-l".into()] };
+        }
+    }
+
     available_shells().into_iter().next().unwrap_or_else(|| {
         if cfg!(target_os = "windows") {
             ShellConfig {

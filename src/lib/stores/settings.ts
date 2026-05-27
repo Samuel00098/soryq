@@ -97,9 +97,10 @@ export function detectBestFont(): string {
 
 // Editor
 export const fontSize = persistentWritable('fontSize', 14);
-export const fontFamily = persistentWritable('fontFamily', "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace");
+const FONT_FALLBACK = "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Ubuntu Mono', 'Noto Mono', Consolas, monospace";
+export const fontFamily = persistentWritable('fontFamily', FONT_FALLBACK);
 export const resolvedFontFamily = derived(fontFamily, ($ff) => {
-  if (!$ff || $ff.trim() === '') return "'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace";
+  if (!$ff || $ff.trim() === '') return FONT_FALLBACK;
   return $ff;
 });
 export const tabSize = persistentWritable('tabSize', 2);
@@ -254,7 +255,7 @@ export function updateSetting(key: string, value: unknown) {
 
 export function resetSettingsToDefault() {
   fontSize.set(14);
-  fontFamily.set("'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace");
+  fontFamily.set(FONT_FALLBACK);
   tabSize.set(2);
   wordWrap.set(false);
   minimap.set(false);

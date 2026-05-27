@@ -11,6 +11,9 @@
   const win = getCurrentWindow();
 
   let iconError = $state(false);
+  // On macOS, the native traffic-light buttons handle minimize/maximize/close.
+  // We detect the platform to hide our custom controls so they don't double up.
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
   // Git state
   function handleGitButtonClick() {
@@ -311,7 +314,8 @@
       </svg>
     </button>
 
-    <!-- Window controls -->
+    <!-- Window controls — hidden on macOS (native traffic lights handle this) -->
+    {#if !isMac}
     <div class="titlebar-controls">
       <button class="wc-btn wc-min" onclick={minimize} aria-label="Minimize" title="Minimize">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -319,7 +323,6 @@
         </svg>
       </button>
       <button class="wc-btn wc-max" onclick={toggleMaximize} aria-label="Maximize" title="Maximize">
-        <!-- Two overlapping squares (Windows 11 restore style) -->
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <rect x="1" y="3" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
           <path d="M4 3V2a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 01-1 1H9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -331,6 +334,7 @@
         </svg>
       </button>
     </div>
+    {/if}
   </div>
 </div>
 
