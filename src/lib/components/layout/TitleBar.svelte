@@ -314,8 +314,7 @@
       </svg>
     </button>
 
-    <!-- Window controls — hidden on macOS (native traffic lights handle this) -->
-    {#if !isMac}
+    <!-- Window controls -->
     <div class="titlebar-controls">
       <button class="wc-btn wc-min" onclick={minimize} aria-label="Minimize" title="Minimize">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -334,7 +333,6 @@
         </svg>
       </button>
     </div>
-    {/if}
   </div>
 </div>
 
