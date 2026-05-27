@@ -27,6 +27,11 @@
   let isListening = $state(false);
   let broadcastAgents = $state(false);
   let shellEl = $state<HTMLDivElement | null>(null);
+  let isHovered = $state(false);
+  let isFocused = $state(false);
+  let isActive = $derived(
+    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents
+  );
 
   type PastedImage = { objectUrl: string; dataUrl: string; name: string };
   let pastedImages = $state<PastedImage[]>([]);
@@ -413,9 +418,12 @@
   });
 </script>
 
-<div class="floating-prompt-shell" bind:this={shellEl}>
+<div class="floating-prompt-shell" class:active={isActive} bind:this={shellEl}>
     {#if historyOpen && historyItems.length > 0}
-      <div class="history-panel">
+      <div class="history-panel"
+        onmouseenter={() => isHovered = true}
+        onmouseleave={() => isHovered = false}
+      >
         {#each historyItems as item}
           <button class="history-item" onclick={() => selectHistoryItem(item)} title={item}>
             <span>{item}</span>
@@ -424,7 +432,13 @@
       </div>
     {/if}
 
-    <div class="floating-prompt-bar" class:disabled={!canSend}>
+    <div class="floating-prompt-bar"
+      class:disabled={!canSend}
+      onmouseenter={() => isHovered = true}
+      onmouseleave={() => isHovered = false}
+      onfocusin={() => isFocused = true}
+      onfocusout={() => isFocused = false}
+    >
       <button
         class="history-toggle"
         onclick={() => historyOpen = !historyOpen}
@@ -546,6 +560,7 @@
           oninput={handleInput}
           onkeydown={handleKeyDown}
           onpaste={handlePaste}
+          onmousedown={() => { targetPickerOpen = false; historyOpen = false; }}
         ></textarea>
       </div>
 
@@ -572,6 +587,12 @@
     flex-direction: column;
     gap: 8px;
     pointer-events: none;
+    opacity: 0.28;
+    transition: opacity 0.4s ease;
+  }
+
+  .floating-prompt-shell.active {
+    opacity: 1;
   }
 
   .history-panel,
