@@ -2,14 +2,14 @@
 
 ## Application Overview
 
-**Devdock** — a lightweight developer workspace inspired by Terax, built with Tauri 2 + Rust + Svelte 5 + TypeScript. No AI agents. Features split panels, multi-project workspaces, git integration with a side-by-side/inline code reviewer, custom command palette, built-in terminal, code editor, file explorer, and live web preview.
+**Soryq** — a lightweight developer workspace inspired by Terax, built with Tauri 2 + Rust + Svelte 5 + TypeScript. No AI agents. Features split panels, multi-project workspaces, git integration with a side-by-side/inline code reviewer, custom command palette, built-in terminal, code editor, file explorer, and live web preview.
 
 ---
 
 ## 1. Project Structure
 
 ```
-devdock/
+soryq/
 ├── src-tauri/                          # Rust backend (Tauri 2)
 │   ├── Cargo.toml
 │   ├── tauri.conf.json                 # Tauri configuration
