@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { activeProject, closeProject, activeProjectId, activeWorkspaceId, activeWorkspace, clearAllStores } from '$lib/stores/workspace';
+  import { activeProject, closeProject, activeProjectId, activeWorkspaceId, activeWorkspace, clearAllStores, saveProjectState } from '$lib/stores/workspace';
   import { openSettings, layout, toggleSidebar, setSidebarTab } from '$lib/stores/layout';
   import { floatingNoteOpen, toggleFloatingNote } from '$lib/stores/notes';
   import { isOpen as paletteOpen, search as paletteSearch, toggleCommandPalette } from '$lib/stores/commandpalette';
@@ -73,7 +73,11 @@
     if (await win.isMaximized()) { await win.unmaximize(); }
     else { await win.maximize(); }
   }
-  async function close() { await win.close(); }
+  async function close() {
+    const projectId = get(activeProjectId);
+    if (projectId) saveProjectState(projectId);
+    await win.destroy();
+  }
 
   function handleSearchKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
