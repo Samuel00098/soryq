@@ -4,6 +4,23 @@ use crate::theme::models::{Theme, ThemeInfo};
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+fn is_valid_css_color(value: &str) -> bool {
+    let v = value.trim();
+    if v.is_empty() { return false; }
+    // Hex colors
+    if v.starts_with('#') {
+        let hex = &v[1..];
+        return (hex.len() == 3 || hex.len() == 4 || hex.len() == 6 || hex.len() == 8)
+            && hex.chars().all(|c| c.is_ascii_hexdigit());
+    }
+    // Named/functional values
+    let lower = v.to_lowercase();
+    lower == "transparent" || lower == "currentcolor" || lower == "inherit"
+        || lower.starts_with("rgb(") || lower.starts_with("rgba(")
+        || lower.starts_with("hsl(") || lower.starts_with("hsla(")
+        || lower.starts_with("color(")
+}
+
 pub struct ThemeRegistry {
     config_dir: std::path::PathBuf,
     themes: RwLock<HashMap<String, Theme>>,
@@ -89,6 +106,14 @@ impl ThemeRegistry {
             .collect();
         if safe_id.is_empty() || safe_id != theme.id {
             return Err(ForgeError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid theme ID")));
+        }
+        for (key, value) in theme.colors.iter().chain(theme.syntax.iter()) {
+            if !is_valid_css_color(value) {
+                return Err(ForgeError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid color value for '{}': '{}'", key, value),
+                )));
+            }
         }
         let theme_path = self.config_dir.join("themes").join(format!("{}.json", safe_id));
         crate::theme::loader::save_theme_to_file(&theme, &theme_path)?;

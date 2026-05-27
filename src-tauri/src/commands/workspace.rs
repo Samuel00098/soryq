@@ -104,7 +104,7 @@ pub fn workspace_git_commit(
     let stderr = String::from_utf8_lossy(&commit_output.stderr).to_string();
 
     if commit_output.status.success() {
-        Ok(format!("Successfully committed changes!\n{}{}", stdout, stderr))
+        Ok(format!("Successfully committed changes!\n{}{}", stdout, sanitize_git_error(&stderr)))
     } else {
         Err(format!("Commit failed:\n{}{}", sanitize_git_error(&stderr), stdout))
     }
@@ -207,9 +207,11 @@ pub fn workspace_detect_port(path: String, state: State<AppState>) -> u16 {
         return 5173;
     }
     
-    // 1. Try to read package.json
+    // 1. Try to read package.json (cap at 1MB to prevent DoS on malformed projects)
     let package_json_path = root.join("package.json");
     if package_json_path.is_file() {
+        let too_large = std::fs::metadata(&package_json_path).map(|m| m.len() > 1_048_576).unwrap_or(false);
+        if !too_large {
         if let Ok(content) = std::fs::read_to_string(&package_json_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 // If package.json has scripts:
@@ -242,8 +244,9 @@ pub fn workspace_detect_port(path: String, state: State<AppState>) -> u16 {
                 }
             }
         }
+        } // end !too_large
     }
-    
+
     // 2. Scan vite config if it exists
     for config_name in &["vite.config.ts", "vite.config.js"] {
         let config_path = root.join(config_name);
@@ -347,6 +350,10 @@ fn search_dir_recursive(
                 Err(_) => continue,
             };
             let path = entry.path();
+            // Skip symlinks to prevent escaping the project root
+            if path.is_symlink() {
+                continue;
+            }
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with('.')
@@ -908,8 +915,11 @@ pub fn workspace_git_branches(project_id: String, state: State<AppState>) -> Res
 pub fn workspace_git_checkout(project_id: String, branch: String, state: State<AppState>) -> Result<String, String> {
     validate_branch_name(&branch)?;
     let root_path = get_project_path(&project_id, &state)?;
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
     let output = Command::new("git")
-        .args(["checkout", "--", &branch])
+        .args(["switch", &branch])
         .current_dir(&root_path)
         .output()
         .map_err(|e| e.to_string())?;
@@ -925,6 +935,9 @@ pub fn workspace_git_branch_create(project_id: String, name: String, from: Optio
     validate_branch_name(&name)?;
     if let Some(ref f) = from { validate_branch_name(f)?; }
     let root_path = get_project_path(&project_id, &state)?;
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
     let mut args = vec!["checkout", "-b", &name];
     if let Some(ref f) = from { args.push(f); }
     let output = Command::new("git")
@@ -943,6 +956,9 @@ pub fn workspace_git_branch_create(project_id: String, name: String, from: Optio
 pub fn workspace_git_branch_delete(project_id: String, name: String, force: bool, state: State<AppState>) -> Result<String, String> {
     validate_branch_name(&name)?;
     let root_path = get_project_path(&project_id, &state)?;
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
     let flag = if force { "-D" } else { "-d" };
     let output = Command::new("git")
         .args(["branch", flag, &name])

@@ -442,9 +442,10 @@
   }
 
   function postInspectorState() {
+    if ($proxyPort === null) return;
     const activeIframe = getActiveIframeElement();
     if (!activeIframe?.contentWindow) return;
-    activeIframe.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, 'http://127.0.0.1:' + $proxyPort);
+    activeIframe.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, `http://127.0.0.1:${$proxyPort}`);
   }
 
   function buildIframeSrc(url: string) {

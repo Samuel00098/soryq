@@ -220,7 +220,7 @@
         class="note-textarea"
         value={content}
         oninput={handleInput}
-        placeholder="Write notes in markdown..."
+        placeholder="Write notes in markdown… (stored in browser localStorage — avoid storing passwords or secrets)"
         spellcheck="false"
       ></textarea>
     {/if}

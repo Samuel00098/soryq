@@ -105,13 +105,16 @@ function saveProjectStateToStorage(projectId: string) {
     return { role: session?.role ?? null, cwd: session?.cwd ?? null };
   });
   const state: PersistedProjectState = {
-    openFiles: get(openFiles),
+    openFiles: get(openFiles).slice(0, 100),
     activeFile: get(activeFile),
-    expandedPaths: Array.from(get(expandedPaths)),
+    expandedPaths: Array.from(get(expandedPaths)).slice(0, 500),
     terminalLayout: get(gridLayout),
     terminalPanes,
   };
-  localStorage.setItem(projectStorageKey(projectId), JSON.stringify(state));
+  try { localStorage.setItem(projectStorageKey(projectId), JSON.stringify(state)); } catch {
+    // localStorage quota exceeded — persist a minimal state instead
+    try { localStorage.setItem(projectStorageKey(projectId), JSON.stringify({ ...state, openFiles: state.openFiles.slice(0, 10), expandedPaths: [] })); } catch {}
+  }
 }
 
 function loadProjectStateFromStorage(projectId: string): PersistedProjectState | null {

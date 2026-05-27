@@ -50,11 +50,13 @@ function load(): HttpRequest[] {
 
 export const savedRequests = writable<HttpRequest[]>(load());
 let _httpFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let _httpLatest: HttpRequest[] = [];
 savedRequests.subscribe((v) => {
+  _httpLatest = v; // always track latest value so the timer flush uses it, not a stale closure
   if (_httpFlushTimer !== null) return;
   _httpFlushTimer = setTimeout(() => {
     _httpFlushTimer = null;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(maskSensitiveHeaders(v))); } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(maskSensitiveHeaders(_httpLatest))); } catch {}
   }, 300);
 });
 

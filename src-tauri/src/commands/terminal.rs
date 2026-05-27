@@ -54,6 +54,10 @@ pub fn terminal_list_shells() -> Result<Vec<ShellConfig>, String> {
 
 #[tauri::command]
 pub fn terminal_write(id: u32, data: String, state: State<AppState>) -> Result<(), String> {
+    const MAX_WRITE_LEN: usize = 256 * 1024;
+    if data.len() > MAX_WRITE_LEN {
+        return Err("Data exceeds maximum write size".to_string());
+    }
     let session = state.pty_manager.get(id).ok_or_else(|| format!("Session not found: {id}"))?;
     session.write(&data)
 }

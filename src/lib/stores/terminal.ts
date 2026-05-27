@@ -63,9 +63,10 @@ if (typeof window !== 'undefined') {
 
 export function addHistoryEntry(cmd: string) {
   if (!cmd || cmd.trim() === '') return;
+  if (cmd.length > 4096) return; // skip unusually long inputs (e.g. pasted blobs)
   commandHistory.update((hist) => {
     const filtered = hist.filter((x) => x !== cmd);
-    return [cmd, ...filtered].slice(0, 100); // Keep last 100 entries
+    return [cmd, ...filtered].slice(0, 100);
   });
 }
 

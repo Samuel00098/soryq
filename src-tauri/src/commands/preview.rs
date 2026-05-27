@@ -16,6 +16,11 @@ pub fn preview_set_target_port(port: u16, state: State<AppState>) -> Result<(), 
     if port == 0 {
         return Err("Port 0 is not a valid target port".to_string());
     }
+    // Block well-known service ports to prevent the proxy from being used to probe internal services
+    const BLOCKED: &[u16] = &[22, 23, 25, 53, 110, 135, 139, 143, 445, 993, 995, 2375, 3306, 3389, 5432, 6379, 6443, 8500, 9090, 27017];
+    if BLOCKED.contains(&port) {
+        return Err(format!("Port {} is reserved for system services and cannot be used as a proxy target", port));
+    }
     state.preview_manager.set_target_port(port)
 }
 
@@ -55,8 +60,9 @@ pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Resu
 /// Capture the preview panel region as PNG bytes.
 /// x, y, width, height are CSS (logical) pixels relative to the webview; scale = devicePixelRatio.
 ///
-/// Windows: uses GDI BitBlt against the screen.
-/// macOS/Linux: uses Tauri's WebviewWindow::capture_image() (webview-native, no screen access needed).
+/// Uses GDI BitBlt against the app's own WebviewWindow HWND — NOT GetDesktopWindow().
+/// This restricts the capture to the app's own rendered content and cannot capture other
+/// windows, the desktop, or any content outside of this app's window.
 #[tauri::command]
 pub async fn preview_capture_screenshot(
     app: tauri::AppHandle,
@@ -67,7 +73,6 @@ pub async fn preview_capture_screenshot(
     scale: f64,
 ) -> Result<Vec<u8>, String> {
     use tauri::Manager;
-    use image::{DynamicImage, RgbaImage};
     use std::io::Cursor;
 
     if width == 0 || height == 0 {
@@ -87,23 +92,26 @@ pub async fn preview_capture_screenshot(
 
     #[cfg(target_os = "windows")]
     {
-        use windows_sys::Win32::Graphics::Gdi::*;
-        use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
+        use windows::Win32::Graphics::Gdi::*;
 
-        let win_pos = window.inner_position().map_err(|e| e.to_string())?;
-        let phys_x = (win_pos.x as f64 + x as f64 * scale).round() as i32;
-        let phys_y = (win_pos.y as f64 + y as f64 * scale).round() as i32;
+        // Use the webview's own HWND — this constrains GDI capture to our app window only.
+        // GetDC on our own window returns the window's device context; BitBlt from it
+        // gives only pixels rendered by our app, not other windows or the desktop.
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+
+        let phys_x = (x.max(0) as f64 * scale).round() as i32;
+        let phys_y = (y.max(0) as f64 * scale).round() as i32;
         let phys_w_i = phys_w as i32;
         let phys_h_i = phys_h as i32;
 
         let pixels = unsafe {
-            let hwnd = GetDesktopWindow();
-            let screen_dc = GetDC(hwnd);
-            let mem_dc = CreateCompatibleDC(screen_dc);
-            let bmp = CreateCompatibleBitmap(screen_dc, phys_w_i, phys_h_i);
-            let old_bmp = SelectObject(mem_dc, bmp as isize);
+            let win_dc = GetDC(Some(hwnd));
+            let mem_dc = CreateCompatibleDC(Some(win_dc));
+            let bmp = CreateCompatibleBitmap(win_dc, phys_w_i, phys_h_i);
+            let old_bmp = SelectObject(mem_dc, bmp.into());
 
-            BitBlt(mem_dc, 0, 0, phys_w_i, phys_h_i, screen_dc, phys_x, phys_y, SRCCOPY);
+            BitBlt(mem_dc, 0, 0, phys_w_i, phys_h_i, Some(win_dc), phys_x, phys_y, SRCCOPY)
+                .map_err(|e| e.to_string())?;
 
             let mut bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
@@ -112,7 +120,7 @@ pub async fn preview_capture_screenshot(
                     biHeight: -phys_h_i, // negative = top-down
                     biPlanes: 1,
                     biBitCount: 32,
-                    biCompression: BI_RGB as u32,
+                    biCompression: BI_RGB.0,
                     biSizeImage: 0,
                     biXPelsPerMeter: 0,
                     biYPelsPerMeter: 0,
@@ -125,15 +133,15 @@ pub async fn preview_capture_screenshot(
             let mut pixels = vec![0u8; (phys_w_i * phys_h_i * 4) as usize];
             GetDIBits(
                 mem_dc, bmp, 0, phys_h_i as u32,
-                pixels.as_mut_ptr() as *mut _,
+                Some(pixels.as_mut_ptr() as *mut _),
                 &mut bmi,
                 DIB_RGB_COLORS,
             );
 
             SelectObject(mem_dc, old_bmp);
-            DeleteObject(bmp as isize);
-            DeleteDC(mem_dc);
-            ReleaseDC(hwnd, screen_dc);
+            let _ = DeleteObject(bmp.into());
+            let _ = DeleteDC(mem_dc);
+            ReleaseDC(Some(hwnd), win_dc);
 
             // GDI returns BGRA — swap B and R to get RGBA
             for chunk in pixels.chunks_exact_mut(4) {
@@ -142,6 +150,7 @@ pub async fn preview_capture_screenshot(
             pixels
         };
 
+        use image::{DynamicImage, RgbaImage};
         let rgba_img = RgbaImage::from_raw(phys_w, phys_h, pixels)
             .ok_or_else(|| "Failed to build image".to_string())?;
         let dynamic = DynamicImage::ImageRgba8(rgba_img);
@@ -152,21 +161,15 @@ pub async fn preview_capture_screenshot(
         return Ok(buf);
     }
 
-    // macOS and Linux: capture the webview content directly.
-    // capture_image() returns the full webview render at physical resolution;
-    // we crop to the element's rect (x,y are CSS pixels, multiply by scale for physical).
     #[cfg(not(target_os = "windows"))]
     {
-        let full_img = window.capture_image().map_err(|e| e.to_string())?;
-        let crop_x = (x.max(0) as f64 * scale).round() as u32;
-        let crop_y = (y.max(0) as f64 * scale).round() as u32;
-        // crop_imm clamps to image bounds automatically
-        let cropped = full_img.crop_imm(crop_x, crop_y, phys_w, phys_h);
-        let mut buf = Vec::new();
-        cropped
-            .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
-        return Ok(buf);
+        let _ = window;
+        let _ = phys_w;
+        let _ = phys_h;
+        let _ = x;
+        let _ = y;
+        let _ = scale;
+        return Err("Screenshot not supported on this platform".to_string());
     }
 
     #[allow(unreachable_code)]

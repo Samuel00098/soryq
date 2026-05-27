@@ -38,7 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "PLACEHOLDER_REPLACE_WITH_YOUR_PUBLIC_KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3ODlFOTM2NTQ3QjAwMzAKUldRd0FIdFVOdW1KdCtXN2FjT3JiSk1YOTRQTFhWazJJSE1zTDNLaGlsZ3dNRFBrRWpOd05Ma1cK",
       "endpoints": [
         "https://github.com/Samuel00098/devdock/releases/latest/download/latest.json"
       ]
