@@ -38,7 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3ODlFOTM2NTQ3QjAwMzAKUldRd0FIdFVOdW1KdCtXN2FjT3JiSk1YOTRQTFhWazJJSE1zTDNLaGlsZ3dNRFBrRWpOd05Ma1cK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxNkVBNzExQzFGNDcxQkUKUldTK2NmVEJFYWR1Z1h5MUw1QlNiY21Sa3g3dHRHb3NWd3M0K0dZK2dYRTNMYnFvL1lLQWFINGMK",
       "endpoints": [
         "https://github.com/Samuel00098/soryq/releases/latest/download/latest.json"
       ]
