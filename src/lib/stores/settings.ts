@@ -19,7 +19,12 @@ function persistentWritable<T>(key: string, defaultValue: T): import('svelte/sto
       // Ignore JSON parse errors
     }
   }
-  let initialValue = stored !== null ? JSON.parse(stored) : defaultValue;
+  let initialValue: T;
+  try {
+    initialValue = stored !== null ? JSON.parse(stored) : defaultValue;
+  } catch {
+    initialValue = defaultValue;
+  }
 
   if (key === 'userShortcuts') {
     if (!Array.isArray(initialValue)) {

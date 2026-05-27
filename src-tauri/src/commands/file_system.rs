@@ -194,6 +194,9 @@ fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue; // skip symlinks — following them could escape the project root
+        }
         let new_from = entry.path();
         let new_to = to.join(entry.file_name());
         if file_type.is_dir() {

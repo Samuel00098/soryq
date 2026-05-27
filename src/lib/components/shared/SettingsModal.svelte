@@ -287,7 +287,14 @@
       });
       return;
     }
-    const id = customThemeId.trim() || customThemeName.toLowerCase().replace(/\s+/g, '-');
+    const rawId = customThemeId.trim() || customThemeName.toLowerCase().replace(/\s+/g, '-');
+    const id = rawId.replace(/[^a-z0-9_-]/g, '').slice(0, 64);
+    if (!id) {
+      import('$lib/stores/notification').then(({ showToast }) => {
+        showToast('Theme ID contains no valid characters (use a-z, 0-9, - or _)', 'error');
+      });
+      return;
+    }
     const theme = {
       id,
       name: customThemeName.trim(),

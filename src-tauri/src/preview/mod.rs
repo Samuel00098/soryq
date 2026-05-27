@@ -225,6 +225,7 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
     }, true);
 
     window.addEventListener('message', (event) => {
+        if (event.source !== window.parent) return;
         const data = event.data || {};
         if (data.type !== 'forge-inspector:set') return;
         setEnabled(Boolean(data.enabled));

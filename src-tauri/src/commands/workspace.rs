@@ -56,6 +56,9 @@ pub fn workspace_git_commit(
     if message.trim().is_empty() {
         return Err("Commit message cannot be empty.".to_string());
     }
+    if message.len() > 10_000 {
+        return Err("Commit message is too long (limit 10 000 characters)".to_string());
+    }
 
     // 1. Stage all changes
     let add_output = Command::new("git")
@@ -515,6 +518,25 @@ pub fn workspace_git_discard_file(
 
     validate_relative_path(&file_path)?;
 
+    // Verify the absolute path stays within the project root
+    let absolute_check = root_path.join(&file_path);
+    let canonical_check = if absolute_check.exists() {
+        std::fs::canonicalize(&absolute_check).map_err(|_| "Invalid path".to_string())?
+    } else if let Some(parent) = absolute_check.parent() {
+        if parent.exists() {
+            let cp = std::fs::canonicalize(parent).map_err(|_| "Invalid path".to_string())?;
+            cp.join(absolute_check.file_name().unwrap_or_default())
+        } else {
+            absolute_check.clone()
+        }
+    } else {
+        absolute_check.clone()
+    };
+    let canonical_check = crate::commands::clean_path_buf(canonical_check);
+    if !canonical_check.starts_with(root_path) {
+        return Err("Access denied: path is outside project root".to_string());
+    }
+
     // 1. Get current git status to see if file is untracked
     let status_output = Command::new("git")
         .args(&["status", "--porcelain", "--", &file_path])
@@ -653,6 +675,13 @@ pub fn workspace_git_diff(
             if !is_tracked {
                 // Read the file and format as a diff where every line is an addition
                 let absolute_path = root_path.join(path);
+                // Verify path stays within project root before reading
+                if let Ok(canonical) = std::fs::canonicalize(&absolute_path) {
+                    let canonical = crate::commands::clean_path_buf(canonical);
+                    if !canonical.starts_with(root_path) {
+                        return Err("Access denied: path is outside project root".to_string());
+                    }
+                }
                 if absolute_path.exists() {
                     match std::fs::read_to_string(&absolute_path) {
                         Ok(content) => {

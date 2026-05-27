@@ -186,6 +186,17 @@ export function closePreviewBrowserTab(tabId: string) {
   }
 }
 
+function isAllowedTabUrl(url: string): boolean {
+  if (!url) return false;
+  if (url.startsWith('/')) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function restorePreviewTabsState(tabs: PreviewTab[] | null | undefined, activeTabId?: string | null) {
   if (!tabs?.length) {
     const defaultTab = createPreviewTab('/');
@@ -195,8 +206,17 @@ export function restorePreviewTabsState(tabs: PreviewTab[] | null | undefined, a
     return;
   }
 
+  const safeTabs = tabs.filter((tab) => isAllowedTabUrl(tab.url));
+  if (!safeTabs.length) {
+    const defaultTab = createPreviewTab('/');
+    previewTabs.set([defaultTab]);
+    activePreviewTabId.set(defaultTab.id);
+    setCurrentUrlStore(defaultTab.url);
+    return;
+  }
+
   previewTabs.set(
-    tabs.map((tab) => ({
+    safeTabs.map((tab) => ({
       ...tab,
       title: derivePreviewTabTitle(tab.url),
       history: tab.history?.length ? tab.history : [tab.url],
@@ -207,7 +227,7 @@ export function restorePreviewTabsState(tabs: PreviewTab[] | null | undefined, a
     }))
   );
 
-  const resolvedActiveId = tabs.some((tab) => tab.id === activeTabId) ? activeTabId! : tabs[0].id;
+  const resolvedActiveId = safeTabs.some((tab) => tab.id === activeTabId) ? activeTabId! : safeTabs[0].id;
   activePreviewTabId.set(resolvedActiveId);
   syncCurrentUrlFromActiveTab();
 }
