@@ -29,11 +29,12 @@
   let shellEl = $state<HTMLDivElement | null>(null);
   let isHovered = $state(false);
   let isFocused = $state(false);
+  let isDragOver = $state(false);
   // Manually-pinned target session ID — overrides auto-selection when set
   let manualTargetId = $state<number | null>(null);
   let targetPickerOpen = $state(false);
   let isActive = $derived(
-    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents
+    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents || isDragOver
   );
 
   type PastedImage = { objectUrl: string; dataUrl: string; name: string };
@@ -415,6 +416,44 @@
       document.removeEventListener('keydown', handleGlobalVoiceShortcut);
     };
   });
+
+  function handleDragOver(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    isDragOver = true;
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    const bar = (e.currentTarget as HTMLElement);
+    if (!bar.contains(e.relatedTarget as Node)) {
+      isDragOver = false;
+    }
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    isDragOver = false;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (!files.length) return;
+
+    const paths = files
+      .map((f) => {
+        const p = (f as File & { path?: string }).path ?? f.name;
+        return p.includes(' ') ? `"${p}"` : p;
+      })
+      .join(' ');
+
+    inputValue = inputValue ? `${inputValue} ${paths}` : paths;
+    historyOpen = false;
+    targetPickerOpen = false;
+    resetHistoryCursor();
+    requestAnimationFrame(() => {
+      adjustInputHeight();
+      inputEl?.focus();
+      inputEl?.setSelectionRange(inputValue.length, inputValue.length);
+    });
+  }
 </script>
 
 <div class="floating-prompt-shell" class:active={isActive} bind:this={shellEl}>
@@ -433,10 +472,14 @@
 
     <div class="floating-prompt-bar"
       class:disabled={!canSend}
+      class:drag-over={isDragOver}
       onmouseenter={() => isHovered = true}
       onmouseleave={() => isHovered = false}
       onfocusin={() => isFocused = true}
       onfocusout={() => isFocused = false}
+      ondragover={handleDragOver}
+      ondragleave={handleDragLeave}
+      ondrop={handleDrop}
     >
       <button
         class="history-toggle"
@@ -653,6 +696,12 @@
 
   .floating-prompt-bar.disabled {
     opacity: 0.82;
+  }
+
+  .floating-prompt-bar.drag-over {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent), 0 18px 50px rgba(0, 0, 0, 0.32);
   }
 
   .history-toggle,
