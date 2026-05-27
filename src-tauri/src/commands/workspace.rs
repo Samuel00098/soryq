@@ -4,6 +4,22 @@ use crate::state::AppState;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Strip local path information from git error output before surfacing it to the frontend.
+fn sanitize_git_error(stderr: &str) -> String {
+    stderr
+        .lines()
+        .map(|line| {
+            // Replace absolute path segments with a placeholder
+            if line.contains(":\\") || line.starts_with('/') {
+                "[path redacted]".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn validate_relative_path(file_path: &str) -> Result<(), String> {
     if file_path.starts_with("--") {
         return Err("Invalid file path".to_string());
@@ -87,7 +103,7 @@ pub fn workspace_git_commit(
     if commit_output.status.success() {
         Ok(format!("Successfully committed changes!\n{}{}", stdout, stderr))
     } else {
-        Err(format!("Commit failed:\n{}{}", stderr, stdout))
+        Err(format!("Commit failed:\n{}{}", sanitize_git_error(&stderr), stdout))
     }
 }
 
@@ -138,7 +154,7 @@ pub fn workspace_git_push(
     if output.status.success() {
         Ok(format!("Successfully pushed to GitHub!\n{}{}", stdout, stderr))
     } else {
-        Err(format!("Git push failed:\n{}{}", stderr, stdout))
+        Err(format!("Git push failed:\n{}{}", sanitize_git_error(&stderr), stdout))
     }
 }
 
@@ -170,7 +186,7 @@ pub fn workspace_git_fetch(
     if output.status.success() {
         Ok(format!("Successfully fetched from remote!\n{}{}", stdout, stderr))
     } else {
-        Err(format!("Git fetch failed:\n{}{}", stderr, stdout))
+        Err(format!("Git fetch failed:\n{}{}", sanitize_git_error(&stderr), stdout))
     }
 }
 

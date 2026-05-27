@@ -15,49 +15,48 @@
     {
       "identifier": "fs:default",
       "allow": [
-        { "path": "$APPDATA/**" },
-        { "path": "$HOME/**" }
+        { "path": "$APPDATA/devdock/**" }
       ]
     },
     {
       "identifier": "fs:allow-read",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-write",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-exists",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-mkdir",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-read-dir",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-remove",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-rename",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     {
       "identifier": "fs:allow-copy-file",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$HOME/**" }]
+      "allow": [{ "path": "$APPDATA/devdock/**" }]
     },
     "dialog:default",
     "dialog:allow-open"

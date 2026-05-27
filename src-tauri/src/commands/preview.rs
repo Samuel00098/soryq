@@ -13,6 +13,9 @@ pub fn preview_stop_proxy(state: State<AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn preview_set_target_port(port: u16, state: State<AppState>) -> Result<(), String> {
+    if port == 0 {
+        return Err("Port 0 is not a valid target port".to_string());
+    }
     state.preview_manager.set_target_port(port)
 }
 
