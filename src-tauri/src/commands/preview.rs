@@ -48,7 +48,11 @@ pub fn preview_clear_proxy_target(state: State<AppState>) -> Result<(), String> 
 #[tauri::command]
 pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
-    if !url.starts_with("http://") && !url.starts_with("https://") {
+    // Use a proper URL parse rather than a string prefix check — ShellExecute on Windows
+    // may normalise backslash-escaped or percent-encoded components before dispatch,
+    // making a plain starts_with check bypassable in edge cases.
+    let parsed = url::Url::parse(&url).map_err(|_| "Invalid URL".to_string())?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err("Only HTTP and HTTPS URLs are allowed".to_string());
     }
     #[allow(deprecated)]

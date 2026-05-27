@@ -50,9 +50,10 @@
 {:else}
   <div class="project-switcher project-switcher-empty">
     <button class="project-add-full" onclick={handleOpen} title="Add folder to workspace">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <line x1="12" y1="5" x2="12" y2="19"/>
-        <line x1="5" y1="12" x2="19" y2="12"/>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <path d="M16 5V1"/>
+        <path d="M14 3h4"/>
       </svg>
       Add folder
     </button>

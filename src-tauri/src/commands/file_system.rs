@@ -46,11 +46,22 @@ fn resolve_path(path: &str) -> Result<PathBuf, String> {
                 let canonical_parent = std::fs::canonicalize(parent).map_err(|_| "Invalid path".to_string())?;
                 canonical_parent.join(file_name)
             } else {
-                let parent_str = parent.to_string_lossy();
-                if parent_str.split(|c| c == '/' || c == '\\').any(|seg| seg == "..") {
-                    return Err("Invalid path: directory traversal detected".to_string());
+                // Lexically resolve all .. components without I/O to prevent traversal
+                // through non-existent intermediate directories (TOCTOU gap).
+                let mut components: Vec<std::path::Component> = Vec::new();
+                for comp in p.components() {
+                    match comp {
+                        std::path::Component::ParentDir => {
+                            if components.is_empty() {
+                                return Err("Invalid path: directory traversal detected".to_string());
+                            }
+                            components.pop();
+                        }
+                        std::path::Component::CurDir => {}
+                        other => components.push(other),
+                    }
                 }
-                p
+                components.iter().collect::<PathBuf>()
             }
         } else {
             p

@@ -209,11 +209,9 @@
     {#if $activeWorkspace}
       <button class="header-btn add-root-btn" onclick={openProject} title="Add Folder to Workspace">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-          <line x1="12" y1="11" x2="12" y2="17"/>
-          <line x1="9" y1="14" x2="15" y2="14"/>
-          <line x1="19" y1="8" x2="19" y2="2"/>
-          <line x1="16" y1="5" x2="22" y2="5"/>
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <path d="M16 5V1"/>
+          <path d="M14 3h4"/>
         </svg>
       </button>
     {/if}

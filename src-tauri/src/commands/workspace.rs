@@ -276,16 +276,28 @@ fn extract_port_from_cmd(cmd: &str) -> Option<u16> {
 }
 
 fn extract_port_from_vite_config(content: &str) -> Option<u16> {
-    let mut search_str = content;
-    while let Some(pos) = search_str.find("port:") {
-        let after = &search_str[pos + 5..];
-        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if !num_str.is_empty() {
-            if let Ok(port) = num_str.parse::<u16>() {
-                return Some(port);
+    // Parse line-by-line and skip comments to avoid false positives like `// port: 22`
+    let mut in_block_comment = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if in_block_comment {
+            if trimmed.contains("*/") { in_block_comment = false; }
+            continue;
+        }
+        if trimmed.starts_with("//") { continue; }
+        if trimmed.starts_with("/*") { in_block_comment = true; continue; }
+        if let Some(pos) = trimmed.find("port:") {
+            let after = &trimmed[pos + 5..];
+            let num_str: String = after.chars()
+                .skip_while(|c| c.is_whitespace())
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !num_str.is_empty() {
+                if let Ok(port) = num_str.parse::<u16>() {
+                    return Some(port);
+                }
             }
         }
-        search_str = after;
     }
     None
 }
@@ -394,7 +406,7 @@ fn search_dir_recursive(
                                 file_path: file_path.clone(),
                                 relative_path: relative_path.clone(),
                                 line_number: idx + 1,
-                                line_content: line.trim().to_string(),
+                                line_content: line.trim().chars().take(1024).collect(),
                             });
                             if results.len() >= 150 {
                                 return Ok(());
@@ -508,9 +520,14 @@ pub fn workspace_git_status(
     for file in &untracked {
         let absolute_path = root_path.join(file);
         let additions = if absolute_path.exists() && absolute_path.is_file() {
-            match std::fs::read_to_string(&absolute_path) {
-                Ok(content) => content.lines().count() as i32,
-                Err(_) => 0,
+            let size = std::fs::metadata(&absolute_path).map(|m| m.len()).unwrap_or(u64::MAX);
+            if size > 10 * 1024 * 1024 {
+                0 // skip large files to avoid reading multi-GB binaries into memory
+            } else {
+                match std::fs::read_to_string(&absolute_path) {
+                    Ok(content) => content.lines().count() as i32,
+                    Err(_) => 0,
+                }
             }
         } else {
             0

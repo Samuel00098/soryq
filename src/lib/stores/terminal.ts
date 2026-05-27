@@ -51,7 +51,12 @@ export const promptBarInput = writable<string | null>(null);
 // Command history store, persisted in localStorage
 export const commandHistory = writable<string[]>(
   typeof window !== 'undefined'
-    ? JSON.parse(localStorage.getItem('forge_terminal_history') || '[]')
+    ? (() => {
+        try {
+          const parsed = JSON.parse(localStorage.getItem('forge_terminal_history') || '[]');
+          return Array.isArray(parsed) && parsed.every((x) => typeof x === 'string') ? parsed : [];
+        } catch { return []; }
+      })()
     : []
 );
 
