@@ -1,7 +1,9 @@
 import { writable } from 'svelte/store';
 import type { LayoutState, ActiveView, SidebarTab } from '$lib/types/layout';
 
-export const layout = writable<LayoutState>({
+const LAYOUT_KEY = 'devdock_layout';
+
+const defaultLayout: LayoutState = {
   sidebarVisible: true,
   sidebarWidth: 260,
   activeView: 'terminal',
@@ -10,6 +12,27 @@ export const layout = writable<LayoutState>({
   editorVisible: false,
   previewVisible: false,
   reviewVisible: false,
+};
+
+function loadLayout(): LayoutState {
+  if (typeof window === 'undefined') return defaultLayout;
+  try {
+    const stored = localStorage.getItem(LAYOUT_KEY);
+    if (!stored) return defaultLayout;
+    // Merge with defaults so new fields added later always have a value
+    return { ...defaultLayout, ...JSON.parse(stored) };
+  } catch {
+    return defaultLayout;
+  }
+}
+
+export const layout = writable<LayoutState>(loadLayout());
+
+// Persist every change
+layout.subscribe((val) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(val));
+  }
 });
 
 // Settings modal open state (separate from view navigation)
@@ -106,14 +129,6 @@ export function setSidebarWidth(width: number) {
 }
 
 export function resetLayoutToDefault() {
-  layout.set({
-    sidebarVisible: true,
-    sidebarWidth: 260,
-    activeView: 'terminal',
-    editorSplitPreview: false,
-    sidebarTab: 'files',
-    editorVisible: false,
-    previewVisible: false,
-    reviewVisible: false,
-  });
+  if (typeof window !== 'undefined') localStorage.removeItem(LAYOUT_KEY);
+  layout.set({ ...defaultLayout });
 }

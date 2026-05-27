@@ -219,6 +219,36 @@ export async function saveActiveFile() {
   }
 }
 
+/**
+ * Restores a set of previously open files from disk without switching the active view.
+ * Used on app reopen to silently reload editor tabs.
+ */
+export async function restoreEditorFiles(filePaths: string[], activeFilePath: string | null) {
+  const newCache = new Map<string, EditorFile>();
+  const validPaths: string[] = [];
+
+  for (const path of filePaths) {
+    try {
+      const content = await invoke<string>('fs_read_file', { path });
+      newCache.set(path, {
+        path,
+        content,
+        originalContent: content,
+        isDirty: false,
+        language: detectLanguage(path),
+      });
+      validPaths.push(path);
+    } catch {
+      // File deleted or moved — skip silently
+    }
+  }
+
+  fileCache.set(newCache);
+  openFiles.set(validPaths);
+  const restoredActive = validPaths.includes(activeFilePath ?? '') ? activeFilePath : (validPaths[0] ?? null);
+  activeFile.set(restoredActive);
+}
+
 export async function formatActiveFile() {
   const active = get(activeFile);
   if (!active) return;

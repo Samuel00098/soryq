@@ -1,6 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
-import { openFiles, activeFile, fileCache, activeLine, activeColumn } from './editor';
+import { openFiles, activeFile, fileCache, activeLine, activeColumn, restoreEditorFiles } from './editor';
 import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession } from './terminal';
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, setPreferredLocalHost, setTargetPort } from './preview';
 import { expandedPaths, selectedPath } from './explorer';
@@ -75,6 +75,40 @@ interface ProjectWorkspaceState {
 
 const projectStateCache = new Map<string, ProjectWorkspaceState>();
 
+// ── Per-project localStorage persistence ──────────────────────────────────
+
+interface PersistedProjectState {
+  openFiles: string[];
+  activeFile: string | null;
+  expandedPaths: string[];
+}
+
+function projectStorageKey(projectId: string) {
+  return `devdock_project_${projectId}`;
+}
+
+function saveProjectStateToStorage(projectId: string) {
+  if (typeof window === 'undefined') return;
+  const state: PersistedProjectState = {
+    openFiles: get(openFiles),
+    activeFile: get(activeFile),
+    expandedPaths: Array.from(get(expandedPaths)),
+  };
+  localStorage.setItem(projectStorageKey(projectId), JSON.stringify(state));
+}
+
+function loadProjectStateFromStorage(projectId: string): PersistedProjectState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(projectStorageKey(projectId));
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
 export function saveProjectState(projectId: string) {
   projectStateCache.set(projectId, {
     editor: {
@@ -102,6 +136,8 @@ export function saveProjectState(projectId: string) {
       selectedPath: get(selectedPath),
     }
   });
+  // Also persist to localStorage so state survives app close
+  saveProjectStateToStorage(projectId);
 }
 
 function saveCurrentProjectState() {
@@ -154,7 +190,9 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       console.error('Failed to restore preview target port:', e);
     }
   } else {
-    // Reset to defaults for a new project
+    // No in-memory cache — check localStorage for persisted state from a previous session
+    const persisted = loadProjectStateFromStorage(projectId);
+
     clearAllStores();
 
     // Auto-detect a likely local dev port, but leave preview off until the user enables it.
@@ -165,7 +203,13 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       console.error('Failed to auto-detect/set up preview for new project:', err);
     }
 
-    // Spawn initial terminal session
+    if (persisted && persisted.openFiles.length > 0) {
+      // Restore editor tabs from disk (silently, without switching view)
+      await restoreEditorFiles(persisted.openFiles, persisted.activeFile);
+      expandedPaths.set(new Set(persisted.expandedPaths));
+    }
+
+    // Always spawn a fresh terminal session on reopen
     await createTerminalSession(rootPath);
   }
 }
@@ -411,8 +455,9 @@ export function closeProject(projectId: string) {
     }
   }
 
-  // Remove from cache
+  // Remove from in-memory cache and localStorage
   projectStateCache.delete(projectId);
+  if (typeof window !== 'undefined') localStorage.removeItem(projectStorageKey(projectId));
 
   const wsId = get(activeWorkspaceId);
   const p = get(projects).get(projectId);

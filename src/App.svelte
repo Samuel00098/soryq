@@ -6,7 +6,8 @@
   import { settingsOpen, closeSettings } from '$lib/stores/layout';
   import { onMount } from 'svelte';
   import { loadThemes } from '$lib/stores/theme';
-  import { initializeWorkspaces } from '$lib/stores/workspace';
+  import { initializeWorkspaces, saveProjectState, activeProjectId } from '$lib/stores/workspace';
+  import { get } from 'svelte/store';
   import { initDefaultCommands } from '$lib/stores/commandpalette';
   import { requestNotificationPermission } from '$lib/stores/notification';
   import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut } from '$lib/stores/settings';
@@ -32,6 +33,13 @@
     initializeWorkspaces();
     initDefaultCommands();
     requestNotificationPermission();
+
+    // Save project state before the window closes so it survives app restart
+    const handleBeforeUnload = () => {
+      const projectId = get(activeProjectId);
+      if (projectId) saveProjectState(projectId);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     // Lock window scrolling to prevent viewport shifting when dragging elements/selection
     const handleScroll = () => {
@@ -76,6 +84,7 @@
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('keydown', handleKeyDown);
       unsubscribeZoom();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       unsubscribeShortcuts();
     };
   });
