@@ -285,6 +285,7 @@
   .welcome {
     display: flex;
     flex-direction: column;
+    align-items: center;
     width: 100%;
     height: 100%;
     background: var(--bg-primary);
@@ -297,14 +298,18 @@
   /* ── Header ── */
   .header {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+    text-align: center;
+    width: 100%;
+    max-width: 760px;
   }
 
   .logo-wrap {
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
+    width: 80px;
+    height: 80px;
+    border-radius: 20px;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     display: flex;
@@ -312,30 +317,31 @@
     justify-content: center;
     overflow: hidden;
     flex-shrink: 0;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   }
 
   .logo-img {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
+    width: 62px;
+    height: 62px;
+    border-radius: 12px;
   }
 
   .logo-fallback { opacity: 0.8; }
 
-  .header-text { display: flex; flex-direction: column; gap: 2px; }
+  .header-text { display: flex; flex-direction: column; gap: 2px; align-items: center; }
 
   .app-name {
-    font-size: 22px;
-    font-weight: 600;
+    font-size: 34px;
+    font-weight: 700;
     color: var(--text-primary);
-    letter-spacing: -0.3px;
+    letter-spacing: -0.6px;
     line-height: 1;
   }
 
   .app-tagline {
-    font-size: 12px;
-    color: var(--text-muted);
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 3px;
   }
 
   /* ── Content grid ── */
@@ -345,6 +351,8 @@
     gap: 24px;
     flex: 1;
     min-height: 0;
+    width: 100%;
+    max-width: 760px;
   }
 
   /* ── Left column ── */
@@ -365,10 +373,10 @@
   .action-btn {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 11px 16px;
+    gap: 12px;
+    padding: 12px 16px;
     border-radius: 10px;
-    font-size: 13px;
+    font-size: 13.5px;
     font-weight: 500;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
@@ -515,7 +523,7 @@
   }
 
   .recent-name {
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
@@ -661,13 +669,13 @@
   }
 
   .tip-body strong {
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .tip-body p {
-    font-size: 11.5px;
+    font-size: 11px;
     color: var(--text-muted);
     line-height: 1.5;
   }
@@ -705,7 +713,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 11.5px;
+    font-size: 11px;
     color: var(--text-secondary);
   }
 
@@ -724,7 +732,7 @@
   /* ── Responsive ── */
   @media (max-width: 720px) {
     .welcome { padding: 28px 16px 32px; gap: 24px; }
-    .content { grid-template-columns: 1fr; }
+    .content { grid-template-columns: 1fr; max-width: 100%; }
     .right-col { display: none; }
   }
 </style>

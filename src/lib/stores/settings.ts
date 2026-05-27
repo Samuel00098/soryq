@@ -235,7 +235,7 @@ export function matchShortcut(e: KeyboardEvent, shortcutKeys: string): boolean {
 }
 
 // Appearance / Theme
-export const appearance = persistentWritable<'system' | 'light' | 'dark'>('appearance', 'dark');
+export const appearance = persistentWritable<'system' | 'light' | 'dark'>('appearance', 'system');
 
 // Terminal
 export const terminalShell = persistentWritable<string>('terminalShell', ''); // empty = auto-detect
@@ -273,7 +273,7 @@ export function resetSettingsToDefault() {
   uiZoom.set(100);
   formatOnSave.set(true);
   userShortcuts.set(defaultShortcuts);
-  appearance.set('dark');
+  appearance.set('system');
   terminalShell.set('');
   terminalCursorStyle.set('bar');
   terminalScrollback.set(5000);

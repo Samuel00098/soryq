@@ -1047,7 +1047,7 @@
             {/if}
           </div>
           <h3 class="about-name">Soryq</h3>
-          <p class="about-tagline">A lightweight developer workspace</p>
+          <p class="about-tagline">Terminal-first developer workspace</p>
         </div>
 
         <div class="about-rows">
