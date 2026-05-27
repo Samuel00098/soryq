@@ -272,6 +272,7 @@ pub struct SearchResult {
 pub fn workspace_search_codebase(
     project_path: String,
     query: String,
+    state: State<AppState>,
 ) -> Result<Vec<SearchResult>, String> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
@@ -284,6 +285,12 @@ pub fn workspace_search_codebase(
 
     let root = std::fs::canonicalize(&root).map_err(|_| "Invalid project path".to_string())?;
     let root = crate::commands::clean_path_buf(root);
+
+    // Verify the requested path is an open project (prevents arbitrary directory traversal)
+    let projects = state.workspace_manager.list_projects();
+    if !projects.iter().any(|p| root == p.root_path || root.starts_with(&p.root_path)) {
+        return Err("Project path is not an open project".to_string());
+    }
 
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();

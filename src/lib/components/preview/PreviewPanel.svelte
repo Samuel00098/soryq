@@ -7,6 +7,8 @@
     proxyStarted,
     preferredLocalHost,
     currentUrl,
+    previewTabs,
+    activePreviewTabId,
     isConnecting,
     loadProxyState,
     startProxy,
@@ -14,30 +16,32 @@
     setTargetPort,
     ensureProxyRunning,
     setPreferredLocalHost,
-    clearProxyTarget
+    clearProxyTarget,
+    navigatePreviewTab,
+    goBackPreviewTab,
+    goForwardPreviewTab,
+    createPreviewBrowserTab,
+    selectPreviewBrowserTab,
+    closePreviewBrowserTab
   } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
   import { promptBarInput } from '$lib/stores/terminal';
   import { setActiveView } from '$lib/stores/layout';
   import { activeProject } from '$lib/stores/workspace';
 
-  let iframeElement = $state<HTMLIFrameElement>();
+  let iframeElements = $state<Record<string, HTMLIFrameElement | undefined>>({});
   let previewContentEl = $state<HTMLDivElement>();
   let deviceShellEl = $state<HTMLDivElement>();
   let screenshotting = $state(false);
   let tempPort = $state($targetPort);
   let inputUrl = $state($currentUrl);
-  let isLoading = $state(false);
-  let iframeError = $state(false);
-  let slowLoad = $state(false);
   let inspectMode = $state(false);
-
-  let urlHistory = $state<string[]>([]);
-  let urlHistoryIndex = $state(-1);
-  let navigatingHistory = false;
-
-  let canGoBack = $derived(urlHistoryIndex > 0);
-  let canGoForward = $derived(urlHistoryIndex < urlHistory.length - 1);
+  let activeTab = $derived(($previewTabs || []).find((tab) => tab.id === $activePreviewTabId) ?? null);
+  let canGoBack = $derived((activeTab?.historyIndex ?? 0) > 0);
+  let canGoForward = $derived(
+    activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false
+  );
+  let activeIframeSrc = $derived(activeTab ? buildIframeSrc(activeTab.url) : '');
   type ViewportMode = 'responsive' | 'tablet' | 'mobile';
   let viewportMode = $state<ViewportMode>('responsive');
   const VIEWPORT_WIDTHS: Record<ViewportMode, number | null> = {
@@ -69,6 +73,7 @@
   let showConsole = $state(false);
   let consoleLogId = 0;
   let loadFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let tabLoadState = $state<Record<string, { isLoading: boolean; slowLoad: boolean; iframeError: boolean }>>({});
 
   let unsubscribePort: () => void;
   let unsubscribeUrl: () => void;
@@ -117,6 +122,41 @@
     clearLoadFeedbackTimer();
   });
 
+  function ensureTabLoadState(tabId: string) {
+    return (
+      tabLoadState[tabId] ?? {
+        isLoading: false,
+        slowLoad: false,
+        iframeError: false,
+      }
+    );
+  }
+
+  function updateTabLoadState(tabId: string, patch: Partial<{ isLoading: boolean; slowLoad: boolean; iframeError: boolean }>) {
+    tabLoadState = {
+      ...tabLoadState,
+      [tabId]: {
+        ...ensureTabLoadState(tabId),
+        ...patch,
+      },
+    };
+  }
+
+  function getActiveTabLoadState() {
+    return activeTab ? ensureTabLoadState(activeTab.id) : { isLoading: false, slowLoad: false, iframeError: false };
+  }
+
+  function setIframeElement(tabId: string, element: HTMLIFrameElement | null) {
+    iframeElements = {
+      ...iframeElements,
+      [tabId]: element ?? undefined,
+    };
+  }
+
+  function getActiveIframeElement() {
+    return activeTab ? iframeElements[activeTab.id] : undefined;
+  }
+
   // When the user navigates to an external absolute URL, ensure the background
   // proxy server is running (for iframe embedding) but do NOT change proxyStarted.
   // proxyStarted only controls local dev server forwarding.
@@ -164,13 +204,13 @@
       // Stop dev mode — go back to a blank local path so the web panel stays clean
       stopProxy();
       if (!isAbsoluteUrl($currentUrl)) {
-        currentUrl.set('/');
+        navigatePreviewTab('/');
       }
     } else {
       // Start dev mode — navigate to the root of the local dev server
       await clearProxyTarget();
       await startProxy();
-      currentUrl.set('/');
+      navigatePreviewTab('/');
     }
   }
 
@@ -333,15 +373,6 @@
     return /youtube\.com|youtu\.be|youtube-nocookie\.com/i.test(url);
   }
 
-  function pushToHistory(url: string) {
-    if (navigatingHistory) return;
-    if (urlHistory[urlHistoryIndex] === url) return;
-    const newHistory = urlHistory.slice(0, urlHistoryIndex + 1);
-    newHistory.push(url);
-    urlHistory = newHistory;
-    urlHistoryIndex = newHistory.length - 1;
-  }
-
   async function handleNavigate(e: Event) {
     e.preventDefault();
     const normalized = normalizeUrl(inputUrl);
@@ -355,38 +386,30 @@
     } else {
       await setPreferredLocalHost(null);
     }
-    currentUrl.set(normalized);
+    navigatePreviewTab(normalized);
     inputUrl = normalized;
-    pushToHistory(normalized);
     startLoadFeedback();
   }
 
   function goBack() {
     if (!canGoBack) return;
-    navigatingHistory = true;
-    urlHistoryIndex -= 1;
-    const url = urlHistory[urlHistoryIndex];
-    currentUrl.set(url);
-    inputUrl = url;
-    navigatingHistory = false;
+    goBackPreviewTab();
+    inputUrl = $currentUrl;
     startLoadFeedback();
   }
 
   function goForward() {
     if (!canGoForward) return;
-    navigatingHistory = true;
-    urlHistoryIndex += 1;
-    const url = urlHistory[urlHistoryIndex];
-    currentUrl.set(url);
-    inputUrl = url;
-    navigatingHistory = false;
+    goForwardPreviewTab();
+    inputUrl = $currentUrl;
     startLoadFeedback();
   }
 
   function refresh() {
-    if (iframeElement) {
-      startLoadFeedback();
-      iframeElement.src = iframeElement.src;
+    const activeIframe = getActiveIframeElement();
+    if (activeIframe) {
+      startLoadFeedback(activeTab?.id);
+      activeIframe.src = activeIframe.src;
     }
   }
 
@@ -397,14 +420,14 @@
     }
   }
 
-  function startLoadFeedback() {
-    isLoading = true;
-    iframeError = false;
-    slowLoad = false;
+  function startLoadFeedback(tabId = activeTab?.id) {
+    if (!tabId) return;
+    updateTabLoadState(tabId, { isLoading: true, iframeError: false, slowLoad: false });
     clearLoadFeedbackTimer();
     loadFeedbackTimer = setTimeout(() => {
-      if (isLoading) {
-        slowLoad = true;
+      const state = ensureTabLoadState(tabId);
+      if (state.isLoading) {
+        updateTabLoadState(tabId, { slowLoad: true });
       }
     }, 1800);
   }
@@ -419,39 +442,39 @@
   }
 
   function postInspectorState() {
-    if (!iframeElement?.contentWindow) return;
-    iframeElement.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, 'http://127.0.0.1:' + $proxyPort);
+    const activeIframe = getActiveIframeElement();
+    if (!activeIframe?.contentWindow) return;
+    activeIframe.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, 'http://127.0.0.1:' + $proxyPort);
   }
 
-  let iframeSrc = $derived.by(() => {
-    const norm = normalizeUrl($currentUrl);
-    const inspectHash = inspectMode ? '#forge-inspect=1' : '';
+  function buildIframeSrc(url: string) {
+    const norm = normalizeUrl(url);
     if (norm === 'about:blank') {
-      return `${norm}${inspectHash}`;
+      return norm;
     }
     const localDev = parseLocalDevUrl(norm);
     if (localDev) {
-      return `${buildLocalProxyUrl(localDev.path)}${inspectHash}`;
+      return buildLocalProxyUrl(localDev.path);
     }
     // YouTube embeds are more reliable when loaded directly instead of through the local proxy.
     if (isYouTubeUrl(norm) && norm.includes('/embed/')) {
-      return `${norm}${inspectHash}`;
+      return norm;
     }
     // External/absolute URLs: always proxy through background server (needed for iframe embedding)
     if (isAbsoluteUrl(norm)) {
       if ($proxyPort) {
-        return `${buildExternalProxyUrl(norm)}${inspectHash}`;
+        return buildExternalProxyUrl(norm);
       }
       // Background proxy server not yet ready — show blank
       return '';
     }
     // For local/relative URLs, route directly to the local dev server when dev mode is active.
     if ($proxyStarted) {
-      return `${buildLocalProxyUrl(norm)}${inspectHash}`;
+      return buildLocalProxyUrl(norm);
     }
     // Not in dev mode and no external URL — show placeholder
     return '';
-  });
+  }
 
   let protocolBadge = $derived.by(() => {
     const norm = normalizeUrl($currentUrl);
@@ -460,24 +483,25 @@
     return 'DEV';
   });
 
-  let iframeSandbox = $derived.by(() => {
-    const norm = normalizeUrl($currentUrl);
+  function buildIframeSandbox(url: string) {
+    const norm = normalizeUrl(url);
     const base = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin';
     if (isYouTubeUrl(norm)) {
       return `${base} allow-presentation`;
     }
     return base;
-  });
+  }
 
 
 
-  function handleIframeLoad() {
-    isLoading = false;
-    slowLoad = false;
-    iframeError = false;
+  function handleIframeLoad(tabId: string) {
+    updateTabLoadState(tabId, { isLoading: false, slowLoad: false, iframeError: false });
     clearLoadFeedbackTimer();
-    postInspectorState();
+    if (activeTab?.id === tabId) {
+      postInspectorState();
+    }
     try {
+      const iframeElement = iframeElements[tabId];
       if (iframeElement && iframeElement.contentWindow) {
         const href = iframeElement.contentWindow.location.href;
         // Don't overwrite the address bar when loading via our proxy
@@ -486,9 +510,10 @@
           const search = iframeElement.contentWindow.location.search;
           if (path) {
             const newUrl = path + search;
-            currentUrl.set(newUrl);
-            inputUrl = newUrl;
-            pushToHistory(newUrl);
+            if (activeTab?.id === tabId) {
+              navigatePreviewTab(newUrl);
+              inputUrl = newUrl;
+            }
           }
         }
       }
@@ -497,11 +522,9 @@
     }
   }
 
-  function handleIframeError() {
+  function handleIframeError(tabId: string) {
     clearLoadFeedbackTimer();
-    isLoading = false;
-    slowLoad = false;
-    iframeError = true;
+    updateTabLoadState(tabId, { isLoading: false, slowLoad: false, iframeError: true });
   }
 
   function buildElementPrompt(info: SelectedElementInfo): string {
@@ -534,22 +557,27 @@
 
   function handleInspectorMessage(event: MessageEvent) {
     if (!event.data) return;
-    if (event.source !== iframeElement?.contentWindow) return;
+    // Reject messages from any origin other than our proxy server
+    if ($proxyPort === null || event.origin !== `http://127.0.0.1:${$proxyPort}`) return;
+    const sourceTabId = Object.entries(iframeElements).find(([, iframe]) => iframe?.contentWindow === event.source)?.[0];
+    if (!sourceTabId) return;
 
     if (event.data.type === 'forge-preview:console') {
       const payload = event.data.payload || {};
       const level = ['log', 'info', 'warn', 'error', 'debug'].includes(payload.level) ? payload.level : 'log';
-      consoleLogs = [
-        ...consoleLogs.slice(-199),
-        {
-          id: ++consoleLogId,
-          level,
-          message: String(payload.message || ''),
-          url: payload.url,
-          timestamp: payload.timestamp || new Date().toISOString(),
-        },
-      ];
-      if (level === 'error' || level === 'warn') {
+      if (activeTab?.id === sourceTabId) {
+        consoleLogs = [
+          ...consoleLogs.slice(-199),
+          {
+            id: ++consoleLogId,
+            level,
+            message: String(payload.message || ''),
+            url: payload.url,
+            timestamp: payload.timestamp || new Date().toISOString(),
+          },
+        ];
+      }
+      if ((level === 'error' || level === 'warn') && activeTab?.id === sourceTabId) {
         showConsole = true;
       }
       return;
@@ -616,9 +644,67 @@
       screenshotting = false;
     }
   }
+
+  function openNewTab() {
+    createPreviewBrowserTab('/');
+    inputUrl = '/';
+    startLoadFeedback();
+  }
+
+  function activateTab(tabId: string) {
+    selectPreviewBrowserTab(tabId);
+    inputUrl = $currentUrl;
+    selectedElementInfo = null;
+  }
+
+  function closeTab(event: MouseEvent, tabId: string) {
+    event.stopPropagation();
+    closePreviewBrowserTab(tabId);
+    inputUrl = $currentUrl;
+  }
+
+  function handleCloseTabKeydown(event: KeyboardEvent, tabId: string) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePreviewBrowserTab(tabId);
+    inputUrl = $currentUrl;
+  }
 </script>
 
 <div class="preview-panel">
+  <div class="preview-tabs">
+    <div class="preview-tab-list">
+      {#each $previewTabs as tab (tab.id)}
+        <button
+          class="preview-tab"
+          class:active={tab.id === $activePreviewTabId}
+          onclick={() => activateTab(tab.id)}
+          title={tab.url}
+        >
+          <span class="preview-tab-title">{tab.title}</span>
+          <span
+            class="preview-tab-close"
+            role="button"
+            tabindex="0"
+            onclick={(event) => closeTab(event, tab.id)}
+            onkeydown={(event) => handleCloseTabKeydown(event, tab.id)}
+            aria-label="Close {tab.title}"
+          >
+            ×
+          </span>
+        </button>
+      {/each}
+    </div>
+
+    <button class="preview-tab-add" onclick={openNewTab} title="New preview tab" aria-label="New preview tab">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+    </button>
+  </div>
+
   <div class="browser-bar">
     <div class="nav-controls">
       <button class="nav-btn" onclick={goBack} disabled={!canGoBack} title="Back">
@@ -631,7 +717,7 @@
           <polyline points="9 18 15 12 9 6"/>
         </svg>
       </button>
-      <button class="nav-btn {isLoading ? 'spinning' : ''}" onclick={refresh} title="Refresh">
+      <button class="nav-btn {getActiveTabLoadState().isLoading ? 'spinning' : ''}" onclick={refresh} title="Refresh">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8"/>
           <path d="M21 3v5h-5"/>
@@ -815,13 +901,13 @@
     </div>
   </div>
 
-  {#if isLoading}
+  {#if getActiveTabLoadState().isLoading}
     <div class="loading-bar">
       <div class="loading-progress"></div>
     </div>
   {/if}
 
-  {#if slowLoad}
+  {#if getActiveTabLoadState().slowLoad}
     <div class="preview-status-banner">
       <span>
         {$currentUrl.startsWith('http://localhost') || $currentUrl.startsWith('http://127.0.0.1') || $currentUrl.startsWith('http://0.0.0.0')
@@ -831,7 +917,7 @@
     </div>
   {/if}
 
-  {#if iframeError}
+  {#if getActiveTabLoadState().iframeError}
     <div class="preview-status-banner error">
       <span>Preview failed to load. Check that the local dev server is running and reachable on port {$targetPort}.</span>
     </div>
@@ -882,22 +968,30 @@
   {/if}
 
   <div class="preview-content" class:viewport-constrained={viewportMode !== 'responsive'} bind:this={previewContentEl}>
-    {#if iframeSrc}
+    {#if activeIframeSrc}
       {#if viewportMode !== 'responsive'}
         <div class="device-shell" class:is-mobile={viewportMode === 'mobile'} class:is-tablet={viewportMode === 'tablet'} bind:this={deviceShellEl}>
           <div class="device-notch"></div>
           <div class="device-screen">
-            <iframe
-              bind:this={iframeElement}
-              src={iframeSrc}
-              title="Web Preview"
-              class="preview-iframe"
-              onload={handleIframeLoad}
-              onerror={handleIframeError}
-              allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
-              sandbox={iframeSandbox}
-              allowfullscreen
-            ></iframe>
+            <div class="preview-frame-stack">
+              {#each $previewTabs as tab (tab.id)}
+                {@const tabSrc = buildIframeSrc(tab.url)}
+                {#if tabSrc}
+                  <iframe
+                    bind:this={iframeElements[tab.id]}
+                    src={tabSrc}
+                    title="Web Preview"
+                    class="preview-iframe"
+                    class:is-active={tab.id === $activePreviewTabId}
+                    onload={() => handleIframeLoad(tab.id)}
+                    onerror={() => handleIframeError(tab.id)}
+                    allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
+                  sandbox={buildIframeSandbox(tab.url)}
+                    allowfullscreen
+                  ></iframe>
+                {/if}
+              {/each}
+            </div>
           </div>
           <div class="device-home"></div>
           <span class="device-label">
@@ -905,17 +999,25 @@
           </span>
         </div>
       {:else}
-        <iframe
-          bind:this={iframeElement}
-          src={iframeSrc}
-          title="Web Preview"
-          class="preview-iframe"
-          onload={handleIframeLoad}
-          onerror={handleIframeError}
-          allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
-          sandbox={iframeSandbox}
-          allowfullscreen
-        ></iframe>
+        <div class="preview-frame-stack">
+          {#each $previewTabs as tab (tab.id)}
+            {@const tabSrc = buildIframeSrc(tab.url)}
+            {#if tabSrc}
+            <iframe
+              bind:this={iframeElements[tab.id]}
+                src={tabSrc}
+                title="Web Preview"
+                class="preview-iframe"
+                class:is-active={tab.id === $activePreviewTabId}
+                onload={() => handleIframeLoad(tab.id)}
+                onerror={() => handleIframeError(tab.id)}
+                allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
+              sandbox={buildIframeSandbox(tab.url)}
+                allowfullscreen
+              ></iframe>
+            {/if}
+          {/each}
+        </div>
       {/if}
     {:else}
       <div class="proxy-placeholder">
@@ -928,7 +1030,7 @@
         <h3>Web Preview</h3>
         <p>Type any URL in the address bar to browse the web, or click <strong>Dev: Off</strong> to preview your local dev server running on port {$targetPort}.</p>
         <div class="placeholder-actions">
-          <button class="action-btn web-btn" onclick={() => { currentUrl.set('https://www.google.com'); inputUrl = 'https://www.google.com'; }}
+          <button class="action-btn web-btn" onclick={() => { navigatePreviewTab('https://www.google.com'); inputUrl = 'https://www.google.com'; }}
             title="Open browser">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
@@ -983,6 +1085,105 @@
     background: var(--bg-primary);
     overflow: hidden;
     container-type: inline-size;
+  }
+
+  .preview-tabs {
+    height: 36px;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px 0 10px;
+    flex-shrink: 0;
+  }
+
+  .preview-tab-list {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .preview-tab-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .preview-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 220px;
+    height: 28px;
+    padding: 0 8px 0 10px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .preview-tab:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .preview-tab.active {
+    background: var(--bg-primary);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+
+  .preview-tab-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+  }
+
+  .preview-tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .preview-tab-close:hover {
+    background: rgba(248, 113, 113, 0.12);
+    color: var(--error);
+  }
+
+  .preview-tab-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .preview-tab-add:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   }
 
   /* Browser bar */
@@ -1125,13 +1326,13 @@
   }
 
   .port-input {
-    width: 54px;
-    height: 28px;
+    width: 62px;
+    height: 32px;
     background: var(--bg-primary);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-primary);
-    font-size: 11px;
+    font-size: 11.5px;
     text-align: center;
     outline: none;
     font-family: inherit;
@@ -1146,8 +1347,8 @@
   .port-input:focus { border-color: var(--accent); }
 
   .detect-btn {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     flex-shrink: 0;
   }
 
@@ -1155,7 +1356,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    height: 28px;
+    height: 32px;
     padding: 0 10px;
     border-radius: 6px;
     font-size: 11px;
@@ -1278,12 +1479,29 @@
     background: var(--bg-hover);
   }
 
+  .preview-frame-stack {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
   .preview-iframe {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     border: none;
     background: #ffffff;
     display: block;
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  .preview-iframe.is-active {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
   }
 
   .preview-console {
@@ -1411,6 +1629,12 @@
     background: var(--bg-primary);
     color: var(--text-primary);
     gap: 12px;
+  }
+
+  .proxy-placeholder.overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
   }
 
   .placeholder-globe { margin-bottom: 4px; }
@@ -1722,7 +1946,16 @@
     border: none;
   }
 
+  .device-screen .preview-frame-stack {
+    width: 100%;
+    height: 750px;
+  }
+
   .device-shell.is-tablet .device-screen .preview-iframe {
+    height: 960px;
+  }
+
+  .device-shell.is-tablet .device-screen .preview-frame-stack {
     height: 960px;
   }
 
@@ -1758,6 +1991,15 @@
 
   /* Container queries for responsive toolbar */
   @container (max-width: 480px) {
+    .preview-tabs {
+      padding-inline: 8px;
+      gap: 6px;
+    }
+
+    .preview-tab {
+      max-width: 150px;
+    }
+
     .browser-bar {
       height: auto;
       min-height: 42px;
@@ -1789,6 +2031,10 @@
   }
 
   @container (max-width: 380px) {
+    .preview-tab {
+      max-width: 110px;
+    }
+
     .protocol-badge {
       display: none;
     }

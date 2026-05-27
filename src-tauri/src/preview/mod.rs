@@ -221,7 +221,7 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
             page: { url: location.href, title: document.title },
             rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
         };
-        parent.postMessage({ type: 'forge-inspector:selected', payload: state.selected }, '*');
+        parent.postMessage({ type: 'forge-inspector:selected', payload: state.selected }, window.location.origin);
     }, true);
 
     window.addEventListener('message', (event) => {
@@ -266,15 +266,15 @@ impl PreviewManager {
     }
 
     pub fn start_proxy(&self) -> Result<u16, String> {
-        let mut shutdown_tx_lock = self.shutdown_tx.lock().unwrap();
+        let mut shutdown_tx_lock = self.shutdown_tx.lock().unwrap_or_else(|e| e.into_inner());
         if shutdown_tx_lock.is_some() {
-            if let Some(port) = *self.proxy_port.lock().unwrap() {
+            if let Some(port) = *self.proxy_port.lock().unwrap_or_else(|e| e.into_inner()) {
                 return Ok(port);
             }
         }
 
         let proxy_port = get_free_port().ok_or_else(|| "Could not find a free port".to_string())?;
-        *self.proxy_port.lock().unwrap() = Some(proxy_port);
+        *self.proxy_port.lock().unwrap_or_else(|e| e.into_inner()) = Some(proxy_port);
 
         let (tx, rx) = oneshot::channel::<()>();
         *shutdown_tx_lock = Some(tx);
@@ -342,39 +342,39 @@ impl PreviewManager {
     }
 
     pub fn stop_proxy(&self) -> Result<(), String> {
-        let mut shutdown_tx = self.shutdown_tx.lock().unwrap();
+        let mut shutdown_tx = self.shutdown_tx.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(tx) = shutdown_tx.take() {
             let _ = tx.send(());
         }
-        *self.proxy_port.lock().unwrap() = None;
+        *self.proxy_port.lock().unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
     }
 
     pub fn set_target_port(&self, port: u16) -> Result<(), String> {
-        *self.target_port.lock().unwrap() = port;
+        *self.target_port.lock().unwrap_or_else(|e| e.into_inner()) = port;
         Ok(())
     }
 
     pub fn get_target_port(&self) -> u16 {
-        *self.target_port.lock().unwrap()
+        *self.target_port.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set_preferred_local_host(&self, host: Option<String>) -> Result<(), String> {
         let normalized = host
             .map(|value| value.trim().to_ascii_lowercase())
             .filter(|value| matches!(value.as_str(), "127.0.0.1" | "localhost" | "0.0.0.0"));
-        *self.preferred_local_host.lock().unwrap() = normalized;
+        *self.preferred_local_host.lock().unwrap_or_else(|e| e.into_inner()) = normalized;
         Ok(())
     }
 
     pub fn get_proxy_port(&self) -> Option<u16> {
-        *self.proxy_port.lock().unwrap()
+        *self.proxy_port.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn clear_proxy_target(&self) -> Result<(), String> {
-        let active_project = self.active_project_id.read().unwrap().clone();
+        let active_project = self.active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(project_id) = active_project {
-            let mut origins = self.active_external_origins.lock().unwrap();
+            let mut origins = self.active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
             origins.insert(project_id, None);
         }
         Ok(())
@@ -433,7 +433,16 @@ fn is_private_target(url: &str) -> bool {
                             || v4.is_multicast()
                             || v4.octets()[0] == 169 && v4.octets()[1] == 254
                     }
-                    std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_multicast() || v6.is_unspecified(),
+                    std::net::IpAddr::V6(v6) => {
+                        let segs = v6.segments();
+                        v6.is_loopback()
+                            || v6.is_multicast()
+                            || v6.is_unspecified()
+                            // ULA: fc00::/7
+                            || (segs[0] & 0xfe00) == 0xfc00
+                            // Link-local: fe80::/10
+                            || (segs[0] & 0xffc0) == 0xfe80
+                    }
                 };
             }
         }
@@ -451,7 +460,28 @@ fn is_loopback_target(url: &str) -> bool {
 }
 
 fn is_restricted_port(port: u16) -> bool {
-    matches!(port, 22 | 23 | 25 | 53 | 110 | 135 | 139 | 143 | 445 | 993 | 995 | 3306 | 3389 | 5432 | 6379 | 27017)
+    matches!(port,
+        22     // SSH
+        | 23   // Telnet
+        | 25   // SMTP
+        | 53   // DNS
+        | 110  // POP3
+        | 135  // RPC
+        | 139  // NetBIOS
+        | 143  // IMAP
+        | 445  // SMB
+        | 993  // IMAPS
+        | 995  // POP3S
+        | 2375 // Docker daemon (unauthenticated)
+        | 3306 // MySQL
+        | 3389 // RDP
+        | 5432 // PostgreSQL
+        | 6379 // Redis
+        | 6443 // Kubernetes API
+        | 8500 // Consul
+        | 9090 // Prometheus
+        | 27017 // MongoDB
+    )
 }
 
 fn local_dev_hosts(preferred_host: Option<&str>) -> Vec<&'static str> {
@@ -470,8 +500,8 @@ async fn proxy_handler(
     req: Request<Body>,
 ) -> Response<Body> {
     let (mut parts, body) = req.into_parts();
-    let target_port = *state.target_port.lock().unwrap();
-    let preferred_local_host = state.preferred_local_host.lock().unwrap().clone();
+    let target_port = *state.target_port.lock().unwrap_or_else(|e| e.into_inner());
+    let preferred_local_host = state.preferred_local_host.lock().unwrap_or_else(|e| e.into_inner()).clone();
 
     let path = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/").to_string();
 
@@ -539,9 +569,9 @@ async fn proxy_handler(
                     origin_to_store = Some(origin);
                 }
                 
-                let active_project = state.active_project_id.read().unwrap().clone();
+                let active_project = state.active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
                 if let Some(ref project_id) = active_project {
-                    let mut origins = state.active_external_origins.lock().unwrap();
+                    let mut origins = state.active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
                     origins.insert(project_id.clone(), origin_to_store.clone());
                 }
                 
@@ -565,9 +595,9 @@ async fn proxy_handler(
     }
 
     // Check if we have active external origin
-    let active_project = state.active_project_id.read().unwrap().clone();
+    let active_project = state.active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
     let opt_origin = if let Some(ref project_id) = active_project {
-        let origins = state.active_external_origins.lock().unwrap();
+        let origins = state.active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
         origins.get(project_id).cloned().flatten()
     } else {
         None
@@ -723,9 +753,9 @@ async fn proxy_external_url(
                 None => format!("{}://{}", scheme, host),
             };
             
-            let active_project = active_project_id.read().unwrap().clone();
+            let active_project = active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
             if let Some(project_id) = active_project {
-                let mut origins = active_external_origins.lock().unwrap();
+                let mut origins = active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
                 origins.insert(project_id, Some(origin));
             }
 
