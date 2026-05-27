@@ -28,14 +28,18 @@
   let isListening = $state(false);
   let broadcastAgents = $state(false);
   let shellEl = $state<HTMLDivElement | null>(null);
+  let barEl = $state<HTMLDivElement | null>(null);
+  let draggedExplorerPath = $state<string | null>(null);
+  let lastExplorerDragPoint = $state<{ x: number; y: number } | null>(null);
   let isHovered = $state(false);
   let isFocused = $state(false);
   let isDragOver = $state(false);
+  let isGlobalFileDrag = $state(false);
   // Manually-pinned target session ID — overrides auto-selection when set
   let manualTargetId = $state<number | null>(null);
   let targetPickerOpen = $state(false);
   let isActive = $derived(
-    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents || isDragOver || isGlobalFileDrag
+    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag)
   );
 
   type PastedImage = { objectUrl: string; dataUrl: string; name: string };
@@ -348,6 +352,79 @@
     }
   }
 
+  function attachPathsToInput(paths: string[]) {
+    if (!paths.length) return;
+
+    const formatted = paths
+      .map((path) => path.trim())
+      .filter(Boolean)
+      .map((path) => (path.includes(' ') ? `"${path}"` : path))
+      .join(' ');
+
+    if (!formatted) return;
+
+    inputValue = inputValue ? `${inputValue} ${formatted}` : formatted;
+    historyOpen = false;
+    targetPickerOpen = false;
+    resetHistoryCursor();
+    requestAnimationFrame(() => {
+      adjustInputHeight();
+      inputEl?.focus();
+      inputEl?.setSelectionRange(inputValue.length, inputValue.length);
+    });
+  }
+
+  function isPointInsideBar(clientX: number, clientY: number) {
+    if (!barEl || typeof document === 'undefined') return false;
+    const hovered = document.elementsFromPoint(clientX, clientY) as HTMLElement[];
+    return hovered.some((el) => el === barEl || el.closest('.floating-prompt-bar') === barEl);
+  }
+
+  function updateExplorerDragPoint(clientX: number, clientY: number) {
+    if (clientX < 0 || clientY < 0) return false;
+    lastExplorerDragPoint = { x: clientX, y: clientY };
+    isDragOver = isPointInsideBar(clientX, clientY);
+    return isDragOver;
+  }
+
+  function handleInternalDragOver(event: DragEvent) {
+    if (!draggedExplorerPath) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+    updateExplorerDragPoint(event.clientX, event.clientY);
+  }
+
+  function handleInternalDragEnter(event: DragEvent) {
+    if (!draggedExplorerPath) return;
+    event.preventDefault();
+    updateExplorerDragPoint(event.clientX, event.clientY);
+  }
+
+  function handleInternalDragLeave(event: DragEvent) {
+    if (!draggedExplorerPath) return;
+    event.preventDefault();
+  }
+
+  function handleInternalDrop(event: DragEvent) {
+    const droppedPath =
+      draggedExplorerPath ||
+      event.dataTransfer?.getData('application/x-devdock-path')?.trim() ||
+      event.dataTransfer?.getData('text/plain')?.trim() ||
+      null;
+
+    if (!droppedPath) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    updateExplorerDragPoint(event.clientX, event.clientY);
+    isDragOver = false;
+    attachPathsToInput([droppedPath]);
+    draggedExplorerPath = null;
+    lastExplorerDragPoint = null;
+  }
+
   $effect(() => {
     const text = $promptBarInput;
     if (text) {
@@ -408,19 +485,88 @@
     toggleVoiceInput();
   }
 
-  // Track whether the user is dragging files anywhere over the window
-  let isGlobalFileDrag = $state(false);
+  function handleExplorerDragStart(event: Event) {
+    const custom = event as CustomEvent<{ path?: string }>;
+    draggedExplorerPath = custom.detail?.path?.trim() || null;
+    lastExplorerDragPoint = null;
+    isDragOver = false;
+    isGlobalFileDrag = false;
+  }
+
+  function handleExplorerDragMove(event: Event) {
+    const custom = event as CustomEvent<{ clientX?: number; clientY?: number }>;
+    if (!draggedExplorerPath) return;
+    updateExplorerDragPoint(custom.detail?.clientX ?? -1, custom.detail?.clientY ?? -1);
+  }
+
+  function handleExplorerDragEnd(event: Event) {
+    const custom = event as CustomEvent<{ path?: string; clientX?: number; clientY?: number }>;
+    const endedPath = custom.detail?.path?.trim() || draggedExplorerPath;
+    const droppedOverBar =
+      typeof custom.detail?.clientX === 'number' && typeof custom.detail?.clientY === 'number'
+        ? updateExplorerDragPoint(custom.detail.clientX, custom.detail.clientY)
+        : lastExplorerDragPoint
+          ? isPointInsideBar(lastExplorerDragPoint.x, lastExplorerDragPoint.y)
+          : isDragOver;
+
+    if (endedPath && droppedOverBar) {
+      draggedExplorerPath = endedPath;
+      attachPathsToInput([draggedExplorerPath]);
+    }
+    draggedExplorerPath = null;
+    lastExplorerDragPoint = null;
+    isDragOver = false;
+  }
+
+  function handleDocumentDragOver(event: DragEvent) {
+    if (!draggedExplorerPath) return;
+    const overBar = updateExplorerDragPoint(event.clientX, event.clientY);
+    if (overBar) {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy';
+      }
+    }
+  }
+
+  function handleDocumentDrop(event: DragEvent) {
+    const droppedPath =
+      draggedExplorerPath ||
+      event.dataTransfer?.getData('application/x-devdock-path')?.trim() ||
+      event.dataTransfer?.getData('text/plain')?.trim() ||
+      null;
+
+    if (!droppedPath) return;
+    const overBar = updateExplorerDragPoint(event.clientX, event.clientY);
+    if (overBar) {
+      event.preventDefault();
+      event.stopPropagation();
+      attachPathsToInput([droppedPath]);
+    }
+    draggedExplorerPath = null;
+    lastExplorerDragPoint = null;
+    isDragOver = false;
+  }
 
   $effect(() => {
     if (typeof document === 'undefined') return;
     document.addEventListener('mousedown', handleDocumentPointerDown);
     document.addEventListener('keydown', handleGlobalVoiceShortcut);
+    document.addEventListener('dragover', handleDocumentDragOver);
+    document.addEventListener('drop', handleDocumentDrop);
+    window.addEventListener('devdock-explorer-drag-start', handleExplorerDragStart as EventListener);
+    window.addEventListener('devdock-explorer-drag-move', handleExplorerDragMove as EventListener);
+    window.addEventListener('devdock-explorer-drag-end', handleExplorerDragEnd);
 
     // Tauri v2 intercepts OS file drops before HTML5 events reach the webview.
     // Use getCurrentWindow().onDragDropEvent() — the correct Tauri v2 API.
     let unlistenDragDrop: (() => void) | undefined;
 
     getCurrentWindow().onDragDropEvent((event) => {
+      if (draggedExplorerPath) {
+        return;
+      }
+
       const type = event.payload.type;
 
       if (type === 'enter') {
@@ -428,16 +574,16 @@
         return;
       }
 
-      if (type === 'leave' || type === 'cancel') {
+      if (type === 'leave') {
         isGlobalFileDrag = false;
         isDragOver = false;
         return;
       }
 
       if (type === 'over') {
-        if (!shellEl) return;
+        if (!barEl) return;
         const pos = (event.payload as any).position as { x: number; y: number };
-        const rect = shellEl.getBoundingClientRect();
+        const rect = barEl.getBoundingClientRect();
         isDragOver = pos.x >= rect.left && pos.x <= rect.right && pos.y >= rect.top && pos.y <= rect.bottom;
         return;
       }
@@ -447,31 +593,27 @@
         const payload = event.payload as any;
         const paths: string[] = payload.paths ?? [];
 
-        if (!shellEl || !paths.length) { isDragOver = false; return; }
+        if (!barEl || !paths.length) { isDragOver = false; return; }
 
         const pos = payload.position as { x: number; y: number };
-        const rect = shellEl.getBoundingClientRect();
+        const rect = barEl.getBoundingClientRect();
         const isOverBar = pos.x >= rect.left && pos.x <= rect.right && pos.y >= rect.top && pos.y <= rect.bottom;
 
         isDragOver = false;
         if (!isOverBar) return;
 
-        const formatted = paths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
-        inputValue = inputValue ? `${inputValue} ${formatted}` : formatted;
-        historyOpen = false;
-        targetPickerOpen = false;
-        resetHistoryCursor();
-        requestAnimationFrame(() => {
-          adjustInputHeight();
-          inputEl?.focus();
-          inputEl?.setSelectionRange(inputValue.length, inputValue.length);
-        });
+        attachPathsToInput(paths);
       }
     }).then((u) => { unlistenDragDrop = u; });
 
     return () => {
       document.removeEventListener('mousedown', handleDocumentPointerDown);
       document.removeEventListener('keydown', handleGlobalVoiceShortcut);
+      document.removeEventListener('dragover', handleDocumentDragOver);
+      document.removeEventListener('drop', handleDocumentDrop);
+      window.removeEventListener('devdock-explorer-drag-start', handleExplorerDragStart as EventListener);
+      window.removeEventListener('devdock-explorer-drag-move', handleExplorerDragMove as EventListener);
+      window.removeEventListener('devdock-explorer-drag-end', handleExplorerDragEnd);
       unlistenDragDrop?.();
     };
   });
@@ -492,15 +634,20 @@
     {/if}
 
     <div class="floating-prompt-bar"
+      bind:this={barEl}
       class:disabled={!canSend}
       class:drag-over={isDragOver}
       class:global-drag={isGlobalFileDrag && !isDragOver}
+      ondragenter={handleInternalDragEnter}
+      ondragover={handleInternalDragOver}
+      ondragleave={handleInternalDragLeave}
+      ondrop={handleInternalDrop}
       onmouseenter={() => isHovered = true}
       onmouseleave={() => isHovered = false}
       onfocusin={() => isFocused = true}
       onfocusout={() => isFocused = false}
     >
-      {#if isGlobalFileDrag}
+      {#if draggedExplorerPath ? isDragOver : (isGlobalFileDrag || isDragOver)}
         <div class="drop-overlay">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -713,6 +860,7 @@
   }
 
   .floating-prompt-bar {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -749,7 +897,7 @@
     font-size: 12px;
     font-weight: 500;
     color: var(--accent);
-    pointer-events: all;
+    pointer-events: none;
     z-index: 5;
     background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
     backdrop-filter: blur(6px);

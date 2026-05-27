@@ -5,8 +5,22 @@
   import { toggleNode, selectedPath, showContextMenu } from '$lib/stores/explorer';
 
   export let node: FileNodeType;
+  const DRAG_THRESHOLD = 6;
+  let pendingDrag:
+    | {
+        path: string;
+        startX: number;
+        startY: number;
+        active: boolean;
+      }
+    | null = null;
+  let suppressClick = false;
 
   async function handleClick() {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     await toggleNode(node);
   }
 
@@ -21,12 +35,69 @@
     showContextMenu(e, node.entry.path, node.entry.is_dir);
   }
 
-  function handleDragStart(e: DragEvent) {
-    e.dataTransfer?.setData('text/plain', node.entry.path);
+  function cleanupPointerDrag() {
+    window.removeEventListener('mousemove', handleWindowMouseMove);
+    window.removeEventListener('mouseup', handleWindowMouseUp);
+    pendingDrag = null;
   }
 
-  function handleDragOver(e: DragEvent) {
-    e.preventDefault();
+  function handleMouseDown(event: MouseEvent) {
+    if (event.button !== 0) return;
+    pendingDrag = {
+      path: node.entry.path,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false
+    };
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+  }
+
+  function handleWindowMouseMove(event: MouseEvent) {
+    if (!pendingDrag) return;
+    const deltaX = event.clientX - pendingDrag.startX;
+    const deltaY = event.clientY - pendingDrag.startY;
+    const movedEnough = Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD;
+
+    if (!pendingDrag.active && !movedEnough) {
+      return;
+    }
+
+    if (!pendingDrag.active) {
+      pendingDrag.active = true;
+      suppressClick = true;
+      window.dispatchEvent(new CustomEvent('devdock-explorer-drag-start', {
+        detail: { path: pendingDrag.path }
+      }));
+    }
+
+    window.dispatchEvent(new CustomEvent('devdock-explorer-drag-move', {
+      detail: {
+        path: pendingDrag.path,
+        clientX: event.clientX,
+        clientY: event.clientY
+      }
+    }));
+  }
+
+  function handleWindowMouseUp(event: MouseEvent) {
+    if (!pendingDrag) return;
+    const completedDrag = pendingDrag;
+    cleanupPointerDrag();
+
+    if (!completedDrag.active) return;
+
+    event.preventDefault();
+    window.dispatchEvent(new CustomEvent('devdock-explorer-drag-end', {
+      detail: {
+        path: completedDrag.path,
+        clientX: event.clientX,
+        clientY: event.clientY
+      }
+    }));
+    requestAnimationFrame(() => {
+      suppressClick = false;
+    });
   }
 </script>
 
@@ -40,7 +111,6 @@
     onclick={handleClick}
     onkeydown={handleKeydown}
     oncontextmenu={handleContextMenu}
-    ondragover={handleDragOver}
     role="treeitem"
     aria-expanded={node.expanded}
     aria-selected={$selectedPath === node.entry.path}
@@ -76,10 +146,9 @@
     class:selected={$selectedPath === node.entry.path}
     style="padding-left: {node.depth * 16 + 8}px"
     onclick={handleClick}
+    onmousedown={handleMouseDown}
     onkeydown={handleKeydown}
     oncontextmenu={handleContextMenu}
-    draggable="true"
-    ondragstart={handleDragStart}
     role="treeitem"
     aria-selected={$selectedPath === node.entry.path}
     tabindex="0"
