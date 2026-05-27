@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { loadJson } from '$lib/utils/storage';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export type BodyType = 'none' | 'json' | 'text' | 'form';
@@ -26,7 +27,7 @@ export interface HttpResponse {
   ok: boolean;
 }
 
-const STORAGE_KEY = 'devdock_http_requests';
+const STORAGE_KEY = 'soryq_http_requests';
 
 // Header keys whose values are masked before writing to localStorage.
 // In-memory values stay intact; only the persisted copy is masked so tokens
@@ -45,7 +46,7 @@ function maskSensitiveHeaders(requests: HttpRequest[]): HttpRequest[] {
 }
 
 function load(): HttpRequest[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+  return loadJson(STORAGE_KEY, [] as HttpRequest[]);
 }
 
 export const savedRequests = writable<HttpRequest[]>(load());

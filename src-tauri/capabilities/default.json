@@ -15,48 +15,48 @@
     {
       "identifier": "fs:default",
       "allow": [
-        { "path": "$APPDATA/devdock/**" }
+        { "path": "$APPDATA/soryq/**" }
       ]
     },
     {
       "identifier": "fs:allow-read",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-write",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-exists",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-mkdir",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-read-dir",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-remove",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-rename",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     {
       "identifier": "fs:allow-copy-file",
-      "allow": [{ "path": "$APPDATA/devdock/**" }]
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     "dialog:default",
     "dialog:allow-open"

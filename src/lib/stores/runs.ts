@@ -1,4 +1,5 @@
 import { writable, derived } from 'svelte/store';
+import { loadJson } from '$lib/utils/storage';
 
 export interface QuickRun {
   id: string;
@@ -8,15 +9,10 @@ export interface QuickRun {
   isPreset?: boolean;
 }
 
-const STORAGE_KEY = 'devdock_runs';
+const STORAGE_KEY = 'soryq_runs';
 
 function load(): QuickRun[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  return loadJson(STORAGE_KEY, [] as QuickRun[]);
 }
 
 export const quickRuns = writable<QuickRun[]>(load());

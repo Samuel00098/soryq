@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { loadJson } from '$lib/utils/storage';
 
 export interface RunEntry {
   id: string;
@@ -14,7 +15,7 @@ export interface RunEntry {
   output: string;
 }
 
-const STORAGE_KEY = 'devdock_run_history';
+const STORAGE_KEY = 'soryq_run_history';
 const MAX_ENTRIES = 200;
 
 // Redact common secret patterns from command strings before persistence.
@@ -31,10 +32,7 @@ function scrubSecrets(cmd: string): string {
 }
 
 function load(): RunEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+  return loadJson(STORAGE_KEY, [] as RunEntry[]);
 }
 
 export const runHistory = writable<RunEntry[]>(load());

@@ -66,12 +66,12 @@
     if (!pendingDrag.active) {
       pendingDrag.active = true;
       suppressClick = true;
-      window.dispatchEvent(new CustomEvent('devdock-explorer-drag-start', {
+      window.dispatchEvent(new CustomEvent('soryq-explorer-drag-start', {
         detail: { path: pendingDrag.path }
       }));
     }
 
-    window.dispatchEvent(new CustomEvent('devdock-explorer-drag-move', {
+    window.dispatchEvent(new CustomEvent('soryq-explorer-drag-move', {
       detail: {
         path: pendingDrag.path,
         clientX: event.clientX,
@@ -88,7 +88,7 @@
     if (!completedDrag.active) return;
 
     event.preventDefault();
-    window.dispatchEvent(new CustomEvent('devdock-explorer-drag-end', {
+    window.dispatchEvent(new CustomEvent('soryq-explorer-drag-end', {
       detail: {
         path: completedDrag.path,
         clientX: event.clientX,

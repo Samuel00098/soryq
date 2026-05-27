@@ -10,9 +10,9 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("devdock");
+    let base_config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let config_dir = base_config_dir.join("soryq");
 
     std::fs::create_dir_all(&config_dir).ok();
 

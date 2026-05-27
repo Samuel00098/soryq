@@ -1,4 +1,5 @@
 import { writable, derived } from 'svelte/store';
+import { loadJson } from '$lib/utils/storage';
 
 export type TaskStatus = 'todo' | 'doing' | 'done';
 
@@ -10,15 +11,10 @@ export interface Task {
   createdAt: number;
 }
 
-const STORAGE_KEY = 'devdock_tasks';
+const STORAGE_KEY = 'soryq_tasks';
 
 function loadTasks(): Task[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  return loadJson(STORAGE_KEY, [] as Task[]);
 }
 
 function saveTasks(tasks: Task[]) {

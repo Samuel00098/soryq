@@ -38,10 +38,21 @@
     // Save project state before the window closes — use Tauri's close-request hook
     // which fires reliably on all platforms (beforeunload is unreliable on macOS/Tauri).
     let unlistenClose: (() => void) | undefined;
+    let isClosing = false;
     getCurrentWindow().onCloseRequested(async (event) => {
+      if (isClosing) {
+        return;
+      }
+
       event.preventDefault();
+      isClosing = true;
       const projectId = get(activeProjectId);
       if (projectId) saveProjectState(projectId);
+
+      // Remove the listener before destroying the window so the forced close
+      // does not re-enter this handler and leave the app stuck open.
+      unlistenClose?.();
+      unlistenClose = undefined;
       await getCurrentWindow().destroy();
     }).then((u) => { unlistenClose = u; });
 

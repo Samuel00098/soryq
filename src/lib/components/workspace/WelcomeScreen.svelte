@@ -86,7 +86,7 @@
   <header class="header">
     <div class="logo-wrap">
       {#if !iconError}
-        <img src="/icon.png?v=2" alt="DevDock" class="logo-img" onerror={() => iconError = true} />
+        <img src="/icon.png?v=2" alt="Soryq" class="logo-img" onerror={() => iconError = true} />
       {:else}
         <svg width="36" height="36" viewBox="0 0 36 36" fill="none" class="logo-fallback">
           <rect width="36" height="36" rx="8" fill="#1e1b4b"/>
@@ -97,7 +97,7 @@
       {/if}
     </div>
     <div class="header-text">
-      <h1 class="app-name">DevDock</h1>
+      <h1 class="app-name">Soryq</h1>
       <p class="app-tagline">Terminal-first developer workspace</p>
     </div>
   </header>

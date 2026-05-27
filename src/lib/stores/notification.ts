@@ -25,10 +25,10 @@ function showDesktopNotification(message: string, type: Toast['type']) {
   if (Notification.permission !== 'granted') return;
 
   const titles: Record<Toast['type'], string> = {
-    error:   'DevDock — Error',
-    warning: 'DevDock — Warning',
-    success: 'DevDock — Done',
-    info:    'DevDock',
+    error:   'Soryq — Error',
+    warning: 'Soryq — Warning',
+    success: 'Soryq — Done',
+    info:    'Soryq',
   };
 
   try {

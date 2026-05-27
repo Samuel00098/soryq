@@ -41,8 +41,8 @@
     
     try {
       updateStatus = 'latest';
-      updateMessage = 'DevDock is up to date!';
-      showToast('DevDock is up to date!', 'success');
+      updateMessage = 'Soryq is up to date!';
+      showToast('Soryq is up to date!', 'success');
     } catch (err) {
       updateStatus = 'error';
       updateMessage = 'Failed to check for updates.';
@@ -669,7 +669,7 @@
           <div class="toggle-row">
             <div class="toggle-info">
               <span class="toggle-label">Desktop notifications</span>
-              <span class="toggle-desc">Show system notifications for agent activity, process exits, and attention requests — even when DevDock is in the background.</span>
+              <span class="toggle-desc">Show system notifications for agent activity, process exits, and attention requests — even when Soryq is in the background.</span>
             </div>
             <button
               class="toggle"
@@ -1035,7 +1035,7 @@
             {#if !iconError}
               <img
                 src="/icon.png?v=2"
-                alt="DevDock"
+                alt="Soryq"
                 class="about-app-icon"
                 onerror={() => iconError = true}
               />
@@ -1046,7 +1046,7 @@
               </svg>
             {/if}
           </div>
-          <h3 class="about-name">DevDock</h3>
+          <h3 class="about-name">Soryq</h3>
           <p class="about-tagline">A lightweight developer workspace</p>
         </div>
 
@@ -1085,7 +1085,7 @@
                 </svg>
                 <div class="updater-text">
                   <span class="status-title">Up to date</span>
-                  <span class="status-desc">DevDock v0.1.0 is the latest version.</span>
+                  <span class="status-desc">Soryq v0.1.0 is the latest version.</span>
                 </div>
               </div>
               <button class="updater-btn-subtle" onclick={handleCheckForUpdates}>

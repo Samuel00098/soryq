@@ -60,9 +60,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'DevDock ${{ github.ref_name }}'
+          releaseName: 'Soryq ${{ github.ref_name }}'
           releaseBody: |
-            See [CHANGELOG.md](https://github.com/Samuel00098/devdock/blob/main/CHANGELOG.md) for what's new.
+            See [CHANGELOG.md](https://github.com/Samuel00098/soryq/blob/main/CHANGELOG.md) for what's new.
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true

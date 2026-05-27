@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Devdock",
+  "productName": "Soryq",
   "version": "0.1.0",
-  "identifier": "com.samue.devdock",
+  "identifier": "com.samue.soryq",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "Devdock",
+        "title": "Soryq",
         "width": 1200,
         "height": 800,
         "decorations": false,
@@ -40,7 +40,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3ODlFOTM2NTQ3QjAwMzAKUldRd0FIdFVOdW1KdCtXN2FjT3JiSk1YOTRQTFhWazJJSE1zTDNLaGlsZ3dNRFBrRWpOd05Ma1cK",
       "endpoints": [
-        "https://github.com/Samuel00098/devdock/releases/latest/download/latest.json"
+        "https://github.com/Samuel00098/soryq/releases/latest/download/latest.json"
       ]
     }
   }

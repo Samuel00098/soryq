@@ -633,7 +633,7 @@
       } catch {
         const link = document.createElement('a');
         const label = viewportMode === 'mobile' ? 'mobile' : viewportMode === 'tablet' ? 'tablet' : 'preview';
-        link.download = `devdock-${label}-${Date.now()}.png`;
+        link.download = `soryq-${label}-${Date.now()}.png`;
         link.href = URL.createObjectURL(blob);
         link.click();
         URL.revokeObjectURL(link.href);

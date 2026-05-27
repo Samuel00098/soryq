@@ -1,7 +1,8 @@
 import { writable } from 'svelte/store';
 import type { LayoutState, ActiveView, SidebarTab } from '$lib/types/layout';
+import { loadJson } from '$lib/utils/storage';
 
-const LAYOUT_KEY = 'devdock_layout';
+const LAYOUT_KEY = 'soryq_layout';
 
 const defaultLayout: LayoutState = {
   sidebarVisible: true,
@@ -18,10 +19,10 @@ const defaultLayout: LayoutState = {
 function loadLayout(): LayoutState {
   if (typeof window === 'undefined') return defaultLayout;
   try {
-    const stored = localStorage.getItem(LAYOUT_KEY);
+    const stored = loadJson<LayoutState | null>(LAYOUT_KEY, null);
     if (!stored) return defaultLayout;
     // Merge with defaults so new fields added later always have a value
-    const parsed = { ...defaultLayout, ...JSON.parse(stored) } as LayoutState;
+    const parsed = { ...defaultLayout, ...stored } as LayoutState;
     if ((parsed.sidebarTab as string) === 'notes') {
       parsed.sidebarTab = 'files';
     }
@@ -152,6 +153,8 @@ export function setSidebarWidth(width: number) {
 }
 
 export function resetLayoutToDefault() {
-  if (typeof window !== 'undefined') localStorage.removeItem(LAYOUT_KEY);
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(LAYOUT_KEY);
+  }
   layout.set({ ...defaultLayout });
 }

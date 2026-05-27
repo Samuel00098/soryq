@@ -286,7 +286,7 @@ impl PreviewManager {
             active_external_origins: self.active_external_origins.clone(),
             active_project_id: self.active_project_id.clone(),
             client: Client::builder()
-                .user_agent(concat!("DevDock/", env!("CARGO_PKG_VERSION"), " (preview-proxy)"))
+                .user_agent(concat!("soryq/", env!("CARGO_PKG_VERSION"), " (preview-proxy)"))
                 .gzip(true)
                 .brotli(true)
                 .connect_timeout(Duration::from_millis(800))

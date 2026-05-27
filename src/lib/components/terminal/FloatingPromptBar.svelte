@@ -156,7 +156,7 @@
     try {
       const projectPath = get(activeProject)?.root_path;
       if (!projectPath) return null;
-      const savePath = `${projectPath}/.devdock/attachments/${img.name}`;
+      const savePath = `${projectPath}/.soryq/attachments/${img.name}`;
       const response = await fetch(img.dataUrl);
       const blob = await response.blob();
       const arrayBuffer = await blob.arrayBuffer();
@@ -442,7 +442,7 @@
   function handleInternalDrop(event: DragEvent) {
     const droppedPath =
       draggedExplorerPath ||
-      event.dataTransfer?.getData('application/x-devdock-path')?.trim() ||
+      event.dataTransfer?.getData('application/x-soryq-path')?.trim() ||
       event.dataTransfer?.getData('text/plain')?.trim() ||
       null;
 
@@ -574,7 +574,7 @@
   function handleDocumentDrop(event: DragEvent) {
     const droppedPath =
       draggedExplorerPath ||
-      event.dataTransfer?.getData('application/x-devdock-path')?.trim() ||
+      event.dataTransfer?.getData('application/x-soryq-path')?.trim() ||
       event.dataTransfer?.getData('text/plain')?.trim() ||
       null;
 
@@ -597,9 +597,9 @@
     document.addEventListener('keyup', handleGlobalVoiceShortcutUp);
     document.addEventListener('dragover', handleDocumentDragOver);
     document.addEventListener('drop', handleDocumentDrop);
-    window.addEventListener('devdock-explorer-drag-start', handleExplorerDragStart as EventListener);
-    window.addEventListener('devdock-explorer-drag-move', handleExplorerDragMove as EventListener);
-    window.addEventListener('devdock-explorer-drag-end', handleExplorerDragEnd);
+    window.addEventListener('soryq-explorer-drag-start', handleExplorerDragStart as EventListener);
+    window.addEventListener('soryq-explorer-drag-move', handleExplorerDragMove as EventListener);
+    window.addEventListener('soryq-explorer-drag-end', handleExplorerDragEnd);
 
     // Tauri v2 intercepts OS file drops before HTML5 events reach the webview.
     // Use getCurrentWindow().onDragDropEvent() — the correct Tauri v2 API.
@@ -655,9 +655,9 @@
         document.removeEventListener('keyup', handleGlobalVoiceShortcutUp);
         document.removeEventListener('dragover', handleDocumentDragOver);
       document.removeEventListener('drop', handleDocumentDrop);
-      window.removeEventListener('devdock-explorer-drag-start', handleExplorerDragStart as EventListener);
-      window.removeEventListener('devdock-explorer-drag-move', handleExplorerDragMove as EventListener);
-      window.removeEventListener('devdock-explorer-drag-end', handleExplorerDragEnd);
+      window.removeEventListener('soryq-explorer-drag-start', handleExplorerDragStart as EventListener);
+      window.removeEventListener('soryq-explorer-drag-move', handleExplorerDragMove as EventListener);
+      window.removeEventListener('soryq-explorer-drag-end', handleExplorerDragEnd);
       unlistenDragDrop?.();
     };
   });

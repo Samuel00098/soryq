@@ -1,12 +1,12 @@
 [package]
-name = "devdock"
+name = "soryq"
 version = "0.1.0"
 description = "A lightweight developer workspace built with Tauri 2, Rust, and Svelte 5"
 authors = ["samue"]
 edition = "2021"
 
 [lib]
-name = "devdock_lib"
+name = "soryq_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -41,4 +41,3 @@ windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
 ] }
-

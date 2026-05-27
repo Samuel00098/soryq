@@ -1,8 +1,8 @@
-# DevDock
+# Soryq
 
 **A lightweight, terminal-first developer workspace for professionals who move fast.**
 
-DevDock is a cross-platform desktop application that combines a real PTY terminal, a CodeMirror code editor, a live web preview proxy, and git integration — all in a single, keyboard-driven window. Built with Tauri 2 (Rust) and Svelte 5, it stays lean: no Electron, no Node.js runtime, no background cloud services.
+Soryq is a cross-platform desktop application that combines a real PTY terminal, a CodeMirror code editor, a live web preview proxy, and git integration — all in a single, keyboard-driven window. Built with Tauri 2 (Rust) and Svelte 5, it stays lean: no Electron, no Node.js runtime, no background cloud services.
 
 ---
 
@@ -16,7 +16,7 @@ DevDock is a cross-platform desktop application that combines a real PTY termina
 
 - **Multi-pane Terminal** — Full PTY sessions with xterm.js, configurable layouts (1/2/3/4/9 panes), and automatic shell detection per platform
 - **Code Editor** — CodeMirror 6 with syntax highlighting for 15+ languages, Vim mode, minimap, format-on-save, and word wrap
-- **Live Preview Proxy** — Built-in HTTP/WebSocket proxy that routes your local dev server through a DevDock-managed port; injects the DOM inspector automatically
+- **Live Preview Proxy** — Built-in HTTP/WebSocket proxy that routes your local dev server through a managed port; injects the DOM inspector automatically
 - **DOM Inspector** — Click any element in the preview panel to inspect its tag, CSS selector, computed styles, attributes, and ancestor path
 - **Git Integration** — View status, staged/unstaged diffs, commit history (with graph), commit, push, fetch, and discard changes — all without leaving the app
 - **File Explorer** — Full project tree with create, rename, delete, copy, and hidden-file toggle
@@ -62,7 +62,7 @@ DevDock is a cross-platform desktop application that combines a real PTY termina
 | macOS | macOS 11 (Big Sur) | Universal binary (Intel + Apple Silicon) |
 | Linux | Ubuntu 22.04 / Fedora 37+ | GTK 3 + WebKit2GTK required |
 
-DevDock has a minimum window size of **960 x 640 px**.
+Soryq has a minimum window size of **960 x 640 px**.
 
 ---
 
@@ -79,8 +79,8 @@ See **[docs/BUILDING.md](docs/BUILDING.md)** for full instructions.
 Quick start for experienced Tauri developers:
 
 ```bash
-git clone https://github.com/your-org/devdock.git
-cd devdock
+git clone https://github.com/Samuel00098/soryq.git
+cd soryq
 npm install
 npm run tauri dev
 ```
@@ -89,7 +89,7 @@ npm run tauri dev
 
 ## Quick Start
 
-1. **Open DevDock.** The Welcome Screen shows your recent workspaces.
+1. **Open Soryq.** The Welcome Screen shows your recent workspaces.
 2. **Create a new workspace** (`Ctrl+N`) or open an existing folder (`Ctrl+O`).
 3. **Work in the terminal.** One or more PTY sessions open automatically in your project directory.
 4. **Open a file** from the sidebar Files tab to launch the code editor alongside the terminal.

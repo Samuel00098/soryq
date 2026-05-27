@@ -11,11 +11,19 @@ function persistentWritable<T>(key: string, defaultValue: T): import('svelte/sto
   if (typeof window === 'undefined') {
     return writable(defaultValue);
   }
-  const stored = localStorage.getItem(`forge_ws_${key}`);
-  const initialValue = stored !== null ? JSON.parse(stored) : defaultValue;
+  const storageKey = `soryq_ws_${key}`;
+  let initialValue = defaultValue;
+
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (stored !== null) {
+      initialValue = JSON.parse(stored);
+    }
+  } catch {}
+
   const store = writable<T>(initialValue);
   store.subscribe((val) => {
-    localStorage.setItem(`forge_ws_${key}`, JSON.stringify(val));
+    localStorage.setItem(storageKey, JSON.stringify(val));
   });
   return store;
 }
@@ -93,7 +101,7 @@ interface PersistedProjectState {
 }
 
 function projectStorageKey(projectId: string) {
-  return `devdock_project_${projectId}`;
+  return `soryq_project_${projectId}`;
 }
 
 function saveProjectStateToStorage(projectId: string) {

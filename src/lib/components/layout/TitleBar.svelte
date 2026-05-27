@@ -149,7 +149,7 @@
       {#if !iconError}
         <img
           src="/icon.png?v=2"
-          alt="Devdock"
+          alt="Soryq"
           class="titlebar-app-icon"
           onerror={() => iconError = true}
         />
@@ -161,7 +161,7 @@
         </svg>
       {/if}
     </div>
-    <span class="titlebar-name">DevDock</span>
+    <span class="titlebar-name">Soryq</span>
   </div>
 
   <!-- Navigation: Home, Back, Forward -->
@@ -208,7 +208,7 @@
         {$activeWorkspace.name}{$activeProject ? ` - ${$activeProject.name}` : ''}
       </span>
       {:else}
-      <span class="titlebar-no-project">DevDock</span>
+      <span class="titlebar-no-project">Soryq</span>
     {/if}
   </div>
 

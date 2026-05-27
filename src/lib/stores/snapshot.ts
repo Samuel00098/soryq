@@ -12,8 +12,9 @@ import {
 } from '$lib/stores/terminal';
 import { layout, setActiveView, setSidebarTab } from '$lib/stores/layout';
 import { currentUrl, targetPort, previewTabs, activePreviewTabId, restorePreviewTabsState, type PreviewTab } from '$lib/stores/preview';
+import { loadJson } from '$lib/utils/storage';
 
-const STORAGE_KEY = 'devdock_workspace_snapshots';
+const STORAGE_KEY = 'soryq_workspace_snapshots';
 
 export type PaneSnapshotInfo = {
   role?: string | null;
@@ -36,11 +37,7 @@ export type WorkspaceSnapshot = {
 
 function loadFromStorage(): WorkspaceSnapshot[] {
   if (typeof window === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch {
-    return [];
-  }
+  return loadJson(STORAGE_KEY, [] as WorkspaceSnapshot[]);
 }
 
 function saveToStorage(list: WorkspaceSnapshot[]) {
