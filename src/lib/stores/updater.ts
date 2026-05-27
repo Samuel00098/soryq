@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import type { Update } from '@tauri-apps/plugin-updater';
 
 export interface UpdateInfo {
   version: string;
@@ -10,11 +11,14 @@ export const updateChecking = writable(false);
 export const updateDownloading = writable(false);
 export const updateProgress = writable(0); // 0–100
 
+let cachedUpdate: Update | null = null;
+
 export async function checkForUpdate() {
   updateChecking.set(true);
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
     const update = await check();
+    cachedUpdate = update ?? null;
     if (update?.available) {
       pendingUpdate.set({ version: update.version, body: update.body ?? null });
     }
@@ -26,14 +30,13 @@ export async function checkForUpdate() {
 }
 
 export async function installUpdate() {
-  const { check } = await import('@tauri-apps/plugin-updater');
   const { relaunch } = await import('@tauri-apps/plugin-process');
 
   updateDownloading.set(true);
   updateProgress.set(0);
 
   try {
-    const update = await check();
+    const update = cachedUpdate;
     if (!update?.available) return;
 
     let downloaded = 0;
