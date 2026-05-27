@@ -15,7 +15,7 @@
   import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
 
   import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible } from '$lib/stores/layout';
-  import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace } from '$lib/stores/workspace';
+  import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace, createNewWorkspace } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
@@ -194,6 +194,9 @@
           break;
         case 'openSettings':
           openSettings();
+          break;
+        case 'newWorkspace':
+          createNewWorkspace();
           break;
         case 'goToTerminal':
           setActiveView('terminal');

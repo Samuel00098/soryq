@@ -11,7 +11,7 @@ import {
   setGridLayout,
 } from '$lib/stores/terminal';
 import { layout, setActiveView, setSidebarTab } from '$lib/stores/layout';
-import { currentUrl, targetPort } from '$lib/stores/preview';
+import { currentUrl, targetPort, previewTabs, activePreviewTabId, restorePreviewTabsState, type PreviewTab } from '$lib/stores/preview';
 
 const STORAGE_KEY = 'devdock_workspace_snapshots';
 
@@ -29,6 +29,8 @@ export type WorkspaceSnapshot = {
   activeView: ActiveView;
   previewUrl: string;
   targetPort: number;
+  previewTabs: PreviewTab[];
+  activePreviewTabId: string | null;
   sidebarWidth: number;
 };
 
@@ -61,6 +63,8 @@ export function saveSnapshot(name: string): WorkspaceSnapshot {
   const currentLayout_ = get(layout);
   const url = get(currentUrl);
   const port = get(targetPort);
+  const tabs = get(previewTabs);
+  const activeTabId = get(activePreviewTabId);
 
   const paneInfo: PaneSnapshotInfo[] = panes.map((sessionId) => {
     if (sessionId === null) return null;
@@ -78,6 +82,8 @@ export function saveSnapshot(name: string): WorkspaceSnapshot {
     activeView: currentLayout_.activeView,
     previewUrl: url,
     targetPort: port,
+    previewTabs: tabs,
+    activePreviewTabId: activeTabId,
     sidebarWidth: currentLayout_.sidebarWidth,
   };
 
@@ -106,7 +112,9 @@ export async function restoreSnapshot(snapshot: WorkspaceSnapshot) {
   setActiveView(snapshot.activeView);
 
   // 5. Restore preview URL and port
-  if (snapshot.previewUrl) {
+  if (snapshot.previewTabs?.length) {
+    restorePreviewTabsState(snapshot.previewTabs, snapshot.activePreviewTabId);
+  } else if (snapshot.previewUrl) {
     currentUrl.set(snapshot.previewUrl);
   }
   if (snapshot.targetPort) {

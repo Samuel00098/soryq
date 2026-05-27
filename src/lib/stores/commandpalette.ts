@@ -19,7 +19,7 @@ export function toggleCommandPalette() {
   }
 }
 
-import { openProject, openProjectByPath } from './workspace';
+import { createNewWorkspace, openProject, openProjectByPath } from './workspace';
 import { saveActiveFile, formatActiveFile } from './editor';
 import { setActiveView, toggleSidebar, toggleEditorSplitPreview } from './layout';
 import { createTerminalSession } from './terminal';
@@ -33,6 +33,13 @@ export function initDefaultCommands() {
       category: 'File',
       shortcut: 'Ctrl+S',
       action: () => saveActiveFile(),
+    },
+    {
+      id: 'workspace.new',
+      name: 'New Workspace',
+      category: 'Workspace',
+      shortcut: 'Ctrl+N',
+      action: () => createNewWorkspace(),
     },
     {
       id: 'workspace.open',

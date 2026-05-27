@@ -77,6 +77,28 @@
   let newShortcutActionId = $state('');
   let newShortcutKeys = $state('');
   let newShortcutRecording = $state(false);
+  const contextualShortcuts = [
+    {
+      keys: 'Left Alt',
+      label: 'Toggle voice input',
+      context: 'Prompt bar, Tasks, and Notes when the relevant surface is focused',
+    },
+    {
+      keys: 'Ctrl+Enter',
+      label: 'Commit changes',
+      context: 'Source Control commit message box',
+    },
+    {
+      keys: 'Enter',
+      label: 'Confirm create or rename',
+      context: 'Explorer create and rename inputs',
+    },
+    {
+      keys: 'Escape',
+      label: 'Cancel create, rename, or recording',
+      context: 'Explorer inputs and shortcut recorder',
+    },
+  ];
 
   function startRecording(id: string) {
     recordingId = id;
@@ -685,7 +707,7 @@
           <div class="heading-row">
             <div>
               <h2>Shortcuts</h2>
-              <p>Customize keyboard shortcuts for commands and editor actions.</p>
+              <p>Customize global shortcuts and review the contextual keys used in focused views.</p>
             </div>
             <button class="reset-all-btn" onclick={handleResetAll} title="Reset all shortcuts to defaults">
               Reset All
@@ -808,6 +830,25 @@
                 </div>
               </div>
             {/if}
+          </div>
+
+          <div class="context-shortcut-section">
+            <div class="context-shortcut-header">
+              <h3>Contextual Shortcuts</h3>
+              <p>These keys work only in the specific surface shown here.</p>
+            </div>
+
+            <div class="context-shortcut-list">
+              {#each contextualShortcuts as shortcut}
+                <div class="context-shortcut-row">
+                  <div class="context-shortcut-info">
+                    <span class="context-shortcut-label">{shortcut.label}</span>
+                    <span class="context-shortcut-context">{shortcut.context}</span>
+                  </div>
+                  <kbd class="context-shortcut-keys">{shortcut.keys}</kbd>
+                </div>
+              {/each}
+            </div>
           </div>
         </div>
 
@@ -1597,6 +1638,74 @@
     flex-direction: column;
     gap: 14px;
     animation: slideDown 0.2s ease-out;
+  }
+
+  .context-shortcut-section {
+    border-top: 1px dashed var(--border);
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .context-shortcut-header h3 {
+    margin: 0 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .context-shortcut-header p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .context-shortcut-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .context-shortcut-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .context-shortcut-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .context-shortcut-label {
+    font-size: 12.5px;
+    color: var(--text-primary);
+  }
+
+  .context-shortcut-context {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .context-shortcut-keys {
+    flex-shrink: 0;
+    min-width: 74px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: var(--editor-font-family, monospace);
+    font-size: 11px;
+    text-align: center;
   }
 
   @keyframes slideDown {

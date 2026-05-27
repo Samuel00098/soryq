@@ -2,7 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn, restoreEditorFiles } from './editor';
 import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession } from './terminal';
-import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, setPreferredLocalHost, setTargetPort } from './preview';
+import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
 import { expandedPaths, selectedPath } from './explorer';
 import { resetSettingsToDefault } from './settings';
 import { resetLayoutToDefault } from './layout';
@@ -66,6 +66,8 @@ interface ProjectWorkspaceState {
     proxyPort: number | null;
     proxyStarted: boolean;
     currentUrl: string;
+    tabs: PreviewTab[];
+    activeTabId: string | null;
   };
   explorer: {
     expandedPaths: Set<string>;
@@ -130,6 +132,8 @@ export function saveProjectState(projectId: string) {
       proxyPort: get(proxyPort),
       proxyStarted: get(proxyStarted),
       currentUrl: get(currentUrl),
+      tabs: get(previewTabs),
+      activeTabId: get(activePreviewTabId),
     },
     explorer: {
       expandedPaths: new Set(get(expandedPaths)),
@@ -176,7 +180,7 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
     targetPort.set(restoredTargetPort);
     proxyPort.set(cached.preview.proxyPort);
     proxyStarted.set(cached.preview.proxyStarted);
-    currentUrl.set(restoredUrl);
+    restorePreviewTabsState(cached.preview.tabs, cached.preview.activeTabId);
     preferredLocalHost.set(localPreview?.host || 'localhost');
 
     expandedPaths.set(new Set(cached.explorer.expandedPaths));
@@ -230,6 +234,7 @@ export function clearAllStores() {
   targetPort.set(5173);
   proxyPort.set(null);
   proxyStarted.set(false);
+  resetPreviewTabsState();
   currentUrl.set('/');
   preferredLocalHost.set('localhost');
 
