@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import {
     targetPort,
@@ -17,15 +17,34 @@
     clearProxyTarget
   } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
-  import { activeSessionId, requestTerminalInput } from '$lib/stores/terminal';
+  import { promptBarInput } from '$lib/stores/terminal';
+  import { setActiveView } from '$lib/stores/layout';
+  import { activeProject } from '$lib/stores/workspace';
 
   let iframeElement = $state<HTMLIFrameElement>();
+  let previewContentEl = $state<HTMLDivElement>();
+  let deviceShellEl = $state<HTMLDivElement>();
+  let screenshotting = $state(false);
   let tempPort = $state($targetPort);
   let inputUrl = $state($currentUrl);
   let isLoading = $state(false);
   let iframeError = $state(false);
   let slowLoad = $state(false);
   let inspectMode = $state(false);
+
+  let urlHistory = $state<string[]>([]);
+  let urlHistoryIndex = $state(-1);
+  let navigatingHistory = false;
+
+  let canGoBack = $derived(urlHistoryIndex > 0);
+  let canGoForward = $derived(urlHistoryIndex < urlHistory.length - 1);
+  type ViewportMode = 'responsive' | 'tablet' | 'mobile';
+  let viewportMode = $state<ViewportMode>('responsive');
+  const VIEWPORT_WIDTHS: Record<ViewportMode, number | null> = {
+    responsive: null,
+    tablet: 768,
+    mobile: 375,
+  };
   type SelectedElementInfo = {
     selector: string;
     tag: string;
@@ -115,22 +134,16 @@
       return;
     }
     setPreferredLocalHost(localDev.host);
-    if ($targetPort !== localDev.port) {
-      setTargetPort(localDev.port);
-    }
+    untrack(() => {
+      if ($targetPort !== localDev.port) {
+        setTargetPort(localDev.port);
+      }
+    });
   });
 
   function handlePortChange() {
     if (tempPort >= 1 && tempPort <= 65535) {
       setTargetPort(tempPort);
-    }
-  }
-
-  function handlePresetPortChange(event: Event) {
-    const value = Number((event.target as HTMLSelectElement).value);
-    if (value >= 1 && value <= 65535) {
-      tempPort = value;
-      setTargetPort(value);
     }
   }
 
@@ -146,7 +159,7 @@
     }
   }
 
-  function toggleProxy() {
+  async function toggleProxy() {
     if ($proxyStarted) {
       // Stop dev mode — go back to a blank local path so the web panel stays clean
       stopProxy();
@@ -155,9 +168,23 @@
       }
     } else {
       // Start dev mode — navigate to the root of the local dev server
-      clearProxyTarget();
-      startProxy();
+      await clearProxyTarget();
+      await startProxy();
       currentUrl.set('/');
+    }
+  }
+
+  async function autoDetectPort() {
+    const projectPath = $activeProject?.root_path;
+    if (!projectPath) {
+      showToast('No active project — open a project folder first', 'info');
+      return;
+    }
+    try {
+      const detected = await invoke<number>('workspace_detect_port', { path: projectPath });
+      await setTargetPort(detected);
+    } catch (err) {
+      showToast('Could not detect dev server port', 'error');
     }
   }
 
@@ -306,6 +333,15 @@
     return /youtube\.com|youtu\.be|youtube-nocookie\.com/i.test(url);
   }
 
+  function pushToHistory(url: string) {
+    if (navigatingHistory) return;
+    if (urlHistory[urlHistoryIndex] === url) return;
+    const newHistory = urlHistory.slice(0, urlHistoryIndex + 1);
+    newHistory.push(url);
+    urlHistory = newHistory;
+    urlHistoryIndex = newHistory.length - 1;
+  }
+
   async function handleNavigate(e: Event) {
     e.preventDefault();
     const normalized = normalizeUrl(inputUrl);
@@ -321,27 +357,30 @@
     }
     currentUrl.set(normalized);
     inputUrl = normalized;
+    pushToHistory(normalized);
     startLoadFeedback();
   }
 
   function goBack() {
-    try {
-      if (iframeElement && iframeElement.contentWindow) {
-        iframeElement.contentWindow.history.back();
-      }
-    } catch (err) {
-      console.warn('Could not navigate history:', err);
-    }
+    if (!canGoBack) return;
+    navigatingHistory = true;
+    urlHistoryIndex -= 1;
+    const url = urlHistory[urlHistoryIndex];
+    currentUrl.set(url);
+    inputUrl = url;
+    navigatingHistory = false;
+    startLoadFeedback();
   }
 
   function goForward() {
-    try {
-      if (iframeElement && iframeElement.contentWindow) {
-        iframeElement.contentWindow.history.forward();
-      }
-    } catch (err) {
-      console.warn('Could not navigate history:', err);
-    }
+    if (!canGoForward) return;
+    navigatingHistory = true;
+    urlHistoryIndex += 1;
+    const url = urlHistory[urlHistoryIndex];
+    currentUrl.set(url);
+    inputUrl = url;
+    navigatingHistory = false;
+    startLoadFeedback();
   }
 
   function refresh() {
@@ -446,8 +485,10 @@
           const path = iframeElement.contentWindow.location.pathname;
           const search = iframeElement.contentWindow.location.search;
           if (path) {
-            currentUrl.set(path + search);
-            inputUrl = path + search;
+            const newUrl = path + search;
+            currentUrl.set(newUrl);
+            inputUrl = newUrl;
+            pushToHistory(newUrl);
           }
         }
       }
@@ -519,10 +560,10 @@
     inspectMode = false;
     postInspectorState();
     if (selectedElementInfo?.selector) {
-      showToast(`Selected ${selectedElementInfo.selector}`, 'success');
-      const textToInsert = buildElementPrompt(selectedElementInfo).trim();
-      if (textToInsert && $activeSessionId !== null) {
-        requestTerminalInput($activeSessionId, textToInsert);
+      const text = buildElementPrompt(selectedElementInfo).trim();
+      if (text) {
+        promptBarInput.set(text);
+        setActiveView('terminal');
       }
     }
   }
@@ -537,17 +578,55 @@
   function clearConsoleLogs() {
     consoleLogs = [];
   }
+
+  async function takeScreenshot() {
+    if (screenshotting) return;
+    const target = viewportMode !== 'responsive' ? deviceShellEl : previewContentEl;
+    if (!target) return;
+    screenshotting = true;
+    try {
+      const rect = target.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+
+      const pngBytes = await invoke<number[]>('preview_capture_screenshot', {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        scale,
+      });
+
+      const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
+
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        showToast('Screenshot copied to clipboard', 'success');
+      } catch {
+        const link = document.createElement('a');
+        const label = viewportMode === 'mobile' ? 'mobile' : viewportMode === 'tablet' ? 'tablet' : 'preview';
+        link.download = `devdock-${label}-${Date.now()}.png`;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+        showToast('Screenshot saved as PNG', 'success');
+      }
+    } catch (err) {
+      showToast('Screenshot failed', 'error');
+    } finally {
+      screenshotting = false;
+    }
+  }
 </script>
 
 <div class="preview-panel">
   <div class="browser-bar">
     <div class="nav-controls">
-      <button class="nav-btn" onclick={goBack} title="Back (Alt+Left)">
+      <button class="nav-btn" onclick={goBack} disabled={!canGoBack} title="Back">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <button class="nav-btn" onclick={goForward} title="Forward (Alt+Right)">
+      <button class="nav-btn" onclick={goForward} disabled={!canGoForward} title="Forward">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="9 18 15 12 9 6"/>
         </svg>
@@ -579,6 +658,68 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="4 17 10 11 4 5"/>
           <line x1="12" y1="19" x2="20" y2="19"/>
+        </svg>
+      </button>
+
+      <!-- Screenshot -->
+      <button
+        class="nav-btn screenshot-btn"
+        class:screenshotting
+        onclick={takeScreenshot}
+        disabled={screenshotting}
+        title={viewportMode !== 'responsive' ? `Screenshot ${viewportMode} frame` : 'Screenshot preview'}
+      >
+        {#if screenshotting}
+          <svg class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
+          </svg>
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+        {/if}
+      </button>
+
+      <div class="viewport-divider"></div>
+
+      <!-- Viewport: Responsive (desktop) -->
+      <button
+        class="nav-btn viewport-btn"
+        class:active={viewportMode === 'responsive'}
+        onclick={() => viewportMode = 'responsive'}
+        title="Responsive (full width)"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="4" width="20" height="14" rx="2"/>
+          <path d="M8 20h8M12 18v2"/>
+        </svg>
+      </button>
+
+      <!-- Viewport: Tablet -->
+      <button
+        class="nav-btn viewport-btn"
+        class:active={viewportMode === 'tablet'}
+        onclick={() => viewportMode = 'tablet'}
+        title="Tablet (768px)"
+      >
+        <svg width="13" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="2" width="16" height="20" rx="2"/>
+          <circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
+
+      <!-- Viewport: Mobile -->
+      <button
+        class="nav-btn viewport-btn"
+        class:active={viewportMode === 'mobile'}
+        onclick={() => viewportMode = 'mobile'}
+        title="Mobile (375px)"
+      >
+        <svg width="10" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="2" width="14" height="20" rx="2"/>
+          <circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/>
+          <line x1="9" y1="6" x2="15" y2="6"/>
         </svg>
       </button>
     </div>
@@ -619,18 +760,36 @@
     {/if}
 
     <div class="proxy-settings">
-      <span class="label">Local port:</span>
-      <select
-        class="port-input"
-        bind:value={tempPort}
-        onchange={handlePresetPortChange}
-        title="Choose a common local dev server port"
-      >
-        {#each commonPorts as port (port)}
-          <option value={port}>{port}</option>
-        {/each}
-      </select>
-      
+      <span class="label">Port:</span>
+      <div class="port-combo">
+        <input
+          type="number"
+          list="common-ports"
+          class="port-input"
+          bind:value={tempPort}
+          onchange={handlePortChange}
+          onkeydown={(e) => e.key === 'Enter' && handlePortChange()}
+          min="1"
+          max="65535"
+          title="Dev server port (type custom or pick common)"
+        />
+        <datalist id="common-ports">
+          {#each commonPorts as port (port)}
+            <option value={port}>{port}</option>
+          {/each}
+        </datalist>
+        <button
+          class="nav-btn detect-btn"
+          onclick={autoDetectPort}
+          title="Auto-detect dev server port from project config"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+        </button>
+      </div>
+
       <button
         class="proxy-btn"
         class:running={$proxyStarted}
@@ -722,19 +881,42 @@
     </div>
   {/if}
 
-  <div class="preview-content">
+  <div class="preview-content" class:viewport-constrained={viewportMode !== 'responsive'} bind:this={previewContentEl}>
     {#if iframeSrc}
-      <iframe
-        bind:this={iframeElement}
-        src={iframeSrc}
-        title="Web Preview"
-        class="preview-iframe"
-        onload={handleIframeLoad}
-        onerror={handleIframeError}
-        allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
-        sandbox={iframeSandbox}
-        allowfullscreen
-      ></iframe>
+      {#if viewportMode !== 'responsive'}
+        <div class="device-shell" class:is-mobile={viewportMode === 'mobile'} class:is-tablet={viewportMode === 'tablet'} bind:this={deviceShellEl}>
+          <div class="device-notch"></div>
+          <div class="device-screen">
+            <iframe
+              bind:this={iframeElement}
+              src={iframeSrc}
+              title="Web Preview"
+              class="preview-iframe"
+              onload={handleIframeLoad}
+              onerror={handleIframeError}
+              allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
+              sandbox={iframeSandbox}
+              allowfullscreen
+            ></iframe>
+          </div>
+          <div class="device-home"></div>
+          <span class="device-label">
+            {viewportMode === 'mobile' ? '375px · iPhone' : '768px · iPad'}
+          </span>
+        </div>
+      {:else}
+        <iframe
+          bind:this={iframeElement}
+          src={iframeSrc}
+          title="Web Preview"
+          class="preview-iframe"
+          onload={handleIframeLoad}
+          onerror={handleIframeError}
+          allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
+          sandbox={iframeSandbox}
+          allowfullscreen
+        ></iframe>
+      {/if}
     {:else}
       <div class="proxy-placeholder">
         <div class="placeholder-globe">
@@ -835,9 +1017,14 @@
     cursor: pointer;
   }
 
-  .nav-btn:hover {
+  .nav-btn:hover:not(:disabled) {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+
+  .nav-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
 
   .nav-btn.active {
@@ -931,8 +1118,14 @@
     white-space: nowrap;
   }
 
+  .port-combo {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
   .port-input {
-    width: 52px;
+    width: 54px;
     height: 28px;
     background: var(--bg-primary);
     border: 1px solid var(--border);
@@ -943,8 +1136,20 @@
     outline: none;
     font-family: inherit;
     transition: border-color 0.15s;
+    -moz-appearance: textfield;
+  }
+  .port-input::-webkit-inner-spin-button,
+  .port-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
   .port-input:focus { border-color: var(--accent); }
+
+  .detect-btn {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+  }
 
   .proxy-btn {
     display: flex;
@@ -1331,6 +1536,226 @@
   }
   .banner-open-btn:hover { background: var(--bg-secondary); }
 
+  /* ── Screenshot button ── */
+  .screenshot-btn:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+  }
+
+  .screenshot-btn.screenshotting {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* ── Viewport toggle ── */
+  .viewport-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    flex-shrink: 0;
+    margin: 0 2px;
+  }
+
+  .viewport-btn.active {
+    background: var(--accent-light);
+    color: var(--accent);
+  }
+
+  /* ── Device shell (constrained viewport) ── */
+  .preview-content.viewport-constrained {
+    background: radial-gradient(ellipse at 50% 30%, #1e1e2e 0%, #0c0c12 100%);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow: auto;
+    padding: 40px 32px 56px;
+  }
+
+  /* ── Shared device chassis ── */
+  .device-shell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+    background: #1c1c1e;
+    margin: auto;
+  }
+
+  /* ── Mobile (iPhone-style) ── */
+  .device-shell.is-mobile {
+    border-radius: 52px;
+    padding: 18px 10px 14px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,0.08),   /* inner highlight */
+      0 0 0 1.5px #3c3c3e,                       /* silver rim */
+      0 0 0 3px #1c1c1e,                         /* dark gap */
+      0 0 0 4.5px #4a4a4e,                       /* outer rim */
+      0 0 0 5.5px #1c1c1e,                       /* outer dark */
+      0 32px 80px rgba(0,0,0,0.65),
+      0 8px 24px rgba(0,0,0,0.4);
+  }
+
+  /* Left side buttons (volume up / down) */
+  .device-shell.is-mobile::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 110px;
+    width: 4px;
+    height: 34px;
+    background: #3c3c3e;
+    border-radius: 2px 0 0 2px;
+    box-shadow: 0 44px 0 #3c3c3e;
+  }
+
+  /* Right side button (power) */
+  .device-shell.is-mobile::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    top: 140px;
+    width: 4px;
+    height: 68px;
+    background: #3c3c3e;
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* ── Tablet (iPad-style) ── */
+  .device-shell.is-tablet {
+    border-radius: 26px;
+    padding: 18px 14px 16px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,0.07),
+      0 0 0 1.5px #3c3c3e,
+      0 0 0 3px #1c1c1e,
+      0 0 0 4.5px #4a4a4e,
+      0 0 0 5.5px #1c1c1e,
+      0 24px 64px rgba(0,0,0,0.55),
+      0 6px 18px rgba(0,0,0,0.35);
+  }
+
+  /* Top edge camera (tablet) */
+  .device-shell.is-tablet::before {
+    content: '';
+    position: absolute;
+    top: 9px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2a2a2e;
+    border: 1.5px solid #3a3a3e;
+  }
+
+  /* Right edge power button (tablet) */
+  .device-shell.is-tablet::after {
+    content: '';
+    position: absolute;
+    top: 80px;
+    right: -6px;
+    width: 4px;
+    height: 50px;
+    background: #3c3c3e;
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* ── Dynamic Island pill (mobile only) ── */
+  .device-notch {
+    flex-shrink: 0;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .device-shell.is-mobile .device-notch {
+    width: 120px;
+    height: 34px;
+    background: #000;
+    border-radius: 17px;
+    margin-bottom: 10px;
+    padding-right: 10px;
+    gap: 5px;
+  }
+
+  /* Camera lens inside pill */
+  .device-shell.is-mobile .device-notch::after {
+    content: '';
+    position: absolute;
+    right: 12px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #0d0d18;
+    border: 1.5px solid #1e1e2a;
+    box-shadow: 0 0 0 2px rgba(60,60,80,0.5);
+  }
+
+  /* Tablet has no notch — hide it */
+  .device-shell.is-tablet .device-notch {
+    display: none;
+  }
+
+  /* ── Screen ── */
+  .device-screen {
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  .device-shell.is-mobile .device-screen {
+    border-radius: 14px;
+    width: 375px;
+  }
+
+  .device-shell.is-tablet .device-screen {
+    border-radius: 10px;
+    width: 768px;
+  }
+
+  .device-screen .preview-iframe {
+    width: 100%;
+    height: 750px;
+    display: block;
+    border: none;
+  }
+
+  .device-shell.is-tablet .device-screen .preview-iframe {
+    height: 960px;
+  }
+
+  /* ── Home indicator / home button ── */
+  .device-home {
+    flex-shrink: 0;
+  }
+
+  .device-shell.is-mobile .device-home {
+    width: 134px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.28);
+    border-radius: 3px;
+    margin-top: 12px;
+  }
+
+  .device-shell.is-tablet .device-home {
+    display: none;
+  }
+
+  /* ── Viewport label badge ── */
+  .device-label {
+    position: absolute;
+    bottom: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.3);
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+  }
+
   /* Container queries for responsive toolbar */
   @container (max-width: 480px) {
     .browser-bar {
@@ -1382,8 +1807,10 @@
 
   @container (max-width: 320px) {
     .port-input {
-      width: 44px;
-      padding: 0;
+      width: 42px;
+    }
+    .detect-btn {
+      display: none;
     }
     .proxy-btn {
       padding: 0 6px;

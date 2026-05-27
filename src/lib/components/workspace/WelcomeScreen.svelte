@@ -1,254 +1,282 @@
 <script lang="ts">
-  import { createNewWorkspace, openWorkspace, recentWorkspaces, clearAllApplicationState, renameWorkspace } from '$lib/stores/workspace';
+  import {
+    createNewWorkspace,
+    openProject,
+    openWorkspace,
+    recentWorkspaces,
+    clearAllApplicationState,
+    renameWorkspace,
+  } from '$lib/stores/workspace';
   import { derived } from 'svelte/store';
   import { search as paletteSearch } from '$lib/stores/commandpalette';
-  import { userShortcuts } from '$lib/stores/settings';
 
-  function getShortcutKeys(id: string, defaultKeys = ''): string {
-    const found = ($userShortcuts || []).find(s => s && s.id === id);
-    if (found) return found.keys || 'None';
-    return defaultKeys;
-  }
-
-  // Filter workspaces by search query
-  const filteredWorkspaces = derived([recentWorkspaces, paletteSearch], ([$recentWorkspaces, $search]) => {
-    const list = $recentWorkspaces || [];
-    if (!$search) return list;
-    const query = $search.toLowerCase();
-    return list.filter(
-      (w) =>
-        w.name.toLowerCase().includes(query) ||
-        (w.project_paths || []).some((path) => path.toLowerCase().includes(query))
-    );
-  });
+  const filteredWorkspaces = derived(
+    [recentWorkspaces, paletteSearch],
+    ([$recentWorkspaces, $search]) => {
+      const list = $recentWorkspaces || [];
+      if (!$search) return list;
+      const q = $search.toLowerCase();
+      return list.filter(
+        (w) =>
+          w.name.toLowerCase().includes(q) ||
+          (w.project_paths || []).some((p) => p.toLowerCase().includes(q))
+      );
+    }
+  );
 
   function removeRecent(e: MouseEvent, id: string) {
     e.stopPropagation();
     recentWorkspaces.update((r) => r.filter((w) => w.id !== id));
   }
 
-  let renamingWorkspaceId = $state<string | null>(null);
-  let renamingWorkspaceName = $state('');
+  let renamingId = $state<string | null>(null);
+  let renamingName = $state('');
 
-  function startRename(e: MouseEvent, id: string, currentName: string) {
+  function startRename(e: MouseEvent, id: string, name: string) {
     e.stopPropagation();
-    renamingWorkspaceId = id;
-    renamingWorkspaceName = currentName;
+    renamingId = id;
+    renamingName = name;
   }
 
   function saveRename(id: string) {
-    const trimmed = renamingWorkspaceName.trim();
-    if (trimmed) {
-      renameWorkspace(id, trimmed);
-    }
-    cancelRename();
+    const t = renamingName.trim();
+    if (t) renameWorkspace(id, t);
+    renamingId = null;
+    renamingName = '';
   }
 
-  function cancelRename() {
-    renamingWorkspaceId = null;
-    renamingWorkspaceName = '';
+  function handleRenameKey(e: KeyboardEvent, id: string) {
+    if (e.key === 'Enter') saveRename(id);
+    else if (e.key === 'Escape') { renamingId = null; renamingName = ''; }
   }
 
-  function handleRenameKeyDown(e: KeyboardEvent, id: string) {
-    if (e.key === 'Enter') {
-      saveRename(id);
-    } else if (e.key === 'Escape') {
-      cancelRename();
-    }
-  }
-
-  function clearAllRecents(e: MouseEvent) {
-    clearAllApplicationState();
-  }
-
-  function formatRelativeTime(timestampStr: string): string {
+  function formatTime(ts: string): string {
     try {
-      const ts = parseInt(timestampStr, 10);
-      if (isNaN(ts)) return '';
-      const diff = Date.now() - ts;
-      const mins = Math.floor(diff / 60000);
-      const hours = Math.floor(diff / 3600000);
-      const days = Math.floor(diff / 86400000);
-      if (mins < 1) return 'just now';
-      if (mins < 60) return `${mins}m ago`;
-      if (hours < 24) return `${hours}h ago`;
-      if (days < 7) return `${days}d ago`;
-      return new Date(ts).toLocaleDateString();
+      const n = parseInt(ts, 10);
+      if (isNaN(n)) return '';
+      const diff = Date.now() - n;
+      const m = Math.floor(diff / 60000);
+      const h = Math.floor(diff / 3600000);
+      const d = Math.floor(diff / 86400000);
+      if (m < 1) return 'just now';
+      if (m < 60) return `${m}m ago`;
+      if (h < 24) return `${h}h ago`;
+      if (d < 7) return `${d}d ago`;
+      return new Date(n).toLocaleDateString();
     } catch { return ''; }
   }
 
-  function getShortPath(path: string) {
-    const normalized = path.replace(/\\/g, '/');
-    const parts = normalized.split('/');
-    if (parts.length <= 3) return normalized;
-    return '…/' + parts.slice(-2).join('/');
+  function shortPath(path: string) {
+    const parts = path.replace(/\\/g, '/').split('/');
+    return parts.length <= 2 ? path.replace(/\\/g, '/') : '…/' + parts.slice(-2).join('/');
   }
 
-
-
-  function getProjectHue(name: string) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return Math.abs(hash) % 360;
+  function projectHue(name: string) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+    return Math.abs(h) % 360;
   }
 
   let iconError = $state(false);
+  let hasRecents = $derived($recentWorkspaces.length > 0);
 </script>
 
 <div class="welcome">
-  <!-- Hero Section -->
-  <div class="hero">
-    <div class="hero-logo">
+  <!-- Header -->
+  <header class="header">
+    <div class="logo-wrap">
       {#if !iconError}
-        <img
-          src="/icon.png?v=2"
-          alt="Forge"
-          class="app-icon-svg"
-          onerror={() => iconError = true}
-        />
+        <img src="/icon.png?v=2" alt="DevDock" class="logo-img" onerror={() => iconError = true} />
       {:else}
-        <!-- Fallback SVG if icon.png fails to load -->
-        <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2" class="app-icon-svg" aria-label="Forge">
-          <circle cx="9" cy="12" r="6" stroke-opacity="0.9" />
-          <circle cx="15" cy="12" r="6" stroke-opacity="0.6" />
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" class="logo-fallback">
+          <rect width="36" height="36" rx="8" fill="#1e1b4b"/>
+          <polyline points="6,22 10,18 6,14" fill="none" stroke="#8b5cf6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="12" y="16.5" width="11" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)"/>
+          <rect x="12" y="21" width="8" height="2" rx="1" fill="rgba(255,255,255,0.2)"/>
         </svg>
       {/if}
     </div>
-    <h1 class="hero-title">Forge</h1>
-    <p class="hero-sub">Your developer workspace</p>
-  </div>
-
-  <!-- Actions Row -->
-  <div class="actions-row">
-    <!-- New Workspace Button -->
-    <div class="action-section">
-      <button class="open-btn" onclick={createNewWorkspace}>
-        <span class="open-btn-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-            <line x1="9" y1="3" x2="9" y2="21"/>
-          </svg>
-        </span>
-        <span>New Workspace</span>
-        <kbd>Ctrl+N</kbd>
-      </button>
+    <div class="header-text">
+      <h1 class="app-name">DevDock</h1>
+      <p class="app-tagline">Terminal-first developer workspace</p>
     </div>
+  </header>
 
-    <!-- Divider -->
-    <div class="section-divider"></div>
+  <!-- Main content -->
+  <div class="content">
+    <!-- Left: actions + recents -->
+    <div class="left-col">
+      <!-- Primary actions -->
+      <div class="action-group">
+        <button class="action-btn primary" onclick={createNewWorkspace}>
+          <span class="action-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </span>
+          <span class="action-label">New Workspace</span>
+          <kbd>Ctrl+N</kbd>
+        </button>
 
-    <!-- Recent Workspaces -->
-    <div class="recent-section">
-      <div class="recent-header">
-        <span class="recent-label">Recent Workspaces</span>
-        {#if $filteredWorkspaces.length > 0}
-          <button class="clear-btn" onclick={clearAllRecents} title="Clear all recent workspaces">
-            Clear all
-          </button>
-        {/if}
+        <button class="action-btn secondary" onclick={openProject}>
+          <span class="action-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+          </span>
+          <span class="action-label">Open Folder</span>
+          <kbd>Ctrl+O</kbd>
+        </button>
       </div>
 
-      <div class="recent-list">
+      <!-- Recents -->
+      <div class="recents">
+        <div class="recents-header">
+          <span class="section-label">Recent</span>
+          {#if hasRecents}
+            <button class="text-btn danger" onclick={clearAllApplicationState}>Clear all</button>
+          {/if}
+        </div>
+
         {#if $filteredWorkspaces.length > 0}
-          {#each $filteredWorkspaces as w (w.id)}
-            {@const hue = getProjectHue(w.name)}
-            <!-- svelte-ignore a11y_interactive_supports_focus -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div
-              class="recent-card"
-              onclick={() => openWorkspace(w.id)}
-              role="button"
-            >
-              <div class="recent-avatar" style="--hue:{hue}">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
-              </div>
-              <div class="recent-info">
-                {#if renamingWorkspaceId === w.id}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <!-- svelte-ignore a11y_autofocus -->
-                  <input
-                    class="rename-ws-input"
-                    type="text"
-                    bind:value={renamingWorkspaceName}
-                    onkeydown={(e) => handleRenameKeyDown(e, w.id)}
-                    onblur={() => saveRename(w.id)}
-                    onclick={(e) => e.stopPropagation()}
-                    autofocus
-                  />
-                {:else}
-                  <span class="recent-name">{w.name}</span>
-                {/if}
-                <span class="recent-path" title={w.project_paths.join(', ')}>
-                  {w.project_paths.length === 0 
-                    ? 'Empty workspace' 
-                    : `${w.project_paths.length} folder${w.project_paths.length > 1 ? 's' : ''}: ${w.project_paths.map(getShortPath).join(', ')}`}
-                </span>
-              </div>
-              <div class="recent-meta">
-                {#if w.last_opened}
-                  <span class="recent-time">{formatRelativeTime(w.last_opened)}</span>
-                {/if}
-                <button
-                  class="rename-btn"
-                  onclick={(e) => startRename(e, w.id, w.name)}
-                  title="Rename workspace"
-                  aria-label="Rename workspace {w.name}"
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.122 2.122 0 1 1 3 3L12 15l-4 1 1-4z"/>
+          <div class="recent-list">
+            {#each $filteredWorkspaces as w (w.id)}
+              {@const hue = projectHue(w.name)}
+              <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
+              <div class="recent-item" onclick={() => openWorkspace(w.id)} role="button">
+                <div class="recent-avatar" style="--hue:{hue}">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                   </svg>
-                </button>
-                <button
-                  class="remove-btn"
-                  onclick={(e) => removeRecent(e, w.id)}
-                  title="Remove from recent"
-                  aria-label="Remove {w.name} from recent"
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M18 6L6 18M6 6l12 12"/>
-                  </svg>
-                </button>
+                </div>
+                <div class="recent-info">
+                  {#if renamingId === w.id}
+                    <!-- svelte-ignore a11y_autofocus a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                    <input
+                      class="rename-input"
+                      bind:value={renamingName}
+                      onkeydown={(e) => handleRenameKey(e, w.id)}
+                      onblur={() => saveRename(w.id)}
+                      onclick={(e) => e.stopPropagation()}
+                      autofocus
+                    />
+                  {:else}
+                    <span class="recent-name">{w.name}</span>
+                  {/if}
+                  <span class="recent-path" title={w.project_paths.join(', ')}>
+                    {w.project_paths.length === 0
+                      ? 'Empty workspace'
+                      : w.project_paths.map(shortPath).join(', ')}
+                  </span>
+                </div>
+                <div class="recent-actions">
+                  {#if w.last_opened}
+                    <span class="recent-time">{formatTime(w.last_opened)}</span>
+                  {/if}
+                  <button
+                    class="icon-btn"
+                    onclick={(e) => startRename(e, w.id, w.name)}
+                    title="Rename"
+                    aria-label="Rename {w.name}"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                      <path d="M18.5 2.5a2.122 2.122 0 1 1 3 3L12 15l-4 1 1-4z"/>
+                    </svg>
+                  </button>
+                  <button
+                    class="icon-btn danger"
+                    onclick={(e) => removeRecent(e, w.id)}
+                    title="Remove"
+                    aria-label="Remove {w.name}"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                  </button>
+                </div>
               </div>
-            </div>
-          {/each}
+            {/each}
+          </div>
         {:else}
-          <div class="empty-recent">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.3">
-              <path d="M12 8v4l3 3"/>
-              <circle cx="12" cy="12" r="10"/>
+          <div class="empty-state">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
             <p>No recent workspaces</p>
+            <span>Create one or open an existing folder to get started.</span>
           </div>
         {/if}
       </div>
     </div>
-  </div>
 
-  <!-- Shortcuts -->
-  <div class="shortcuts-card">
-    <h3 class="shortcuts-heading">Keyboard Shortcuts</h3>
-    <div class="shortcut-grid">
-      {#each [
-        ['Command Palette', 'commandPalette', 'Ctrl+Shift+P'],
-        ['Go to Terminal', 'goToTerminal', 'Ctrl+`'],
-        ['Go to Editor', 'goToEditor', 'Ctrl+E'],
-        ['Toggle Sidebar', 'toggleSidebar', 'Ctrl+B'],
-        ['Save File', 'saveFile', 'Ctrl+S'],
-        ['Start Preview Proxy', 'startProxy', 'Ctrl+Alt+P'],
-        ['Stop Preview Proxy', 'stopProxy', 'Ctrl+Alt+O'],
-        ['Zoom In', 'zoomIn', 'Ctrl+='],
-        ['Zoom Out', 'zoomOut', 'Ctrl+-'],
-        ['Reset Zoom', 'resetZoom', 'Ctrl+0'],
-      ] as [label, id, defaultKeys]}
-        <div class="shortcut-row">
-          <span class="sc-label">{label}</span>
-          <kbd class="sc-key">{getShortcutKeys(id, defaultKeys)}</kbd>
+    <!-- Right: getting started tips -->
+    <div class="right-col">
+      <span class="section-label">Getting started</span>
+      <div class="tips">
+        <div class="tip">
+          <div class="tip-icon green">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+            </svg>
+          </div>
+          <div class="tip-body">
+            <strong>Multi-pane terminal</strong>
+            <p>Split your workspace into up to 4 terminal panes. Drag to resize.</p>
+          </div>
         </div>
-      {/each}
+        <div class="tip">
+          <div class="tip-icon purple">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+          </div>
+          <div class="tip-body">
+            <strong>Quick Run panel</strong>
+            <p>Launch AI agents (Claude, Codex, Aider) or dev commands instantly from the Run panel in the sidebar.</p>
+          </div>
+        </div>
+        <div class="tip">
+          <div class="tip-icon blue">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          </div>
+          <div class="tip-body">
+            <strong>Built-in preview</strong>
+            <p>Switch to the Preview tab to browse the web or preview your local dev server.</p>
+          </div>
+        </div>
+        <div class="tip">
+          <div class="tip-icon orange">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </div>
+          <div class="tip-body">
+            <strong>Workspace snapshots</strong>
+            <p>Save your current layout and restore it anytime from the sidebar.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="shortcuts-row">
+        <span class="section-label" style="margin-bottom: 10px;">Quick shortcuts</span>
+        <div class="shortcut-grid">
+          {#each [
+            ['Command palette', 'Ctrl+Shift+P'],
+            ['Toggle sidebar', 'Ctrl+B'],
+            ['Focus terminal', 'Ctrl+`'],
+            ['Open preview', 'Ctrl+Alt+P'],
+          ] as [label, keys]}
+            <div class="shortcut-item">
+              <span>{label}</span>
+              <kbd>{keys}</kbd>
+            </div>
+          {/each}
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -259,220 +287,229 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: radial-gradient(circle at 50% 35%, var(--accent-glow) 0%, transparent 60%), var(--editor-bg);
-    align-items: center;
-    justify-content: center;
-    gap: 32px;
+    background: var(--bg-primary);
+    background-image: radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent);
     overflow-y: auto;
-    padding: 40px 20px;
+    padding: 48px 32px 40px;
+    gap: 36px;
   }
 
-  /* ── Hero ─────────────────────────────── */
-  .hero {
-    text-align: center;
+  /* ── Header ── */
+  .header {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 10px;
+    gap: 16px;
   }
 
-  .hero-logo {
-    width: 80px;
-    height: 80px;
-    border-radius: 20px;
-    background: rgba(255, 255, 255, 0.015);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+  .logo-wrap {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1) inset;
-    margin-bottom: 8px;
     overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   }
 
-  .app-icon-svg {
-    width: 56px;
-    height: 56px;
-    border-radius: 12px;
+  .logo-img {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
   }
 
-  .hero-title {
-    font-size: 36px;
-    font-weight: 300;
+  .logo-fallback { opacity: 0.8; }
+
+  .header-text { display: flex; flex-direction: column; gap: 2px; }
+
+  .app-name {
+    font-size: 22px;
+    font-weight: 600;
     color: var(--text-primary);
-    letter-spacing: -0.5px;
+    letter-spacing: -0.3px;
+    line-height: 1;
   }
 
-  .hero-sub {
-    font-size: 13px;
+  .app-tagline {
+    font-size: 12px;
     color: var(--text-muted);
   }
 
-  /* ── Actions Row ──────────────────────── */
-  .actions-row {
+  /* ── Content grid ── */
+  .content {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 24px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ── Left column ── */
+  .left-col {
     display: flex;
-    align-items: flex-start;
-    gap: 0;
-    background: var(--bg-glass);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    width: 100%;
-    max-width: 680px;
+    flex-direction: column;
+    gap: 20px;
+    min-height: 0;
   }
 
-  .action-section {
-    padding: 24px;
-    flex-shrink: 0;
+  /* ── Action buttons ── */
+  .action-group {
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .section-divider {
-    width: 1px;
-    background: var(--border);
-    align-self: stretch;
-  }
-
-  /* ── Open Button ──────────────────────── */
-  .open-btn {
+  .action-btn {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 24px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    padding: 11px 16px;
+    border-radius: 10px;
     font-size: 13px;
     font-weight: 500;
-    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.15s;
-    box-shadow: var(--shadow-sm);
-    white-space: nowrap;
     cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+    text-align: left;
+    width: 100%;
+    border: 1px solid var(--border);
   }
 
-  .open-btn:hover {
-    background: var(--accent-light);
+  .action-btn.primary {
+    background: var(--accent);
     border-color: var(--accent);
-    box-shadow: 0 0 16px var(--accent-glow), var(--shadow-md);
-    transform: translateY(-2px);
+    color: #fff;
+  }
+
+  .action-btn.primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 40%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .action-btn.secondary {
+    background: var(--bg-secondary);
     color: var(--text-primary);
   }
 
-  .open-btn:active {
-    transform: translateY(-0.5px);
+  .action-btn.secondary:hover {
+    background: var(--bg-hover);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    transform: translateY(-1px);
   }
 
-  .open-btn-icon {
+  .action-btn:active { transform: translateY(0); }
+
+  .action-icon {
     display: flex;
     align-items: center;
-    opacity: 0.85;
+    flex-shrink: 0;
   }
 
-  .open-btn kbd {
-    margin-left: 6px;
+  .action-label { flex: 1; }
+
+  .action-btn kbd {
     font-size: 10px;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-    padding: 2px 6px;
     font-family: inherit;
-    letter-spacing: 0.3px;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.7);
+    letter-spacing: 0.2px;
   }
 
-  .open-btn:hover kbd {
-    background: var(--bg-primary);
+  .action-btn.secondary kbd {
+    background: var(--bg-tertiary);
     border-color: var(--border);
-    color: var(--text-primary);
+    color: var(--text-muted);
   }
 
-  /* ── Recent Section ───────────────────── */
-  .recent-section {
-    flex: 1;
-    min-width: 0;
+  /* ── Recents ── */
+  .recents {
     display: flex;
     flex-direction: column;
-    padding: 16px 0;
+    gap: 8px;
+    min-height: 0;
+    flex: 1;
   }
 
-  .recent-header {
+  .recents-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 20px 10px;
   }
 
-  .recent-label {
+  .section-label {
     font-size: 10px;
     font-weight: 700;
+    letter-spacing: 1px;
     text-transform: uppercase;
-    letter-spacing: 1.2px;
     color: var(--text-muted);
   }
 
-  .clear-btn {
-    font-size: 10px;
+  .text-btn {
+    font-size: 10.5px;
     color: var(--text-muted);
     padding: 2px 6px;
     border-radius: 4px;
-    transition: background 0.15s, color 0.15s;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    background: transparent;
+    border: none;
   }
-  .clear-btn:hover {
-    background: color-mix(in srgb, var(--error) 15%, transparent);
+
+  .text-btn.danger:hover {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
     color: var(--error);
   }
 
   .recent-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 230px;
+    gap: 4px;
     overflow-y: auto;
-    padding: 2px 12px 8px;
+    flex: 1;
   }
 
-  .recent-card {
+  .recent-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    border-radius: var(--radius-md);
-    background: var(--bg-secondary);
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
     border: 1px solid var(--border);
+    background: var(--bg-secondary);
     cursor: pointer;
-    transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: var(--shadow-sm);
+    transition: background 0.12s, border-color 0.12s, transform 0.1s;
   }
 
-  .recent-card:hover {
+  .recent-item:hover {
     background: var(--bg-hover);
-    border-color: var(--accent);
-    box-shadow: var(--shadow-md), 0 0 8px var(--accent-glow);
-    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    transform: translateX(2px);
   }
 
   .recent-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-sm);
-    background: hsl(var(--hue) 35% 20% / 0.4);
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    background: hsl(var(--hue) 35% 20% / 0.45);
     border: 1px solid hsl(var(--hue) 35% 30% / 0.4);
     color: hsl(var(--hue) 60% 70%);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
-    font-weight: 600;
     flex-shrink: 0;
   }
 
   .recent-info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
     flex: 1;
     min-width: 0;
   }
@@ -487,161 +524,207 @@
   }
 
   .recent-path {
-    font-size: 10px;
+    font-size: 10.5px;
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .recent-meta {
+  .recent-actions {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s;
   }
+
+  .recent-item:hover .recent-actions { opacity: 1; }
 
   .recent-time {
     font-size: 10px;
     color: var(--text-muted);
     white-space: nowrap;
-  }
-
-  .remove-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    color: var(--text-muted);
-    opacity: 0;
-    transition: opacity 0.15s, background 0.15s, color 0.15s;
-  }
-  .recent-card:hover .remove-btn { opacity: 1; }
-  .remove-btn:hover {
-    background: color-mix(in srgb, var(--error) 18%, transparent);
-    color: var(--error);
-  }
-
-  .rename-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    color: var(--text-muted);
-    opacity: 0;
-    transition: opacity 0.15s, background 0.15s, color 0.15s;
     margin-right: 4px;
   }
-  .recent-card:hover .rename-btn { opacity: 1; }
-  .rename-btn:hover {
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .icon-btn:hover {
     background: var(--bg-hover);
     color: var(--accent);
   }
 
-  .rename-ws-input {
-    background: var(--input-bg);
+  .icon-btn.danger:hover {
+    background: color-mix(in srgb, var(--error) 15%, transparent);
+    color: var(--error);
+  }
+
+  .rename-input {
+    background: var(--bg-primary);
     border: 1px solid var(--accent);
     color: var(--text-primary);
     font-size: 12px;
     font-weight: 500;
-    padding: 1px 4px;
+    padding: 1px 6px;
     border-radius: 4px;
     outline: none;
     width: 100%;
+    height: 22px;
     box-sizing: border-box;
-    height: 20px;
   }
 
-  .empty-recent {
+  /* ── Empty state ── */
+  .empty-state {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 24px 16px;
+    gap: 6px;
+    padding: 32px 16px;
     color: var(--text-muted);
-    font-size: 11px;
     text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    opacity: 0.7;
   }
 
-  /* ── Shortcuts ────────────────────────── */
-  .shortcuts-card {
-    width: 100%;
-    max-width: 680px;
-    background: var(--bg-glass);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 20px;
+  .empty-state p {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-top: 4px;
   }
 
-  .shortcuts-heading {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+  .empty-state span {
+    font-size: 11px;
     color: var(--text-muted);
-    margin-bottom: 16px;
+  }
+
+  /* ── Right column ── */
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-height: 0;
+  }
+
+  /* ── Tips ── */
+  .tips {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+  }
+
+  .tip-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .tip-icon.green  { background: rgba(74,222,128,0.12); color: #4ade80; }
+  .tip-icon.purple { background: rgba(167,139,250,0.12); color: #a78bfa; }
+  .tip-icon.blue   { background: rgba(56,189,248,0.12);  color: #38bdf8; }
+  .tip-icon.orange { background: rgba(251,146,60,0.12);  color: #fb923c; }
+
+  .tip-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .tip-body strong {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .tip-body p {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .tip-body kbd {
+    display: inline-block;
+    font-size: 9.5px;
+    font-family: inherit;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  /* ── Shortcuts ── */
+  .shortcuts-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
   }
 
   .shortcut-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px 24px;
+    gap: 8px 16px;
   }
 
-  .shortcut-row {
+  .shortcut-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-  }
-
-  .sc-label {
+    gap: 8px;
     font-size: 11.5px;
     color: var(--text-secondary);
   }
 
-  .sc-key {
-    font-size: 10px;
-    font-family: var(--editor-font-family, monospace);
+  .shortcut-item kbd {
+    font-size: 9.5px;
+    font-family: inherit;
+    padding: 2px 6px;
+    border-radius: 4px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
-    border-bottom: 2px solid var(--text-muted);
-    border-radius: 4px;
-    padding: 2px 7px;
+    border-bottom: 2px solid var(--border);
     color: var(--text-primary);
-    letter-spacing: 0.3px;
-    box-shadow: 0 1px 0 var(--border) inset, var(--shadow-sm);
+    white-space: nowrap;
   }
 
-  @media (max-width: 640px) {
-    .welcome {
-      gap: 20px;
-      padding: 20px 12px;
-    }
-    .hero-title {
-      font-size: 26px;
-    }
-    .actions-row {
-      flex-direction: column;
-      max-width: 100%;
-    }
-    .action-section {
-      padding: 16px;
-      width: 100%;
-    }
-    .section-divider {
-      width: 100%;
-      height: 1px;
-      align-self: auto;
-    }
-    .shortcut-grid {
-      grid-template-columns: 1fr;
-    }
-    .shortcuts-card {
-      padding: 14px;
-    }
+  /* ── Responsive ── */
+  @media (max-width: 720px) {
+    .welcome { padding: 28px 16px 32px; gap: 24px; }
+    .content { grid-template-columns: 1fr; }
+    .right-col { display: none; }
   }
 </style>

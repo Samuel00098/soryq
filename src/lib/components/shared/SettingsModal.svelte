@@ -19,7 +19,9 @@
     terminalFontSize,
     terminalRenderer,
     formatOnSave,
+    notificationsEnabled,
   } from '$lib/stores/settings';
+  import { requestNotificationPermission } from '$lib/stores/notification';
   import { getAvailableShells, type ShellInfo } from '$lib/services/pty-bridge';
   import { showToast } from '$lib/stores/notification';
 
@@ -39,8 +41,8 @@
     
     try {
       updateStatus = 'latest';
-      updateMessage = 'Forge is up to date!';
-      showToast('Forge is up to date!', 'success');
+      updateMessage = 'DevDock is up to date!';
+      showToast('DevDock is up to date!', 'success');
     } catch (err) {
       updateStatus = 'error';
       updateMessage = 'Failed to check for updates.';
@@ -572,6 +574,32 @@
           </div>
         </div>
 
+        <!-- Notifications section -->
+        <div class="setting-group">
+          <div class="group-label">Notifications</div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-label">Desktop notifications</span>
+              <span class="toggle-desc">Show system notifications for agent activity, process exits, and attention requests — even when DevDock is in the background.</span>
+            </div>
+            <button
+              class="toggle"
+              class:on={$notificationsEnabled}
+              onclick={async () => {
+                const next = !$notificationsEnabled;
+                if (next) await requestNotificationPermission();
+                $notificationsEnabled = next;
+              }}
+              aria-label="Toggle desktop notifications"
+              role="switch"
+              aria-checked={$notificationsEnabled}
+            >
+              <span class="toggle-thumb"></span>
+            </button>
+          </div>
+        </div>
+
       {:else if activeTab === 'terminal'}
         <div class="section-heading">
           <h2>Terminal</h2>
@@ -636,14 +664,14 @@
 
           <div class="toggle-row">
             <div class="toggle-info">
-              <span class="toggle-label">GPU renderer</span>
-              <span class="toggle-desc">Use Canvas-based GPU acceleration for smoother terminal output. Disable if you encounter graphical issues.</span>
+                <span class="toggle-label">Canvas renderer</span>
+                <span class="toggle-desc">Use the faster canvas renderer. Leave this off if the terminal blanks or glitches while resizing.</span>
             </div>
             <button
               class="toggle"
               class:on={$terminalRenderer === 'canvas'}
               onclick={() => $terminalRenderer = $terminalRenderer === 'canvas' ? 'dom' : 'canvas'}
-              aria-label="Toggle GPU renderer"
+                aria-label="Toggle canvas renderer"
               role="switch"
               aria-checked={$terminalRenderer === 'canvas'}
             >
@@ -884,7 +912,7 @@
             {#if !iconError}
               <img
                 src="/icon.png?v=2"
-                alt="Forge"
+                alt="DevDock"
                 class="about-app-icon"
                 onerror={() => iconError = true}
               />
@@ -895,7 +923,7 @@
               </svg>
             {/if}
           </div>
-          <h3 class="about-name">Forge</h3>
+          <h3 class="about-name">DevDock</h3>
           <p class="about-tagline">A lightweight developer workspace</p>
         </div>
 
@@ -934,7 +962,7 @@
                 </svg>
                 <div class="updater-text">
                   <span class="status-title">Up to date</span>
-                  <span class="status-desc">Forge v0.1.0 is the latest version.</span>
+                  <span class="status-desc">DevDock v0.1.0 is the latest version.</span>
                 </div>
               </div>
               <button class="updater-btn-subtle" onclick={handleCheckForUpdates}>

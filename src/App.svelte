@@ -8,6 +8,7 @@
   import { loadThemes } from '$lib/stores/theme';
   import { initializeWorkspaces } from '$lib/stores/workspace';
   import { initDefaultCommands } from '$lib/stores/commandpalette';
+  import { requestNotificationPermission } from '$lib/stores/notification';
   import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut } from '$lib/stores/settings';
 
   const ZOOM_LEVELS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const;
@@ -30,6 +31,7 @@
     loadThemes();
     initializeWorkspaces();
     initDefaultCommands();
+    requestNotificationPermission();
 
     // Lock window scrolling to prevent viewport shifting when dragging elements/selection
     const handleScroll = () => {

@@ -145,18 +145,19 @@
       {#if !iconError}
         <img
           src="/icon.png?v=2"
-          alt="Forge"
+          alt="Devdock"
           class="titlebar-app-icon"
           onerror={() => iconError = true}
         />
       {:else}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" class="titlebar-app-icon" aria-hidden="true">
-          <circle cx="9" cy="12" r="6" stroke-opacity="0.9" />
-          <circle cx="15" cy="12" r="6" stroke-opacity="0.6" />
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="titlebar-app-icon" aria-hidden="true">
+          <rect width="16" height="16" rx="3.5" fill="#1e1b4b"/>
+          <polyline points="2.5,10 4.5,8 2.5,6" fill="none" stroke="#8b5cf6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="5.5" y="7.3" width="5" height="1.2" rx="0.6" fill="rgba(255,255,255,0.5)"/>
         </svg>
       {/if}
     </div>
-    <span class="titlebar-name">Forge</span>
+    <span class="titlebar-name">DevDock</span>
   </div>
 
   <!-- Navigation: Home, Back, Forward -->
@@ -202,8 +203,8 @@
         </svg>
         {$activeWorkspace.name}{$activeProject ? ` - ${$activeProject.name}` : ''}
       </span>
-    {:else}
-      <span class="titlebar-no-project">Forge</span>
+      {:else}
+      <span class="titlebar-no-project">DevDock</span>
     {/if}
   </div>
 

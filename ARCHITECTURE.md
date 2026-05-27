@@ -1,15 +1,15 @@
-# Forge Architecture Document
+# Devdock Architecture Document
 
 ## Application Overview
 
-**Forge** — a lightweight developer workspace inspired by Terax, built with Tauri 2 + Rust + Svelte 5 + TypeScript. No AI agents. Features split panels, multi-project workspaces, git integration with a side-by-side/inline code reviewer, custom command palette, built-in terminal, code editor, file explorer, and live web preview.
+**Devdock** — a lightweight developer workspace inspired by Terax, built with Tauri 2 + Rust + Svelte 5 + TypeScript. No AI agents. Features split panels, multi-project workspaces, git integration with a side-by-side/inline code reviewer, custom command palette, built-in terminal, code editor, file explorer, and live web preview.
 
 ---
 
 ## 1. Project Structure
 
 ```
-forge/
+devdock/
 ├── src-tauri/                          # Rust backend (Tauri 2)
 │   ├── Cargo.toml
 │   ├── tauri.conf.json                 # Tauri configuration
@@ -89,7 +89,6 @@ forge/
 │   │   │   ├── preview/
 │   │   │   │   ├── PreviewPanel.svelte
 │   │   │   │   ├── PreviewToolbar.svelte
-│   │   │   │   └── PreviewFrame.svelte
 │   │   │   ├── review/
 │   │   │   │   └── ReviewPanel.svelte      # Code Review interface (inline diff viewer)
 │   │   │   ├── panels/
@@ -102,15 +101,7 @@ forge/
 │   │   │   │   ├── ProjectSettings.svelte
 │   │   │   │   └── WelcomeScreen.svelte
 │   │   │   ├── theme/
-│   │   │   │   ├── ThemePicker.svelte
-│   │   │   │   └── ThemeCustomizer.svelte
-│   │   │   └── shared/
-│   │   │       ├── Icon.svelte
-│   │   │       ├── Modal.svelte
-│   │   │       ├── Dropdown.svelte
-│   │   │       ├── ContextMenu.svelte
 │   │   │       ├── Tooltip.svelte
-│   │   │       ├── Input.svelte
 │   │   │       ├── Button.svelte
 │   │   │       └── Resizer.svelte
 │   │   ├── stores/                     # Svelte stores (using Svelte 5 runes / custom states)
@@ -118,48 +109,17 @@ forge/
 │   │   │   ├── terminal.ts             # PTY sessions state
 │   │   │   ├── editor.ts               # Open files, active file, content cache
 │   │   │   ├── explorer.ts             # Selected and expanded tree paths
-│   │   │   ├── preview.ts              # Embedded preview browser state
-│   │   │   ├── theme.ts                # App theme configurations
-│   │   │   ├── layout.ts               # Sidebar tabs, active views, panels splits
-│   │   │   ├── settings.ts             # Font sizes, keybindings, app preferences
-│   │   │   ├── commandpalette.ts       # Global command palette registry & state
-│   │   │   └── notification.ts         # Toast message notifications
-│   │   ├── services/                   # Frontend services
-│   │   │   ├── tauri.ts                # Tauri invoke wrappers
-│   │   │   ├── terminal.ts
-│   │   │   ├── file-icons.ts
 │   │   │   └── keybindings.ts
 │   │   ├── types/                      # TypeScript type definitions
 │   │   │   ├── workspace.ts
-│   │   │   ├── terminal.ts
-│   │   │   ├── editor.ts
-│   │   │   ├── theme.ts
 │   │   │   └── layout.ts
 │   │   └── utils/                      # Shared utilities
 │   │       ├── path.ts
-│   │       ├── debounce.ts
-│   │       └── color.ts
-│   └── styles/
-│       ├── global.css                  # Global styles, scroll boundaries, scrollbars
-│       └── themes/                     # CSS theme definitions
-│           └── base.css                # Base theme CSS variables mapping
-│
 ├── package.json
-├── svelte.config.js
 ├── vite.config.ts                      # SPA build & alias configuration
 ├── tsconfig.json
 └── README.md
-```
-
----
-
-## 2. Rust Backend Architecture
-
-### 2.1 Core Crates
-
-| Crate | Purpose |
 |-------|---------|
-| `tauri` | Desktop app framework (v2) |
 | `tauri-plugin-shell` | Shell command execution |
 | `tauri-plugin-fs` | File system access |
 | `tauri-plugin-dialog` | File/folder dialogs |

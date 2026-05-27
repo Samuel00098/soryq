@@ -31,6 +31,12 @@
         {/if}
       </div>
       <div class="toast-message">{toast.message}</div>
+      {#if toast.action}
+        <button
+          class="toast-action"
+          onclick={() => { toast.action!.onClick(); dismissToast(toast.id); }}
+        >{toast.action.label}</button>
+      {/if}
       <button class="toast-close" onclick={() => dismissToast(toast.id)} aria-label="Dismiss notification">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18" />
@@ -132,6 +138,24 @@
     font-size: 13px;
     line-height: 1.4;
     font-weight: 500;
+  }
+
+  .toast-action {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    background: var(--accent);
+    border: none;
+    border-radius: 5px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+
+  .toast-action:hover {
+    opacity: 0.85;
   }
 
   .toast-close {

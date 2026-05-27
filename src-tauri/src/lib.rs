@@ -50,6 +50,7 @@ pub fn run() {
             commands::file_system::fs_copy,
             commands::file_system::fs_read_file,
             commands::file_system::fs_write_file,
+            commands::file_system::fs_write_binary,
             commands::file_system::fs_get_file_info,
             commands::terminal::terminal_create,
             commands::terminal::terminal_write,
@@ -65,6 +66,7 @@ pub fn run() {
             commands::preview::preview_get_proxy_port,
             commands::preview::preview_clear_proxy_target,
             commands::preview::preview_open_in_browser,
+            commands::preview::preview_capture_screenshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running forge application");

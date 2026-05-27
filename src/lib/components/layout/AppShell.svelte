@@ -8,15 +8,20 @@
   import PreviewPanel from '$lib/components/preview/PreviewPanel.svelte';
   import WelcomeScreen from '$lib/components/workspace/WelcomeScreen.svelte';
   import ReviewPanel from '$lib/components/review/ReviewPanel.svelte';
+  import TasksPanel from '$lib/components/workspace/TasksPanel.svelte';
+  import NotesPanel from '$lib/components/workspace/NotesPanel.svelte';
+  import QuickRunPanel from '$lib/components/workspace/QuickRunPanel.svelte';
+  import SnapshotsPanel from '$lib/components/layout/SnapshotsPanel.svelte';
+  import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
 
   import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible } from '$lib/stores/layout';
   import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
-  import { stopProxy } from '$lib/stores/preview';
+  import { startProxy, stopProxy } from '$lib/stores/preview';
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
-  import { createTerminalSession } from '$lib/stores/terminal';
+  import { createTerminalSession, killAllSessions } from '$lib/stores/terminal';
 
   // Workspace renaming state
   let editingWorkspaceName = $state(false);
@@ -227,6 +232,19 @@
       }
     }
   }
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePageTeardown = () => {
+      killAllSessions().catch(() => {});
+    };
+    window.addEventListener('beforeunload', handlePageTeardown);
+    window.addEventListener('pagehide', handlePageTeardown);
+    return () => {
+      window.removeEventListener('beforeunload', handlePageTeardown);
+      window.removeEventListener('pagehide', handlePageTeardown);
+    };
+  });
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} onmousemove={onMouseMove} onmouseup={onMouseUp} onkeydown={handleKeyDown} />
@@ -387,10 +405,9 @@
                 onclick={() => setSidebarTab('files')}
                 title="Files"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M3 7a2 2 0 012-2h3.586a2 2 0 011.414.586L11.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
                 </svg>
-                <span>Files</span>
               </button>
               <button
                 class="sidebar-tab"
@@ -398,14 +415,62 @@
                 onclick={() => setSidebarTab('git')}
                 title="Source Control"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="18" cy="18" r="3"/>
                   <circle cx="6" cy="6" r="3"/>
                   <circle cx="6" cy="18" r="3"/>
                   <path d="M18 15V9a4 4 0 0 0-4-4H9"/>
                   <line x1="6" y1="9" x2="6" y2="15"/>
                 </svg>
-                <span>Source Control</span>
+              </button>
+              <button
+                class="sidebar-tab"
+                class:active={$layout.sidebarTab === 'tasks'}
+                onclick={() => setSidebarTab('tasks')}
+                title="Tasks"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="5" width="6" height="6" rx="1"/>
+                  <rect x="3" y="13" width="6" height="6" rx="1"/>
+                  <line x1="13" y1="8" x2="21" y2="8"/>
+                  <line x1="13" y1="16" x2="21" y2="16"/>
+                </svg>
+              </button>
+              <button
+                class="sidebar-tab"
+                class:active={$layout.sidebarTab === 'notes'}
+                onclick={() => setSidebarTab('notes')}
+                title="Notes"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+              </button>
+              <button
+                class="sidebar-tab"
+                class:active={$layout.sidebarTab === 'runs'}
+                onclick={() => setSidebarTab('runs')}
+                title="Quick Run"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </button>
+              <button
+                class="sidebar-tab"
+                class:active={$layout.sidebarTab === 'snapshots'}
+                onclick={() => setSidebarTab('snapshots')}
+                title="Workspace Snapshots"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <path d="M8 21h8M12 17v4"/>
+                  <circle cx="12" cy="10" r="3"/>
+                </svg>
               </button>
             </div>
           {/if}
@@ -417,6 +482,14 @@
                 <FileExplorer />
               {:else if $layout.sidebarTab === 'git'}
                 <SourceControl />
+              {:else if $layout.sidebarTab === 'tasks'}
+                <TasksPanel />
+              {:else if $layout.sidebarTab === 'notes'}
+                <NotesPanel />
+              {:else if $layout.sidebarTab === 'runs'}
+                <QuickRunPanel />
+              {:else if $layout.sidebarTab === 'snapshots'}
+                <SnapshotsPanel />
               {/if}
             </div>
           {/if}
@@ -434,11 +507,12 @@
       {/if}
 
       <!-- Main Content Area -->
-      <div class="main-content" class:pointer-none={sidebarResizing || auxResizing || auxRowResizing}>
-        <!-- Left Pane: Terminal Panel (always visible, resizing dynamically) -->
-        <div class="terminal-container">
-          <TerminalPanel />
-        </div>
+        <div class="main-content" class:pointer-none={sidebarResizing || auxResizing || auxRowResizing}>
+          <!-- Left Pane: Terminal Panel (always visible, resizing dynamically) -->
+          <div class="terminal-container">
+            <TerminalPanel />
+            <FloatingPromptBar />
+          </div>
 
         <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
         {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible}
@@ -515,6 +589,7 @@
             {/if}
           </div>
         {/if}
+
       </div>
     </div>
 
@@ -778,27 +853,30 @@
     align-items: center;
     border-bottom: 1px solid var(--border-subtle);
     background: var(--sidebar-bg);
-    padding: 0 8px;
+    padding: 0 4px;
     height: 32px;
     flex-shrink: 0;
-    gap: 4px;
+    gap: 1px;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+
+  .sidebar-header-tabs::-webkit-scrollbar { display: none; }
 
   .sidebar-tab {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 8px;
-    height: 24px;
-    border-radius: 4px;
-    font-size: 11.5px;
-    font-weight: 500;
+    justify-content: center;
+    flex: 1;
+    min-width: 0;
+    height: 26px;
+    border-radius: 5px;
     color: var(--text-muted);
     background: transparent;
     border: none;
     cursor: pointer;
     transition: color 0.15s, background 0.15s;
-    min-width: 0;
+    flex-shrink: 0;
   }
 
   .sidebar-tab:hover {
@@ -877,11 +955,14 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    position: relative;
+    container-type: inline-size;
+    container-name: center-panel;
   }
 
   /* Auxiliary Panel col resize handle */
   .aux-resize-handle {
-    width: 4px;
+    width: 1px;
     cursor: col-resize;
     background: var(--border);
     flex-shrink: 0;
@@ -890,21 +971,19 @@
     transition: background-color 0.15s;
   }
 
-  .aux-resize-handle::after {
+  .aux-resize-handle::before {
     content: '';
     position: absolute;
-    left: 1px;
+    left: -5px;
     top: 0;
-    width: 2px;
+    width: 11px;
     height: 100%;
-    background: transparent;
-    transition: background-color 0.15s, box-shadow 0.15s;
+    cursor: col-resize;
   }
 
   .aux-resize-handle:hover,
   .aux-resize-handle.resizing {
     background: var(--accent);
-    box-shadow: 0 0 6px var(--accent);
   }
 
   /* Auxiliary Panel right side container */
@@ -941,7 +1020,7 @@
 
   /* Horizontal split resize handle */
   .aux-row-resize-handle {
-    height: 4px;
+    height: 1px;
     cursor: row-resize;
     background: var(--border);
     flex-shrink: 0;
@@ -950,21 +1029,19 @@
     transition: background-color 0.15s;
   }
 
-  .aux-row-resize-handle::after {
+  .aux-row-resize-handle::before {
     content: '';
     position: absolute;
-    top: 1px;
+    top: -5px;
     left: 0;
-    height: 2px;
+    height: 11px;
     width: 100%;
-    background: transparent;
-    transition: background-color 0.15s, box-shadow 0.15s;
+    cursor: row-resize;
   }
 
   .aux-row-resize-handle:hover,
   .aux-row-resize-handle.resizing {
     background: var(--accent);
-    box-shadow: 0 0 6px var(--accent);
   }
 
   .resize-overlay {

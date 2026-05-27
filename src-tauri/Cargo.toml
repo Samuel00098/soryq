@@ -1,12 +1,12 @@
 [package]
-name = "forge"
+name = "devdock"
 version = "0.1.0"
 description = "A lightweight developer workspace built with Tauri 2, Rust, and Svelte 5"
 authors = ["samue"]
 edition = "2021"
 
 [lib]
-name = "forge_lib"
+name = "devdock_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -26,9 +26,17 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tokio = { version = "1", features = ["full"] }
 dashmap = "5"
 notify = "6"
+image = { version = "0.25", default-features = false, features = ["png"] }
 portable-pty = "0.8"
 axum = { version = "0.8.9", features = ["ws"] }
 reqwest = { version = "0.13.3", features = ["json", "stream", "gzip", "brotli"] }
 tokio-tungstenite = "0.29.0"
 futures-util = "0.3.32"
 url = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.48", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }

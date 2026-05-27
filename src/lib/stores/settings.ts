@@ -4,14 +4,16 @@ function persistentWritable<T>(key: string, defaultValue: T): import('svelte/sto
   if (typeof window === 'undefined') {
     return writable(defaultValue);
   }
-  // One-time migration to revert terminalRenderer to 'canvas' for users who had 'webgl'
+  // One-time migration to move users off unstable terminal renderers.
   let stored = localStorage.getItem(`forge_setting_${key}`);
   if (key === 'terminalRenderer' && stored !== null) {
     try {
       const parsed = JSON.parse(stored);
-      if (parsed === 'webgl') {
-        localStorage.setItem('forge_setting_terminalRenderer', JSON.stringify('canvas'));
-        stored = JSON.stringify('canvas');
+      const rendererMigrationKey = 'forge_setting_terminalRenderer_migrated_v2';
+      if (!localStorage.getItem(rendererMigrationKey) && (parsed === 'webgl' || parsed === 'canvas')) {
+        localStorage.setItem('forge_setting_terminalRenderer', JSON.stringify('dom'));
+        localStorage.setItem(rendererMigrationKey, '1');
+        stored = JSON.stringify('dom');
       }
     } catch (e) {
       // Ignore JSON parse errors
@@ -107,6 +109,9 @@ export const vimMode = persistentWritable('vimMode', false);
 
 // Explorer
 export const showHidden = persistentWritable('showHidden', false);
+
+// Notifications
+export const notificationsEnabled = persistentWritable('notificationsEnabled', true);
 
 // UI Scaling
 export const uiZoom = persistentWritable('uiZoom', 100);
@@ -227,7 +232,7 @@ export const terminalShell = persistentWritable<string>('terminalShell', ''); //
 export const terminalCursorStyle = persistentWritable<'bar' | 'block' | 'underline'>('terminalCursorStyle', 'bar');
 export const terminalScrollback = persistentWritable('terminalScrollback', 5000);
 export const terminalFontSize = persistentWritable('terminalFontSize', 13);
-export const terminalRenderer = persistentWritable<'canvas' | 'dom'>('terminalRenderer', 'canvas');
+export const terminalRenderer = persistentWritable<'canvas' | 'dom'>('terminalRenderer', 'dom');
 
 export function updateSetting(key: string, value: unknown) {
   switch (key) {
@@ -263,6 +268,6 @@ export function resetSettingsToDefault() {
   terminalCursorStyle.set('bar');
   terminalScrollback.set(5000);
   terminalFontSize.set(13);
-  terminalRenderer.set('canvas');
+  terminalRenderer.set('dom');
 }
 

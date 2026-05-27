@@ -3,7 +3,7 @@ import type { LayoutState, ActiveView, SidebarTab } from '$lib/types/layout';
 
 export const layout = writable<LayoutState>({
   sidebarVisible: true,
-  sidebarWidth: 220,
+  sidebarWidth: 260,
   activeView: 'terminal',
   editorSplitPreview: false,
   sidebarTab: 'files',
@@ -24,56 +24,45 @@ export function toggleSidebar() {
 
 export function setActiveView(view: ActiveView) {
   layout.update((l) => {
-    let next = { ...l, activeView: view };
     if (view === 'editor') {
-      next.editorVisible = true;
-    } else if (view === 'preview') {
-      next.previewVisible = true;
-    } else if (view === 'review') {
-      next.reviewVisible = true;
+      return { ...l, activeView: 'editor', editorVisible: true, previewVisible: false, reviewVisible: false, editorSplitPreview: false };
     }
-    return next;
+    if (view === 'preview') {
+      return { ...l, activeView: 'preview', previewVisible: true, editorVisible: false, reviewVisible: false, editorSplitPreview: false };
+    }
+    if (view === 'review') {
+      return { ...l, activeView: 'review', reviewVisible: true, editorVisible: false, previewVisible: false, editorSplitPreview: false };
+    }
+    return { ...l, activeView: view };
   });
 }
 
 export function toggleEditorVisible() {
   layout.update((l) => {
-    const nextVisible = !l.editorVisible;
-    let nextView = l.activeView;
-    if (nextVisible) {
-      nextView = 'editor';
-    } else if (l.activeView === 'editor') {
-      nextView = l.previewVisible ? 'preview' : 'terminal';
+    if (l.editorVisible) {
+      // Same panel clicked again → close it
+      return { ...l, editorVisible: false, editorSplitPreview: false, activeView: 'terminal' };
     }
-    const bothVisible = nextVisible && l.previewVisible;
-    return { ...l, editorVisible: nextVisible, activeView: nextView, editorSplitPreview: bothVisible };
+    // Switch to editor, close any other panel
+    return { ...l, editorVisible: true, previewVisible: false, reviewVisible: false, editorSplitPreview: false, activeView: 'editor' };
   });
 }
 
 export function togglePreviewVisible() {
   layout.update((l) => {
-    const nextVisible = !l.previewVisible;
-    let nextView = l.activeView;
-    if (nextVisible) {
-      nextView = 'preview';
-    } else if (l.activeView === 'preview') {
-      nextView = l.editorVisible ? 'editor' : (l.reviewVisible ? 'review' : 'terminal');
+    if (l.previewVisible) {
+      return { ...l, previewVisible: false, editorSplitPreview: false, activeView: 'terminal' };
     }
-    const bothVisible = l.editorVisible && nextVisible;
-    return { ...l, previewVisible: nextVisible, activeView: nextView, editorSplitPreview: bothVisible };
+    return { ...l, previewVisible: true, editorVisible: false, reviewVisible: false, editorSplitPreview: false, activeView: 'preview' };
   });
 }
 
 export function toggleReviewVisible() {
   layout.update((l) => {
-    const nextVisible = !l.reviewVisible;
-    let nextView = l.activeView;
-    if (nextVisible) {
-      nextView = 'review';
-    } else if (l.activeView === 'review') {
-      nextView = l.editorVisible ? 'editor' : (l.previewVisible ? 'preview' : 'terminal');
+    if (l.reviewVisible) {
+      return { ...l, reviewVisible: false, activeView: 'terminal' };
     }
-    return { ...l, reviewVisible: nextVisible, activeView: nextView };
+    return { ...l, reviewVisible: true, editorVisible: false, previewVisible: false, editorSplitPreview: false, activeView: 'review' };
   });
 }
 
@@ -119,7 +108,7 @@ export function setSidebarWidth(width: number) {
 export function resetLayoutToDefault() {
   layout.set({
     sidebarVisible: true,
-    sidebarWidth: 220,
+    sidebarWidth: 260,
     activeView: 'terminal',
     editorSplitPreview: false,
     sidebarTab: 'files',

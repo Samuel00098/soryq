@@ -66,7 +66,8 @@ pub fn terminal_resize(id: u32, rows: u16, cols: u16, state: State<AppState>) ->
 
 #[tauri::command]
 pub fn terminal_close(id: u32, state: State<AppState>) -> Result<(), String> {
-    state.pty_manager.remove(id).ok_or_else(|| format!("Session not found: {id}"))?;
+    let session = state.pty_manager.remove(id).ok_or_else(|| format!("Session not found: {id}"))?;
+    let _ = session.close();
     Ok(())
 }
 

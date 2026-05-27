@@ -619,6 +619,7 @@ async fn proxy_local_dev_request(
 
         // Rewrite Origin and Referer headers to match target dev server
         let target_origin = format!("http://{}:{}", host, target_port);
+        reqwest_req.headers_mut().remove("accept-encoding");
         if reqwest_req.headers().contains_key("origin") {
             if let Ok(val) = target_origin.parse() {
                 reqwest_req.headers_mut().insert("origin", val);
@@ -756,7 +757,15 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
         let mut builder = Response::builder().status(status);
         for (key, value) in headers.iter() {
             let key_lower = key.as_str().to_lowercase();
-            if key_lower == "content-length" {
+            if matches!(
+                key_lower.as_str(),
+                "content-length"
+                    | "content-encoding"
+                    | "transfer-encoding"
+                    | "etag"
+                    | "content-md5"
+                    | "accept-ranges"
+            ) {
               continue;
             }
             if strip_embed_headers && (key_lower == "x-frame-options" || key_lower == "content-security-policy" || key_lower == "content-security-policy-report-only") {
@@ -773,6 +782,12 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
     let mut builder = Response::builder().status(status);
     for (key, value) in headers.iter() {
         let key_lower = key.as_str().to_lowercase();
+        if matches!(
+            key_lower.as_str(),
+            "content-length" | "content-encoding" | "transfer-encoding"
+        ) {
+            continue;
+        }
         if strip_embed_headers && (key_lower == "x-frame-options" || key_lower == "content-security-policy" || key_lower == "content-security-policy-report-only") {
             continue;
         }

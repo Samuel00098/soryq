@@ -1,40 +1,50 @@
 import { writable, get } from 'svelte/store';
+import { notificationsEnabled } from './settings';
 
 export interface Toast {
   id: string;
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';
   duration?: number;
+  action?: { label: string; onClick: () => void };
 }
 
 export const toasts = writable<Toast[]>([]);
 
-function showDesktopNotification(message: string, type: Toast['type']) {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    return;
-  }
-
-  if (!document.hidden && document.hasFocus()) {
-    return;
-  }
-
-  const title = type === 'error' ? 'Forge error' : type === 'warning' ? 'Forge warning' : 'Forge notification';
-
-  const createNotification = () => {
-    try {
-      new Notification(title, { body: message });
-    } catch (err) {
-      console.error('Failed to show desktop notification:', err);
-    }
-  };
-
-  if (Notification.permission === 'granted') {
-    createNotification();
-    return;
+/** Call once on app startup to prompt the user for notification permission. */
+export async function requestNotificationPermission() {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    await Notification.requestPermission();
   }
 }
 
-export function showToast(message: string, type: Toast['type'] = 'info', duration?: number, notifySystem = false) {
+function showDesktopNotification(message: string, type: Toast['type']) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (!get(notificationsEnabled)) return;
+  if (Notification.permission !== 'granted') return;
+
+  const titles: Record<Toast['type'], string> = {
+    error:   'DevDock — Error',
+    warning: 'DevDock — Warning',
+    success: 'DevDock — Done',
+    info:    'DevDock',
+  };
+
+  try {
+    new Notification(titles[type], { body: message, silent: false });
+  } catch (err) {
+    console.error('Failed to show desktop notification:', err);
+  }
+}
+
+export function showToast(
+  message: string,
+  type: Toast['type'] = 'info',
+  duration?: number,
+  notifySystem = false,
+  action?: { label: string; onClick: () => void }
+) {
   // Error toasts default to 6 seconds; other toasts default to 3 seconds
   const defaultDuration = type === 'error' ? 6000 : 3000;
   const actualDuration = duration ?? defaultDuration;
@@ -46,7 +56,7 @@ export function showToast(message: string, type: Toast['type'] = 'info', duratio
   }
 
   const id = Math.random().toString(36).substring(2, 9);
-  const newToast: Toast = { id, message, type, duration: actualDuration };
+  const newToast: Toast = { id, message, type, duration: actualDuration, action };
   
   toasts.update((list) => [...list, newToast]);
 

@@ -185,6 +185,15 @@ pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn fs_write_binary(path: String, data: Vec<u8>) -> Result<(), String> {
+    let file_path = resolve_path(&path)?;
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| sanitize_io_error(e, &path))?;
+    }
+    std::fs::write(&file_path, &data).map_err(|e| sanitize_io_error(e, &path))
+}
+
+#[tauri::command]
 pub fn fs_get_file_info(path: String) -> Result<FileEntry, String> {
     let p = require_path(&path)?;
     let metadata = std::fs::metadata(&p).map_err(|e| sanitize_io_error(e, &path))?;

@@ -48,3 +48,99 @@ pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Resu
         .open(&url, None)
         .map_err(|e| format!("Failed to open browser: {}", e))
 }
+
+/// Capture a screen region as PNG bytes using Windows GDI BitBlt.
+/// x, y, width, height are CSS (logical) pixels relative to the webview; scale = devicePixelRatio.
+#[tauri::command]
+pub async fn preview_capture_screenshot(
+    app: tauri::AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    scale: f64,
+) -> Result<Vec<u8>, String> {
+    use tauri::Manager;
+    use image::{DynamicImage, RgbaImage};
+    use std::io::Cursor;
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+
+    let win_pos = window.inner_position().map_err(|e| e.to_string())?;
+
+    let phys_x = (win_pos.x as f64 + x as f64 * scale).round() as i32;
+    let phys_y = (win_pos.y as f64 + y as f64 * scale).round() as i32;
+    let phys_w = (width as f64 * scale).round() as i32;
+    let phys_h = (height as f64 * scale).round() as i32;
+
+    if phys_w <= 0 || phys_h <= 0 {
+        return Err("Invalid capture dimensions".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    let pixels = {
+        use windows_sys::Win32::Graphics::Gdi::*;
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
+
+        unsafe {
+            let hwnd = GetDesktopWindow();
+            let screen_dc = GetDC(hwnd);
+            let mem_dc = CreateCompatibleDC(screen_dc);
+            let bmp = CreateCompatibleBitmap(screen_dc, phys_w, phys_h);
+            let old_bmp = SelectObject(mem_dc, bmp as isize);
+
+            BitBlt(mem_dc, 0, 0, phys_w, phys_h, screen_dc, phys_x, phys_y, SRCCOPY);
+
+            let mut bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: phys_w,
+                    biHeight: -phys_h, // negative = top-down
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB as u32,
+                    biSizeImage: 0,
+                    biXPelsPerMeter: 0,
+                    biYPelsPerMeter: 0,
+                    biClrUsed: 0,
+                    biClrImportant: 0,
+                },
+                bmiColors: [RGBQUAD { rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbReserved: 0 }],
+            };
+
+            let mut pixels = vec![0u8; (phys_w * phys_h * 4) as usize];
+            GetDIBits(
+                mem_dc, bmp, 0, phys_h as u32,
+                pixels.as_mut_ptr() as *mut _,
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
+
+            SelectObject(mem_dc, old_bmp);
+            DeleteObject(bmp as isize);
+            DeleteDC(mem_dc);
+            ReleaseDC(hwnd, screen_dc);
+
+            // GDI returns BGRA — swap B and R to get RGBA
+            for chunk in pixels.chunks_exact_mut(4) {
+                chunk.swap(0, 2);
+            }
+            pixels
+        }
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let pixels: Vec<u8> = return Err("Screenshot only supported on Windows".to_string());
+
+    let rgba_img = RgbaImage::from_raw(phys_w as u32, phys_h as u32, pixels)
+        .ok_or_else(|| "Failed to build image".to_string())?;
+    let dynamic = DynamicImage::ImageRgba8(rgba_img);
+    let mut buf = Vec::new();
+    dynamic
+        .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+
+    Ok(buf)
+}

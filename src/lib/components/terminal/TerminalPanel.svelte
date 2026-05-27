@@ -14,9 +14,16 @@
     assignToPane,
     getLayoutPaneCount,
     killSession,
+    activateSessionInPane,
   } from '$lib/stores/terminal';
   import { activeProject, openProjectIds } from '$lib/stores/workspace';
   import { activeFile } from '$lib/stores/editor';
+
+  let maximizedPaneIndex = $state<number | null>(null);
+
+  function togglePaneMaximize(paneIndex: number) {
+    maximizedPaneIndex = maximizedPaneIndex === paneIndex ? null : paneIndex;
+  }
 
   function getStartingCwd(): string | undefined {
     const file = $activeFile;
@@ -63,8 +70,9 @@
 
   let layoutPickerOpen = $state(false);
 
-  function handleLayoutSelect(layout: GridLayout) {
-    setGridLayout(layout);
+  function handleLayoutSelect(gl: GridLayout) {
+    setGridLayout(gl);
+    applyGridLayout(gl);
     layoutPickerOpen = false;
   }
 
@@ -304,54 +312,58 @@
     }
   });
 
+  function applyGridLayout(gl: GridLayout) {
+    lastAppliedLayout = gl;
+    if (gl === 'single') {
+      columns = [{ cells: [{ index: 0 }] }];
+      colWidths = [100];
+      cellHeights = [[100]];
+    } else if (gl === '2h') {
+      columns = [{ cells: [{ index: 0 }] }, { cells: [{ index: 1 }] }];
+      colWidths = [50, 50];
+      cellHeights = [[100], [100]];
+    } else if (gl === '2v') {
+      columns = [{ cells: [{ index: 0 }, { index: 1 }] }];
+      colWidths = [100];
+      cellHeights = [[50, 50]];
+    } else if (gl === '3h') {
+      columns = [
+        { cells: [{ index: 0 }] },
+        { cells: [{ index: 1 }] },
+        { cells: [{ index: 2 }] }
+      ];
+      colWidths = [33.33, 33.33, 33.34];
+      cellHeights = [[100], [100], [100]];
+    } else if (gl === '3v') {
+      columns = [{ cells: [{ index: 0 }, { index: 1 }, { index: 2 }] }];
+      colWidths = [100];
+      cellHeights = [[33.33, 33.33, 33.34]];
+    } else if (gl === '4') {
+      columns = [
+        { cells: [{ index: 0 }, { index: 2 }] },
+        { cells: [{ index: 1 }, { index: 3 }] }
+      ];
+      colWidths = [50, 50];
+      cellHeights = [[50, 50], [50, 50]];
+    } else if (gl === '9') {
+      columns = [
+        { cells: [{ index: 0 }, { index: 3 }, { index: 6 }] },
+        { cells: [{ index: 1 }, { index: 4 }, { index: 7 }] },
+        { cells: [{ index: 2 }, { index: 5 }, { index: 8 }] }
+      ];
+      colWidths = [33.33, 33.33, 33.34];
+      cellHeights = [
+        [33.33, 33.33, 33.34],
+        [33.33, 33.33, 33.34],
+        [33.33, 33.33, 33.34]
+      ];
+    }
+  }
+
   $effect(() => {
-    const layout = $gridLayout;
-    if (layout !== lastAppliedLayout) {
-      lastAppliedLayout = layout;
-      if (layout === 'single') {
-        columns = [{ cells: [{ index: 0 }] }];
-        colWidths = [100];
-        cellHeights = [[100]];
-      } else if (layout === '2h') {
-        columns = [{ cells: [{ index: 0 }] }, { cells: [{ index: 1 }] }];
-        colWidths = [50, 50];
-        cellHeights = [[100], [100]];
-      } else if (layout === '2v') {
-        columns = [{ cells: [{ index: 0 }, { index: 1 }] }];
-        colWidths = [100];
-        cellHeights = [[50, 50]];
-      } else if (layout === '3h') {
-        columns = [
-          { cells: [{ index: 0 }] },
-          { cells: [{ index: 1 }] },
-          { cells: [{ index: 2 }] }
-        ];
-        colWidths = [33.33, 33.33, 33.34];
-        cellHeights = [[100], [100], [100]];
-      } else if (layout === '3v') {
-        columns = [{ cells: [{ index: 0 }, { index: 1 }, { index: 2 }] }];
-        colWidths = [100];
-        cellHeights = [[33.33, 33.33, 33.34]];
-      } else if (layout === '4') {
-        columns = [
-          { cells: [{ index: 0 }, { index: 2 }] },
-          { cells: [{ index: 1 }, { index: 3 }] }
-        ];
-        colWidths = [50, 50];
-        cellHeights = [[50, 50], [50, 50]];
-      } else if (layout === '9') {
-        columns = [
-          { cells: [{ index: 0 }, { index: 3 }, { index: 6 }] },
-          { cells: [{ index: 1 }, { index: 4 }, { index: 7 }] },
-          { cells: [{ index: 2 }, { index: 5 }, { index: 8 }] }
-        ];
-        colWidths = [33.33, 33.33, 33.34];
-        cellHeights = [
-          [33.33, 33.33, 33.34],
-          [33.33, 33.33, 33.34],
-          [33.33, 33.33, 33.34]
-        ];
-      }
+    const gl = $gridLayout;
+    if (gl !== lastAppliedLayout) {
+      applyGridLayout(gl);
     }
   });
 
@@ -415,7 +427,11 @@
   }
 
   function onMouseUp() {
-    activeDragType = null;
+    if (activeDragType !== null) {
+      activeDragType = null;
+      // Signal all panes to refit now that drag has ended
+      document.dispatchEvent(new CustomEvent('pane-resize-end'));
+    }
   }
 
   $effect(() => {
@@ -445,12 +461,13 @@
     const panes = $paneAssignments;
     const idx = panes.indexOf(sessionId);
     if (idx !== -1) {
-      focusPane(idx);
-    } else {
-      // Session not in any pane: assign to active pane
-      assignToPane($activePaneIndex, sessionId);
-      activeSessionId.set(sessionId);
+      activateSessionInPane(sessionId);
+      return;
     }
+
+    // Session not in any pane: assign to active pane
+    assignToPane($activePaneIndex, sessionId);
+    activateSessionInPane(sessionId);
   }
 </script>
 
@@ -461,27 +478,47 @@
   <!-- ── Toolbar ─────────────────────────── -->
   <div class="terminal-toolbar">
 
-    <!-- Session tabs -->
+    <!-- Session tabs (macOS pill style) -->
     <div class="session-tabs">
       {#each $sessions as session (session.id)}
         <button
           class="session-tab"
           class:active={$activeSessionId === session.id}
           class:dead={!session.isRunning}
+          onmousedown={() => handleTabClick(session.id)}
           onclick={() => handleTabClick(session.id)}
           title={session.title}
         >
-          <span
-            class="tab-dot"
-            class:running={session.isRunning}
-          ></span>
+          <span class="tab-dot" class:running={session.isRunning}></span>
           <span class="tab-label">{session.title}</span>
         </button>
       {/each}
+
+      <!-- New tab button -->
+      <button class="add-tab-btn" onclick={handleNewTerminal} title="New terminal">+</button>
     </div>
+
+    <div class="toolbar-divider"></div>
 
     <!-- Toolbar actions -->
     <div class="toolbar-actions">
+      <!-- Split right -->
+      <button class="toolbar-btn" onclick={handleSplitRight} title="Split right">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="12" y1="3" x2="12" y2="21"/>
+        </svg>
+      </button>
+      <!-- Split below -->
+      <button class="toolbar-btn" onclick={handleSplitBelow} title="Split below">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+        </svg>
+      </button>
+
+      <div class="toolbar-divider"></div>
+
       <!-- Layout picker -->
       <div class="layout-picker" class:open={layoutPickerOpen}>
         <button
@@ -489,11 +526,13 @@
           onclick={(e) => { e.stopPropagation(); layoutPickerOpen = !layoutPickerOpen; }}
           title="Terminal layout"
         >
-          <span class="layout-current-icon">
-            {layouts.find(l => l.id === $gridLayout)?.icon ?? '▪'}
-          </span>
-          <span class="layout-btn-label">Layout</span>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
+          <span class="layout-current-icon">{layouts.find(l => l.id === $gridLayout)?.icon ?? '▪'}</span>
+          <svg class="layout-trigger-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+            <line x1="12" y1="4" x2="12" y2="20"></line>
+            <line x1="3" y1="10" x2="12" y2="10"></line>
+          </svg>
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
             <polyline points="2 3 5 7 8 3"/>
           </svg>
         </button>
@@ -514,7 +553,7 @@
                   <span class="lo-count">{l.count} {l.count === 1 ? 'pane' : 'panes'}</span>
                 </div>
                 {#if $gridLayout === l.id}
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                     <path d="M2 6l3 3 5-6" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                 {/if}
@@ -523,28 +562,6 @@
           </div>
         {/if}
       </div>
-
-      <!-- Split right -->
-      <button class="toolbar-btn" onclick={handleSplitRight} title="Split terminal right">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <line x1="12" y1="3" x2="12" y2="21"/>
-        </svg>
-      </button>
-      <!-- Split below -->
-      <button class="toolbar-btn" onclick={handleSplitBelow} title="Split terminal below">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <line x1="3" y1="12" x2="21" y2="12"/>
-        </svg>
-      </button>
-      <!-- New terminal -->
-      <button class="toolbar-btn" onclick={handleNewTerminal} title="New terminal">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <line x1="12" y1="5" x2="12" y2="19"/>
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
     </div>
   </div>
 
@@ -565,8 +582,14 @@
                 <TerminalPane
                   {sessionId}
                   isActive={$activePaneIndex === cell.index}
+                  isMaximized={maximizedPaneIndex === cell.index}
                   onActivate={() => focusPane(cell.index)}
                   onClose={() => closePane(cell.index)}
+                  onMaximize={() => togglePaneMaximize(cell.index)}
+                  onResizeLeft={colIdx > 0 ? (e) => startColResize(e, colIdx - 1) : undefined}
+                  onResizeRight={colIdx < columns.length - 1 ? (e) => startColResize(e, colIdx) : undefined}
+                  onResizeTop={cellIdx > 0 ? (e) => startCellResize(e, colIdx, cellIdx - 1) : undefined}
+                  onResizeBottom={cellIdx < column.cells.length - 1 ? (e) => startCellResize(e, colIdx, cellIdx) : undefined}
                 />
               {/key}
             {:else}
@@ -642,24 +665,25 @@
   .terminal-toolbar {
     display: flex;
     align-items: center;
-    height: 40px;
+    height: 38px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    gap: 4px;
-    padding: 0 4px;
+    padding: 0 8px;
     min-width: 0;
+    gap: 0;
   }
 
-  /* Session tabs */
+  /* Session tabs — macOS pill style */
   .session-tabs {
     display: flex;
     align-items: center;
     flex: 1;
     min-width: 0;
-    gap: 2px;
+    gap: 3px;
     overflow-x: auto;
     scrollbar-width: none;
+    padding: 4px 0;
   }
 
   .session-tabs::-webkit-scrollbar { display: none; }
@@ -668,14 +692,15 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 10px;
-    border-radius: 7px;
+    padding: 4px 12px;
+    border-radius: 20px;
     font-size: 11.5px;
     font-weight: 500;
     color: var(--text-muted);
     white-space: nowrap;
     transition: color 0.15s, background 0.15s;
     flex-shrink: 0;
+    border: 1px solid transparent;
   }
 
   .session-tab:hover {
@@ -685,33 +710,65 @@
 
   .session-tab.active {
     color: var(--text-primary);
-    background: var(--bg-tertiary);
+    background: var(--bg-primary);
+    border-color: var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
   }
 
   .session-tab.dead { opacity: 0.4; }
 
   .tab-dot {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--text-muted);
+    opacity: 0.5;
     flex-shrink: 0;
-    transition: background 0.2s;
+    transition: background 0.2s, opacity 0.2s;
   }
 
   .tab-dot.running {
-    background: var(--success);
+    background: #28c840;
+    opacity: 1;
+  }
+
+  /* Add tab button */
+  .add-tab-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    color: var(--text-muted);
+    font-size: 18px;
+    font-weight: 300;
+    line-height: 1;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+    margin-left: 2px;
+  }
+
+  .add-tab-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+
+  /* Divider */
+  .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    margin: 0 6px;
+    flex-shrink: 0;
   }
 
   /* Toolbar actions (right side) */
   .toolbar-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 1px;
     flex-shrink: 0;
-    margin-left: auto;
-    border-left: 1px solid var(--border);
-    padding-left: 4px;
   }
 
   .toolbar-btn {
@@ -719,8 +776,8 @@
     align-items: center;
     justify-content: center;
     gap: 5px;
-    height: 30px;
-    padding: 0 10px;
+    height: 28px;
+    padding: 0 8px;
     border-radius: 7px;
     color: var(--text-muted);
     font-size: 11px;
@@ -734,8 +791,18 @@
   }
 
   .layout-current-icon {
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+  }
+
+  .layout-trigger-icon {
+    color: var(--accent);
+    flex-shrink: 0;
+    opacity: 0.95;
   }
 
   .layout-btn-label {
@@ -747,25 +814,54 @@
     position: relative;
   }
 
+  .layout-btn {
+    min-width: 74px;
+    padding: 0 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    background: color-mix(in srgb, var(--accent-light) 22%, var(--bg-secondary));
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+  }
+
+  .layout-btn:hover {
+    background: color-mix(in srgb, var(--accent-light) 40%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  }
+
+  .layout-picker.open .layout-btn {
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg-primary));
+    border-color: var(--accent);
+    color: var(--text-primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent), 0 8px 18px rgba(0,0,0,0.16);
+  }
+
+  .layout-picker.open .layout-btn :global(svg) {
+    transform: rotate(180deg);
+  }
+
+  .layout-btn :global(svg) {
+    transition: transform 0.15s ease;
+  }
+
   .layout-dropdown {
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
-    width: 180px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 5px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    width: 196px;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary));
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+    border-radius: 14px;
+    padding: 7px;
+    box-shadow: 0 18px 36px rgba(0,0,0,0.3);
     z-index: 100;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
     animation: dropIn 0.15s ease;
   }
 
   @keyframes dropIn {
-    from { opacity: 0; transform: translateY(-6px); }
+    from { opacity: 0; transform: translateY(-5px); }
     to   { opacity: 1; transform: translateY(0); }
   }
 
@@ -773,27 +869,33 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 10px;
-    border-radius: 7px;
+    padding: 9px 11px;
+    border-radius: 10px;
     color: var(--text-secondary);
-    transition: background 0.15s, color 0.15s;
+    border: 1px solid transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
   }
 
   .layout-option:hover {
-    background: var(--bg-hover);
+    background: color-mix(in srgb, var(--accent-light) 24%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent) 24%, transparent);
     color: var(--text-primary);
+    transform: translateY(-1px);
   }
 
   .layout-option.selected {
-    background: var(--accent-light);
+    background: color-mix(in srgb, var(--accent-light) 55%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--accent) 48%, transparent);
     color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
   .lo-icon {
     font-size: 16px;
-    width: 20px;
+    width: 22px;
     text-align: center;
     flex-shrink: 0;
+    color: var(--accent);
   }
 
   .lo-info {
@@ -803,12 +905,12 @@
   }
 
   .lo-label {
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 600;
   }
 
   .lo-count {
-    font-size: 10px;
+    font-size: 10.5px;
     color: var(--text-muted);
   }
 
@@ -821,13 +923,13 @@
     min-height: 0;
     width: 100%;
     position: relative;
+    overflow: hidden;
   }
 
   .terminal-column {
     display: flex;
     flex-direction: column;
     height: 100%;
-    position: relative;
     min-width: 0;
   }
 
@@ -835,7 +937,6 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    position: relative;
     min-height: 0;
   }
 
@@ -884,14 +985,39 @@
   }
 
   /* ── Resize handles ──────────────────────── */
+  /* Wide transparent hit zone + thin visible line via pseudo-element */
   .col-resize-divider {
-    width: 4px;
+    position: relative;
+    width: 1px;
     height: 100%;
     cursor: col-resize;
     background: var(--border);
     flex-shrink: 0;
-    transition: background 0.15s;
     z-index: 5;
+    transition: background 0.15s;
+  }
+
+  .col-resize-divider::before {
+    content: '';
+    position: absolute;
+    inset: 0 -6px;
+    cursor: col-resize;
+    z-index: 6;
+  }
+
+  /* Grip dots */
+  .col-resize-divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 3px;
+    height: 24px;
+    border-radius: 3px;
+    background: var(--border);
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
   }
 
   .col-resize-divider:hover,
@@ -899,18 +1025,54 @@
     background: var(--accent);
   }
 
+  .col-resize-divider:hover::after,
+  .terminal-grid-flex.dragging-col .col-resize-divider::after {
+    opacity: 1;
+    background: var(--accent);
+  }
+
   .row-resize-divider {
-    height: 4px;
+    position: relative;
+    height: 1px;
     width: 100%;
     cursor: row-resize;
     background: var(--border);
     flex-shrink: 0;
-    transition: background 0.15s;
     z-index: 5;
+    transition: background 0.15s;
+  }
+
+  .row-resize-divider::before {
+    content: '';
+    position: absolute;
+    inset: -6px 0;
+    cursor: row-resize;
+    z-index: 6;
+  }
+
+  /* Grip dots */
+  .row-resize-divider::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    height: 3px;
+    width: 24px;
+    border-radius: 3px;
+    background: var(--border);
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
   }
 
   .row-resize-divider:hover,
   .terminal-grid-flex.dragging-row .row-resize-divider {
+    background: var(--accent);
+  }
+
+  .row-resize-divider:hover::after,
+  .terminal-grid-flex.dragging-row .row-resize-divider::after {
+    opacity: 1;
     background: var(--accent);
   }
 

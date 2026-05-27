@@ -8,6 +8,10 @@ export type TerminalSessionInfo = {
   title: string;
   isRunning: boolean;
   isExecuting?: boolean;
+  agentPreset?: string | null;
+  lastActivatedAt?: number;
+  role?: string | null;
+  cwd?: string | null;
 };
 
 export type GridLayout = 'single' | '2h' | '2v' | '3h' | '3v' | '4' | '9';
@@ -26,6 +30,9 @@ export function requestTerminalInput(sessionId: number, text: string) {
   if (!text || text.trim() === '') return;
   terminalInputRequest.set({ sessionId, text });
 }
+
+// Inject text directly into the FloatingPromptBar textarea
+export const promptBarInput = writable<string | null>(null);
 
 // Command history store, persisted in localStorage
 export const commandHistory = writable<string[]>(
@@ -92,16 +99,28 @@ export function focusPane(paneIdx: number) {
   activePaneIndex.set(paneIdx);
   const panes = get(paneAssignments);
   if (panes[paneIdx] !== null) {
-    activeSessionId.set(panes[paneIdx]);
+    activateSessionInPane(panes[paneIdx]!);
   }
 }
 
 export function setActiveSession(id: number) {
-  activeSessionId.set(id);
-  // Also ensure the pane showing this session is active
+  activateSessionInPane(id);
+}
+
+export function activateSessionInPane(id: number) {
   const panes = get(paneAssignments);
   const idx = panes.indexOf(id);
-  if (idx !== -1) activePaneIndex.set(idx);
+  if (idx !== -1) {
+    activePaneIndex.set(idx);
+  }
+  activeSessionId.set(id);
+  sessions.update((all) =>
+    all.map((session) => (
+      session.id === id
+        ? { ...session, lastActivatedAt: Date.now() }
+        : session
+    ))
+  );
 }
 
 export function registerDataCallback(id: number, cb: (data: Uint8Array) => void) {
@@ -121,12 +140,28 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
         const cb = dataCallbacks.get(pty.id);
         cb?.(bytes);
       },
-      onExit: () => {
+      onExit: (code) => {
         const session = get(sessions).find((x) => x.id === pty.id);
         sessions.update((s) =>
           s.map((x) => (x.id === pty.id ? { ...x, isRunning: false } : x)),
         );
-        showToast(session ? `${session.title} ended` : `Terminal ${pty.id} ended`, 'warning', undefined, true);
+        const label = session
+          ? getSessionLabel(session, get(sessions))
+          : `Terminal ${pty.id}`;
+        const isAgent = Boolean(session?.agentPreset);
+        const clean = code === 0;
+
+        if (isAgent) {
+          if (clean) {
+            showToast(`${label} finished its work`, 'success', 6000, true);
+          } else {
+            showToast(`${label} exited with errors (code ${code})`, 'error', 8000, true);
+          }
+        } else if (!clean) {
+          showToast(`${label} process died (exit ${code})`, 'error', 6000, true);
+        } else {
+          showToast(`${label} closed`, 'info', 3000, true);
+        }
       },
     }, cwd, get(terminalShell) || undefined);
 
@@ -138,6 +173,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       id: pty.id,
       title: `Terminal ${sessionNum}`,
       isRunning: true,
+      lastActivatedAt: Date.now(),
     };
 
     sessions.update((s) => [...s, info]);
@@ -183,11 +219,169 @@ export function setSessionExecuting(id: number, executing: boolean) {
   );
 }
 
+export function markSessionAgentPreset(id: number, agentPreset: string | null) {
+  sessions.update((s) =>
+    s.map((x) => {
+      if (x.id !== id) return x;
+      if (!agentPreset) {
+        // Clear agent: also remove the auto-assigned 'Agent' role if nothing custom was set
+        return { ...x, agentPreset: null, role: x.role === 'Agent' ? null : x.role };
+      }
+      // Auto-assign 'Agent' role if the pane doesn't already have a custom role
+      return { ...x, agentPreset, role: x.role ?? 'Agent' };
+    })
+  );
+}
+
+/**
+ * Returns the display label for a session. When multiple sessions share the same
+ * role (e.g. two "Agent" panes) they are numbered: "Agent 1", "Agent 2", etc.
+ * Falls back to session.title when no role is set.
+ */
+export function getSessionLabel(session: TerminalSessionInfo, allSessions: TerminalSessionInfo[]): string {
+  const role = session.role;
+  if (!role) return session.title;
+  const sameRole = allSessions.filter((s) => s.role === role);
+  if (sameRole.length <= 1) return role;
+  const idx = sameRole.findIndex((s) => s.id === session.id);
+  return idx === -1 ? role : `${role} ${idx + 1}`;
+}
+
+export function setSessionRole(id: number, role: string | null) {
+  sessions.update((s) =>
+    s.map((x) => (x.id === id ? { ...x, role } : x))
+  );
+}
+
+export function setSessionCwd(id: number, cwd: string | null) {
+  sessions.update((s) =>
+    s.map((x) => (x.id === id ? { ...x, cwd } : x))
+  );
+}
+
+// ── Command Output Blocks ──────────────────────────────────────────────────
+
+export type CommandBlock = {
+  id: string;
+  sessionId: number;
+  command: string;
+  startTime: number;
+  endTime?: number;
+  output: string;
+  exitCode?: number;
+  collapsed: boolean;
+};
+
+export const commandBlocks = writable<Map<number, CommandBlock[]>>(new Map());
+
+export function startCommandBlock(sessionId: number, command: string) {
+  const block: CommandBlock = {
+    id: Math.random().toString(36).substring(2, 9),
+    sessionId,
+    command: command.trim(),
+    startTime: Date.now(),
+    output: '',
+    collapsed: false,
+  };
+  commandBlocks.update((map) => {
+    const copy = new Map(map);
+    const list = copy.get(sessionId) ?? [];
+    copy.set(sessionId, [...list, block].slice(-10));
+    return copy;
+  });
+}
+
+const _pendingBlockText = new Map<number, string>();
+let _blockFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function _flushCommandBlockAppends() {
+  _blockFlushTimer = null;
+  if (_pendingBlockText.size === 0) return;
+  const batch = new Map(_pendingBlockText);
+  _pendingBlockText.clear();
+  commandBlocks.update((map) => {
+    let dirty = false;
+    const copy = new Map(map);
+    for (const [id, text] of batch) {
+      const list = copy.get(id);
+      if (!list || list.length === 0) continue;
+      const last = list[list.length - 1];
+      if (last.endTime !== undefined) continue;
+      copy.set(id, [...list.slice(0, -1), { ...last, output: (last.output + text).slice(-4000) }]);
+      dirty = true;
+    }
+    return dirty ? copy : map;
+  });
+}
+
+export function appendToCommandBlock(sessionId: number, text: string) {
+  _pendingBlockText.set(sessionId, (_pendingBlockText.get(sessionId) ?? '') + text);
+  if (_blockFlushTimer === null) {
+    _blockFlushTimer = setTimeout(_flushCommandBlockAppends, 300);
+  }
+}
+
+export function finalizeCommandBlock(sessionId: number) {
+  commandBlocks.update((map) => {
+    const list = map.get(sessionId);
+    if (!list || list.length === 0) return map;
+    const last = list[list.length - 1];
+    if (last.endTime !== undefined) return map;
+    const copy = new Map(map);
+    const updated = [...list.slice(0, -1), { ...last, endTime: Date.now(), collapsed: true }];
+    copy.set(sessionId, updated);
+    return copy;
+  });
+}
+
+export function toggleCommandBlockCollapse(sessionId: number, blockId: string) {
+  commandBlocks.update((map) => {
+    const list = map.get(sessionId);
+    if (!list) return map;
+    const copy = new Map(map);
+    copy.set(sessionId, list.map((b) => b.id === blockId ? { ...b, collapsed: !b.collapsed } : b));
+    return copy;
+  });
+}
+
+export function findAvailablePaneForAgentRun() {
+  const panes = get(paneAssignments);
+  const activeIdx = get(activePaneIndex);
+  const allSessions = get(sessions);
+
+  for (let paneIdx = 0; paneIdx < panes.length; paneIdx += 1) {
+    if (paneIdx === activeIdx) continue;
+    const sessionId = panes[paneIdx];
+    if (sessionId === null) return { paneIdx, sessionId: null as number | null };
+    const session = allSessions.find((entry) => entry.id === sessionId);
+    if (session?.isRunning && !session.agentPreset) {
+      return { paneIdx, sessionId };
+    }
+  }
+
+  const activeSessionId = panes[activeIdx];
+  if (activeSessionId === null) {
+    return { paneIdx: activeIdx, sessionId: null as number | null };
+  }
+
+  const activeSession = allSessions.find((entry) => entry.id === activeSessionId);
+  if (activeSession?.isRunning && !activeSession.agentPreset) {
+    return { paneIdx: activeIdx, sessionId: activeSessionId };
+  }
+
+  return null;
+}
+
 export function resizeSession(id: number, rows: number, cols: number) {
   const pty = ptyInstances.get(id);
   if (pty) {
     pty.resize(cols, rows).catch((err) => console.error('Failed to resize terminal:', err));
   }
+}
+
+export async function killAllSessions() {
+  const ids = Array.from(ptyInstances.keys());
+  await Promise.all(ids.map((id) => killSession(id)));
 }
 
 export async function killSession(id: number) {

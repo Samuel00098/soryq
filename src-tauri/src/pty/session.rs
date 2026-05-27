@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use tauri::ipc::{Channel, Response};
 use crate::pty::shell::ShellConfig;
 
@@ -9,6 +9,7 @@ use crate::pty::shell::ShellConfig;
 pub struct PtySession {
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub killer: Arc<Mutex<Box<dyn ChildKiller + Send + Sync>>>,
 }
 
 pub fn spawn(
@@ -38,6 +39,7 @@ pub fn spawn(
 
     let writer = Arc::new(Mutex::new(writer));
     let master = Arc::new(Mutex::new(pair.master));
+    let killer = Arc::new(Mutex::new(child.clone_killer()));
 
     thread::Builder::new()
         .name("forge-pty-reader".into())
@@ -70,10 +72,29 @@ pub fn spawn(
         })
         .map_err(|e| e.to_string())?;
 
-    Ok(PtySession { master, writer })
+    Ok(PtySession { master, writer, killer })
+}
+
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        // Only kill when this is the last Arc holder (i.e. the canonical copy stored
+        // in PtyManager). Clones returned by PtyManager::get() share the same Arc, so
+        // their Drop must not kill the process — strong_count > 1 means another copy
+        // still holds the session alive.
+        if Arc::strong_count(&self.killer) == 1 {
+            if let Ok(mut killer) = self.killer.lock() {
+                let _ = killer.kill();
+            }
+        }
+    }
 }
 
 impl PtySession {
+    pub fn close(&self) -> Result<(), String> {
+        let mut killer = self.killer.lock().map_err(|e| e.to_string())?;
+        killer.kill().map_err(|e| e.to_string())
+    }
+
     pub fn write(&self, data: &str) -> Result<(), String> {
         let mut writer = self.writer.lock().map_err(|e| e.to_string())?;
         writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
