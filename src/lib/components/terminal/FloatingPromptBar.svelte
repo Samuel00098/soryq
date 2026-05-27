@@ -1,6 +1,7 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import {
     activeSessionId,
     sessions,
@@ -409,97 +410,70 @@
 
   // Track whether the user is dragging files anywhere over the window
   let isGlobalFileDrag = $state(false);
-  let globalDragCounter = 0; // dragenter/dragleave fire for every child element, use counter
 
   $effect(() => {
     if (typeof document === 'undefined') return;
     document.addEventListener('mousedown', handleDocumentPointerDown);
     document.addEventListener('keydown', handleGlobalVoiceShortcut);
 
-    function onWindowDragEnter(e: DragEvent) {
-      if (!e.dataTransfer?.types.includes('Files')) return;
-      globalDragCounter++;
+    // Tauri v2 intercepts OS file drops before HTML5 events reach the webview.
+    // We must use Tauri's own drag-drop event system to receive file paths.
+    let unlistenEnter: (() => void) | undefined;
+    let unlistenLeave: (() => void) | undefined;
+    let unlistenOver: (() => void) | undefined;
+    let unlistenDrop: (() => void) | undefined;
+
+    listen('tauri://drag-enter', () => {
       isGlobalFileDrag = true;
-    }
+    }).then((u) => { unlistenEnter = u; });
 
-    function onWindowDragLeave(e: DragEvent) {
-      if (!e.dataTransfer?.types.includes('Files')) return;
-      globalDragCounter--;
-      if (globalDragCounter <= 0) {
-        globalDragCounter = 0;
-        isGlobalFileDrag = false;
-        isDragOver = false;
-      }
-    }
-
-    function onWindowDrop(e: DragEvent) {
-      globalDragCounter = 0;
+    listen('tauri://drag-leave', () => {
       isGlobalFileDrag = false;
-      // If the drop wasn't on our bar, prevent the browser default (opening the file)
-      if (!shellEl?.contains(e.target as Node)) {
-        e.preventDefault();
-      }
-    }
+      isDragOver = false;
+    }).then((u) => { unlistenLeave = u; });
 
-    function onWindowDragOver(e: DragEvent) {
-      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
-    }
+    listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-over', (event) => {
+      if (!shellEl) return;
+      const rect = shellEl.getBoundingClientRect();
+      const { x, y } = event.payload.position;
+      isDragOver = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    }).then((u) => { unlistenOver = u; });
 
-    window.addEventListener('dragenter', onWindowDragEnter);
-    window.addEventListener('dragleave', onWindowDragLeave);
-    window.addEventListener('drop', onWindowDrop);
-    window.addEventListener('dragover', onWindowDragOver);
+    listen<{ paths: string[]; position: { x: number; y: number } }>('tauri://drag-drop', (event) => {
+      isGlobalFileDrag = false;
+
+      if (!shellEl) { isDragOver = false; return; }
+      const rect = shellEl.getBoundingClientRect();
+      const { x, y } = event.payload.position;
+      const isOverBar = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+
+      isDragOver = false;
+      if (!isOverBar) return;
+
+      const paths = event.payload.paths;
+      if (!paths.length) return;
+
+      const formatted = paths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
+      inputValue = inputValue ? `${inputValue} ${formatted}` : formatted;
+      historyOpen = false;
+      targetPickerOpen = false;
+      resetHistoryCursor();
+      requestAnimationFrame(() => {
+        adjustInputHeight();
+        inputEl?.focus();
+        inputEl?.setSelectionRange(inputValue.length, inputValue.length);
+      });
+    }).then((u) => { unlistenDrop = u; });
 
     return () => {
       document.removeEventListener('mousedown', handleDocumentPointerDown);
       document.removeEventListener('keydown', handleGlobalVoiceShortcut);
-      window.removeEventListener('dragenter', onWindowDragEnter);
-      window.removeEventListener('dragleave', onWindowDragLeave);
-      window.removeEventListener('drop', onWindowDrop);
-      window.removeEventListener('dragover', onWindowDragOver);
+      unlistenEnter?.();
+      unlistenLeave?.();
+      unlistenOver?.();
+      unlistenDrop?.();
     };
   });
-
-  function handleDragOver(e: DragEvent) {
-    if (!e.dataTransfer?.types.includes('Files')) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-    isDragOver = true;
-  }
-
-  function handleDragLeave(e: DragEvent) {
-    const bar = e.currentTarget as HTMLElement;
-    if (!bar.contains(e.relatedTarget as Node)) {
-      isDragOver = false;
-    }
-  }
-
-  function handleDrop(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    isDragOver = false;
-    isGlobalFileDrag = false;
-    globalDragCounter = 0;
-    const files = Array.from(e.dataTransfer?.files ?? []);
-    if (!files.length) return;
-
-    const paths = files
-      .map((f) => {
-        const p = (f as File & { path?: string }).path ?? f.name;
-        return p.includes(' ') ? `"${p}"` : p;
-      })
-      .join(' ');
-
-    inputValue = inputValue ? `${inputValue} ${paths}` : paths;
-    historyOpen = false;
-    targetPickerOpen = false;
-    resetHistoryCursor();
-    requestAnimationFrame(() => {
-      adjustInputHeight();
-      inputEl?.focus();
-      inputEl?.setSelectionRange(inputValue.length, inputValue.length);
-    });
-  }
 </script>
 
 <div class="floating-prompt-shell" class:active={isActive} bind:this={shellEl}>
@@ -524,12 +498,9 @@
       onmouseleave={() => isHovered = false}
       onfocusin={() => isFocused = true}
       onfocusout={() => isFocused = false}
-      ondragover={handleDragOver}
-      ondragleave={handleDragLeave}
-      ondrop={handleDrop}
     >
       {#if isGlobalFileDrag}
-        <div class="drop-overlay" ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop}>
+        <div class="drop-overlay">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
