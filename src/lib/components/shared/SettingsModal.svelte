@@ -119,6 +119,48 @@
     newShortcutRecording = false;
   }
 
+  function normalizeShortcutKeys(keys: string): string {
+    return keys.trim().toLowerCase();
+  }
+
+  function findShortcutConflict(keys: string, ignoreId?: string): (typeof $userShortcuts)[number] | null {
+    const normalized = normalizeShortcutKeys(keys);
+    return ($userShortcuts || []).find((item) =>
+      item &&
+      item.id !== ignoreId &&
+      normalizeShortcutKeys(item.keys) === normalized
+    ) ?? null;
+  }
+
+  function getDefaultShortcut(id: string) {
+    return defaultShortcuts.find((item) => item.id === id) ?? null;
+  }
+
+  function resetShortcut(id: string) {
+    const defaultShortcut = getDefaultShortcut(id);
+    if (!defaultShortcut) {
+      userShortcuts.update((list) => (list || []).filter((item) => item && item.id !== id));
+      showToast('Shortcut removed', 'info');
+      return;
+    }
+
+    const conflict = findShortcutConflict(defaultShortcut.keys, id);
+    if (conflict) {
+      showToast(`Cannot reset: ${defaultShortcut.keys} is already used by ${conflict.label}`, 'error');
+      return;
+    }
+
+    userShortcuts.update((list) => {
+      const current = list || [];
+      const exists = current.some((item) => item && item.id === id);
+      if (exists) {
+        return current.map((item) => item && item.id === id ? { ...item, keys: defaultShortcut.keys } : item);
+      }
+      return [...current, defaultShortcut];
+    });
+    showToast('Shortcut reset to default', 'success');
+  }
+
   function handleShortcutKeyDown(e: KeyboardEvent) {
     if (!recordingId && !newShortcutRecording) return;
 
@@ -161,6 +203,12 @@
     const finalKeys = parts.join('+');
 
     if (recordingId) {
+      const conflict = findShortcutConflict(finalKeys, recordingId);
+      if (conflict) {
+        showToast(`Shortcut conflict: ${finalKeys} is already used by ${conflict.label}`, 'error');
+        stopRecording();
+        return;
+      }
       userShortcuts.update(list => {
         return (list || []).map(item => {
           if (item && item.id === recordingId) {
@@ -189,6 +237,12 @@
     }
     if (!newShortcutKeys || newShortcutKeys === 'Press key combination...') {
       showToast('Please press key combination', 'error');
+      return;
+    }
+
+    const conflict = findShortcutConflict(newShortcutKeys, newShortcutActionId);
+    if (conflict) {
+      showToast(`Shortcut conflict: ${newShortcutKeys} is already used by ${conflict.label}`, 'error');
       return;
     }
 
@@ -324,6 +378,11 @@
   function getActionCategory(id: string): string {
     const action = shortcutActions.find(a => a.id === id);
     return action ? action.category : 'General';
+  }
+
+  function getConflictLabel(id: string, keys: string): string | null {
+    const conflict = findShortcutConflict(keys, id);
+    return conflict ? conflict.label : null;
   }
 
   // Compute actions that are not yet bound to a user shortcut (runes-compatible)
@@ -725,10 +784,17 @@
         <div class="shortcut-container">
           <div class="shortcut-list">
             {#each $userShortcuts || [] as s (s.id)}
+              {@const conflictLabel = getConflictLabel(s.id, s.keys)}
+              {@const defaultShortcut = getDefaultShortcut(s.id)}
               <div class="shortcut-row" class:recording={recordingId === s.id}>
                 <div class="shortcut-info">
                   <span class="sc-category-badge">{getActionCategory(s.id)}</span>
-                  <span class="sc-label">{s.label}</span>
+                  <div class="sc-label-group">
+                    <span class="sc-label">{s.label}</span>
+                    {#if conflictLabel}
+                      <span class="sc-conflict">Conflicts with {conflictLabel}</span>
+                    {/if}
+                  </div>
                 </div>
                 
                 <div class="shortcut-actions-row">
@@ -751,6 +817,15 @@
                       {s.keys || 'Unbound'}
                     </button>
                   {/if}
+
+                  <button
+                    class="shortcut-reset-btn"
+                    onclick={() => resetShortcut(s.id)}
+                    title={defaultShortcut ? `Reset to ${defaultShortcut.keys}` : 'Remove custom shortcut'}
+                    aria-label="Reset shortcut for {s.label}"
+                  >
+                    Reset
+                  </button>
 
                   <button 
                     class="shortcut-delete-btn" 
@@ -1492,6 +1567,13 @@
     min-width: 0;
   }
 
+  .sc-label-group {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   .sc-category-badge {
     font-size: 9px;
     font-weight: 700;
@@ -1508,6 +1590,14 @@
   .sc-label {
     font-size: 12.5px;
     color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sc-conflict {
+    font-size: 10.5px;
+    color: var(--error);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1604,6 +1694,25 @@
     background: rgba(248, 113, 113, 0.12);
     color: var(--error);
     border-color: rgba(248, 113, 113, 0.2);
+  }
+
+  .shortcut-reset-btn {
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 6px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+  }
+
+  .shortcut-reset-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent);
   }
 
   /* Add Shortcut Section */

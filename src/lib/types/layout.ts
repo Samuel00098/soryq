@@ -1,8 +1,8 @@
 export type PanelType = 'terminal' | 'editor' | 'explorer' | 'preview' | 'settings';
 
-export type ActiveView = 'editor' | 'terminal' | 'preview' | 'settings' | 'review';
+export type ActiveView = 'editor' | 'terminal' | 'preview' | 'settings' | 'review' | 'http';
 
-export type SidebarTab = 'files' | 'git' | 'tasks' | 'notes' | 'runs' | 'snapshots';
+export type SidebarTab = 'files' | 'git' | 'tasks' | 'runs' | 'snapshots' | 'history';
 
 export interface LayoutState {
   sidebarVisible: boolean;
@@ -13,4 +13,5 @@ export interface LayoutState {
   editorVisible: boolean;
   previewVisible: boolean;
   reviewVisible: boolean;
+  httpVisible: boolean;
 }

@@ -9,16 +9,20 @@
     addHistoryEntry,
     writeToSession,
     setSessionExecuting,
+    setSessionTaskSummary,
+    summarizeTerminalTask,
     startCommandBlock,
     promptBarInput,
     activateSessionInPane,
     requestTerminalInput,
     getSessionLabel,
+    isAgentSession,
   } from '$lib/stores/terminal';
   import { layout } from '$lib/stores/layout';
   import { showToast } from '$lib/stores/notification';
   import { createVoiceInputSession } from '$lib/services/voice-input';
   import { activeProject } from '$lib/stores/workspace';
+  import { addRunEntry } from '$lib/stores/runHistory';
 
   let inputValue = $state('');
   let inputEl = $state<HTMLTextAreaElement | null>(null);
@@ -26,6 +30,9 @@
   let draftBeforeHistory = $state('');
   let historyOpen = $state(false);
   let isListening = $state(false);
+  let voiceLocked = $state(false);
+  let voiceHeld = $state(false);
+  let voiceStopping = $state(false);
   let broadcastAgents = $state(false);
   let shellEl = $state<HTMLDivElement | null>(null);
   let barEl = $state<HTMLDivElement | null>(null);
@@ -47,10 +54,10 @@
 
   let activeTerminal = $derived($sessions.find((session) => session.id === $activeSessionId) ?? null);
   let preferredAgentTerminal = $derived(
-    activeTerminal?.agentPreset
+    isAgentSession(activeTerminal)
       ? activeTerminal
       : ($sessions
-          .filter((session) => session.isRunning && session.agentPreset)
+          .filter((session) => session.isRunning && isAgentSession(session))
           .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null)
   );
   let autoTarget = $derived(preferredAgentTerminal ?? activeTerminal);
@@ -62,7 +69,7 @@
   let promptTarget = $derived(manualTarget ?? autoTarget);
   let broadcastTargets = $derived(
     $sessions
-      .filter((session) => session.isRunning && session.agentPreset)
+      .filter((session) => session.isRunning && isAgentSession(session))
       .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))
   );
   let runningSessions = $derived($sessions.filter((s) => s.isRunning));
@@ -95,17 +102,17 @@
     }
     const currentActiveSessionId = get(activeSessionId);
     const currentActiveTerminal = allSessions.find((session) => session.id === currentActiveSessionId) ?? null;
-    const currentPreferredAgentTerminal = currentActiveTerminal?.agentPreset
+    const currentPreferredAgentTerminal = isAgentSession(currentActiveTerminal)
       ? currentActiveTerminal
       : (allSessions
-          .filter((session) => session.isRunning && session.agentPreset)
+          .filter((session) => session.isRunning && isAgentSession(session))
           .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null);
     return currentPreferredAgentTerminal ?? currentActiveTerminal;
   }
 
   function resolveBroadcastTargets() {
     return get(sessions)
-      .filter((session) => session.isRunning && session.agentPreset)
+      .filter((session) => session.isRunning && isAgentSession(session))
       .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0));
   }
 
@@ -219,11 +226,22 @@
       return;
     }
 
-    activateSessionInPane(targets[0].id);
-    for (const target of targets) {
-      sendPromptToTarget(target.id, finalText, target.agentPreset);
-      setSessionExecuting(target.id, true);
-      startCommandBlock(target.id, finalText);
+      activateSessionInPane(targets[0].id);
+      for (const target of targets) {
+        const taskSummary = summarizeTerminalTask(finalText);
+        sendPromptToTarget(target.id, finalText, target.agentPreset);
+        setSessionExecuting(target.id, true);
+        setSessionTaskSummary(target.id, taskSummary || null);
+        startCommandBlock(target.id, finalText);
+        addRunEntry({
+          command: finalText,
+          sessionId: target.id,
+          sessionRole: target.role ?? null,
+          sessionLabel: getSessionLabel(target, $sessions),
+          agentPreset: target.agentPreset ?? null,
+          projectId: $activeProject?.id ?? '',
+          startedAt: Date.now(),
+        });
     }
     addHistoryEntry(finalText);
 
@@ -305,18 +323,32 @@
     },
     onEnd: () => {
       isListening = false;
+      if (!voiceStopping && (voiceLocked || voiceHeld)) {
+        queueMicrotask(() => {
+          if (voiceLocked || voiceHeld) {
+            voiceInput.start();
+          }
+        });
+      }
+      voiceStopping = false;
     },
     onError: (message) => {
       isListening = false;
+      voiceLocked = false;
+      voiceHeld = false;
+      voiceStopping = false;
       showToast(message, 'error');
     },
   });
 
   async function toggleVoiceInput() {
-    if (isListening) {
+    if (isListening && voiceLocked) {
+      voiceLocked = false;
+      voiceStopping = true;
       voiceInput.stop();
       return;
     }
+    voiceLocked = true;
     await voiceInput.start();
   }
 
@@ -482,7 +514,17 @@
     const activeElement = document.activeElement;
     if (!shellEl || !activeElement || !shellEl.contains(activeElement)) return;
     event.preventDefault();
-    toggleVoiceInput();
+    if (voiceLocked || voiceHeld) return;
+    voiceHeld = true;
+    voiceInput.start();
+  }
+
+  function handleGlobalVoiceShortcutUp(event: KeyboardEvent) {
+    if (event.key !== 'Alt' || event.location !== KeyboardEvent.DOM_KEY_LOCATION_LEFT) return;
+    if (!voiceHeld) return;
+    voiceHeld = false;
+    voiceStopping = true;
+    voiceInput.stop();
   }
 
   function handleExplorerDragStart(event: Event) {
@@ -552,6 +594,7 @@
     if (typeof document === 'undefined') return;
     document.addEventListener('mousedown', handleDocumentPointerDown);
     document.addEventListener('keydown', handleGlobalVoiceShortcut);
+    document.addEventListener('keyup', handleGlobalVoiceShortcutUp);
     document.addEventListener('dragover', handleDocumentDragOver);
     document.addEventListener('drop', handleDocumentDrop);
     window.addEventListener('devdock-explorer-drag-start', handleExplorerDragStart as EventListener);
@@ -606,10 +649,11 @@
       }
     }).then((u) => { unlistenDragDrop = u; });
 
-    return () => {
-      document.removeEventListener('mousedown', handleDocumentPointerDown);
-      document.removeEventListener('keydown', handleGlobalVoiceShortcut);
-      document.removeEventListener('dragover', handleDocumentDragOver);
+      return () => {
+        document.removeEventListener('mousedown', handleDocumentPointerDown);
+        document.removeEventListener('keydown', handleGlobalVoiceShortcut);
+        document.removeEventListener('keyup', handleGlobalVoiceShortcutUp);
+        document.removeEventListener('dragover', handleDocumentDragOver);
       document.removeEventListener('drop', handleDocumentDrop);
       window.removeEventListener('devdock-explorer-drag-start', handleExplorerDragStart as EventListener);
       window.removeEventListener('devdock-explorer-drag-move', handleExplorerDragMove as EventListener);

@@ -5,6 +5,8 @@ import { showHidden } from './settings';
 import { activeProject } from './workspace';
 
 export const rootNodes = writable<FileNode[]>([]);
+export const projectRootNodes = writable<Map<string, FileNode[]>>(new Map());
+export const loadingProjectRoots = writable<Set<string>>(new Set());
 export const expandedPaths = writable<Set<string>>(new Set());
 export const selectedPath = writable<string | null>(null);
 export const isLoading = writable(false);
@@ -75,40 +77,57 @@ export async function refreshTree() {
     return;
   }
 
-  isLoading.set(true);
-  try {
-    const entries = await loadDirectory(project.root_path);
-    const nodes = await Promise.all(
-      entries.map((e) => rebuildNode(e, 0))
-    );
-    rootNodes.set(nodes);
-  } finally {
-    isLoading.set(false);
-  }
+  await refreshProjectTree(project.root_path);
 }
 
 // Auto-refresh the file tree whenever showHidden changes
 showHidden.subscribe(() => {
-  if (get(rootNodes).length > 0) {
-    refreshTree();
+  const paths = Array.from(get(projectRootNodes).keys());
+  if (paths.length > 0) {
+    paths.forEach((path) => {
+      refreshProjectTree(path).catch((err) => {
+        console.error('Failed to refresh explorer root:', err);
+      });
+    });
   }
 });
 
 export async function loadRootDirectory(path: string) {
-  isLoading.set(true);
+  await refreshProjectTree(path);
+}
+
+export async function refreshProjectTree(path: string) {
+  const activeRoot = get(activeProject)?.root_path;
+  if (path === activeRoot) {
+    isLoading.set(true);
+  }
+  loadingProjectRoots.update((set) => {
+    const next = new Set(set);
+    next.add(path);
+    return next;
+  });
   try {
     const entries = await loadDirectory(path);
-    rootNodes.set(
-      entries.map((entry) => ({
-        entry,
-        children: entry.is_dir ? [] : null,
-        expanded: false,
-        loading: false,
-        depth: 0,
-      }))
+    const nodes = await Promise.all(
+      entries.map((entry) => rebuildNode(entry, 0))
     );
+    projectRootNodes.update((map) => {
+      const next = new Map(map);
+      next.set(path, nodes);
+      return next;
+    });
+    if (path === activeRoot) {
+      rootNodes.set(nodes);
+    }
   } finally {
-    isLoading.set(false);
+    loadingProjectRoots.update((set) => {
+      const next = new Set(set);
+      next.delete(path);
+      return next;
+    });
+    if (path === activeRoot) {
+      isLoading.set(false);
+    }
   }
 }
 
@@ -124,6 +143,7 @@ export async function toggleNode(node: FileNode) {
     node.expanded = false;
     expandedPaths.update((s) => { s.delete(node.entry.path); return s; });
     rootNodes.update((n) => [...n]); // trigger reactivity
+    projectRootNodes.update((map) => new Map(map));
     return;
   }
 
@@ -131,6 +151,7 @@ export async function toggleNode(node: FileNode) {
   node.loading = true;
   expandedPaths.update((s) => { s.add(node.entry.path); return s; });
   rootNodes.update((n) => [...n]);
+  projectRootNodes.update((map) => new Map(map));
 
   try {
     const entries = await loadDirectory(node.entry.path);
@@ -144,6 +165,7 @@ export async function toggleNode(node: FileNode) {
   } finally {
     node.loading = false;
     rootNodes.update((n) => [...n]);
+    projectRootNodes.update((map) => new Map(map));
   }
 }
 
@@ -196,10 +218,19 @@ async function refreshParent(path: string) {
   const parts = path.replace(/\\/g, '/').split('/');
   parts.pop();
   const parentPath = parts.join('/');
+  const projectRoot = findProjectRootForPath(path);
+  if (!projectRoot) return;
+
+  if (parentPath === projectRoot) {
+    await refreshProjectTree(projectRoot);
+    return;
+  }
+
   const $expandedPaths = get(expandedPaths);
-  const $rootNodes = get(rootNodes);
   if (parentPath && $expandedPaths.has(parentPath)) {
-    const entry = findNodeByPath($rootNodes, parentPath);
+    const rootMap = get(projectRootNodes);
+    const projectNodes = rootMap.get(projectRoot) ?? [];
+    const entry = findNodeByPath(projectNodes, parentPath);
     if (entry) {
       const entries = await loadDirectory(parentPath);
       entry.children = entries.map((e) => ({
@@ -208,10 +239,20 @@ async function refreshParent(path: string) {
         expanded: false,
         loading: false,
         depth: entry.depth + 1,
-      }));
-      rootNodes.update((n) => [...n]);
+        }));
+      projectRootNodes.update((map) => new Map(map));
+      if (get(activeProject)?.root_path === projectRoot) {
+        rootNodes.update((n) => [...n]);
+      }
     }
   }
+}
+
+function findProjectRootForPath(path: string): string | null {
+  const normalized = path.replace(/\\/g, '/');
+  const roots = Array.from(get(projectRootNodes).keys())
+    .sort((a, b) => b.length - a.length);
+  return roots.find((root) => normalized === root.replace(/\\/g, '/') || normalized.startsWith(`${root.replace(/\\/g, '/')}/`)) ?? null;
 }
 
 function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {

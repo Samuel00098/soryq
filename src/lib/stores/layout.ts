@@ -12,6 +12,7 @@ const defaultLayout: LayoutState = {
   editorVisible: false,
   previewVisible: false,
   reviewVisible: false,
+  httpVisible: false,
 };
 
 function loadLayout(): LayoutState {
@@ -20,7 +21,14 @@ function loadLayout(): LayoutState {
     const stored = localStorage.getItem(LAYOUT_KEY);
     if (!stored) return defaultLayout;
     // Merge with defaults so new fields added later always have a value
-    return { ...defaultLayout, ...JSON.parse(stored) };
+    const parsed = { ...defaultLayout, ...JSON.parse(stored) } as LayoutState;
+    if ((parsed.sidebarTab as string) === 'notes') {
+      parsed.sidebarTab = 'files';
+    }
+    if ((parsed.sidebarTab as string) === 'http') {
+      parsed.sidebarTab = 'files';
+    }
+    return parsed;
   } catch {
     return defaultLayout;
   }
@@ -48,13 +56,16 @@ export function toggleSidebar() {
 export function setActiveView(view: ActiveView) {
   layout.update((l) => {
     if (view === 'editor') {
-      return { ...l, activeView: 'editor', editorVisible: true, previewVisible: false, reviewVisible: false, editorSplitPreview: false };
+      return { ...l, activeView: 'editor', editorVisible: true, previewVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false };
     }
     if (view === 'preview') {
-      return { ...l, activeView: 'preview', previewVisible: true, editorVisible: false, reviewVisible: false, editorSplitPreview: false };
+      return { ...l, activeView: 'preview', previewVisible: true, editorVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false };
     }
     if (view === 'review') {
-      return { ...l, activeView: 'review', reviewVisible: true, editorVisible: false, previewVisible: false, editorSplitPreview: false };
+      return { ...l, activeView: 'review', reviewVisible: true, editorVisible: false, previewVisible: false, httpVisible: false, editorSplitPreview: false };
+    }
+    if (view === 'http') {
+      return { ...l, activeView: 'http', httpVisible: true, editorVisible: false, previewVisible: false, reviewVisible: false, editorSplitPreview: false };
     }
     return { ...l, activeView: view };
   });
@@ -67,7 +78,7 @@ export function toggleEditorVisible() {
       return { ...l, editorVisible: false, editorSplitPreview: false, activeView: 'terminal' };
     }
     // Switch to editor, close any other panel
-    return { ...l, editorVisible: true, previewVisible: false, reviewVisible: false, editorSplitPreview: false, activeView: 'editor' };
+    return { ...l, editorVisible: true, previewVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false, activeView: 'editor' };
   });
 }
 
@@ -76,7 +87,7 @@ export function togglePreviewVisible() {
     if (l.previewVisible) {
       return { ...l, previewVisible: false, editorSplitPreview: false, activeView: 'terminal' };
     }
-    return { ...l, previewVisible: true, editorVisible: false, reviewVisible: false, editorSplitPreview: false, activeView: 'preview' };
+    return { ...l, previewVisible: true, editorVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false, activeView: 'preview' };
   });
 }
 
@@ -85,19 +96,29 @@ export function toggleReviewVisible() {
     if (l.reviewVisible) {
       return { ...l, reviewVisible: false, activeView: 'terminal' };
     }
-    return { ...l, reviewVisible: true, editorVisible: false, previewVisible: false, editorSplitPreview: false, activeView: 'review' };
+    return { ...l, reviewVisible: true, editorVisible: false, previewVisible: false, httpVisible: false, editorSplitPreview: false, activeView: 'review' };
+  });
+}
+
+export function toggleHttpVisible() {
+  layout.update((l) => {
+    if (l.httpVisible) {
+      return { ...l, httpVisible: false, activeView: 'terminal' };
+    }
+    return { ...l, httpVisible: true, editorVisible: false, previewVisible: false, reviewVisible: false, editorSplitPreview: false, activeView: 'http' };
   });
 }
 
 export function toggleTerminal() {
   layout.update((l) => {
-    // If editor or preview or review are visible, hide them to maximize terminal
-    if (l.editorVisible || l.previewVisible || l.reviewVisible) {
+    // If editor or preview or review or HTTP client are visible, hide them to maximize terminal
+    if (l.editorVisible || l.previewVisible || l.reviewVisible || l.httpVisible) {
       return {
         ...l,
         editorVisible: false,
         previewVisible: false,
         reviewVisible: false,
+        httpVisible: false,
         editorSplitPreview: false,
         activeView: 'terminal'
       };
@@ -119,6 +140,8 @@ export function toggleEditorSplitPreview() {
       editorSplitPreview: nextSplit,
       editorVisible: true,
       previewVisible: nextSplit,
+      reviewVisible: false,
+      httpVisible: false,
       activeView: nextSplit ? 'preview' : 'editor'
     };
   });

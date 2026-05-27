@@ -4,6 +4,7 @@
   import { openFile } from '$lib/stores/editor';
   import { showToast } from '$lib/stores/notification';
   import FileIcon from './FileIcon.svelte';
+  import { branchInfo, branchLoading, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
 
   interface GitLogEntry {
     graph: string;
@@ -27,6 +28,14 @@
   let changesExpanded = $state(true);
   let commitsExpanded = $state(true);
 
+  let branchPickerOpen = $state(false);
+  let newBranchMode = $state(false);
+  let newBranchName = $state('');
+  let newBranchFrom = $state('');
+  let branchSearch = $state('');
+  let deleteConfirmBranch = $state<string | null>(null);
+  let branchError = $state<string | null>(null);
+
   const graphColors = [
     '#22d3ee', // Cyan
     '#a78bfa', // Purple
@@ -41,15 +50,17 @@
     return graphColors[idx % graphColors.length];
   }
 
-  // Watch project changes to refresh status and history
+  // Watch project changes to refresh status, history, and branches
   $effect(() => {
     const projectId = $activeProjectId;
     if (projectId) {
       refreshAll();
+      refreshBranches(projectId);
     } else {
       gitStatus = null;
       gitHistory = null;
       errorMsg = null;
+      branchInfo.set(null);
     }
   });
 
@@ -202,6 +213,17 @@
       triggerGitCommit();
     }
   }
+
+  async function createBranchSubmit() {
+    if (!newBranchName.trim() || !$activeProject) return;
+    try {
+      await createBranch($activeProject.id, newBranchName.trim(), newBranchFrom || undefined);
+      newBranchMode = false;
+      branchError = null;
+    } catch (e) {
+      branchError = String(e);
+    }
+  }
 </script>
 
 <div class="source-control">
@@ -223,6 +245,88 @@
       </button>
     </div>
   </div>
+
+  <!-- Branch Bar -->
+  {#if $activeProject}
+    <div class="branch-bar">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="branch-icon">
+        <line x1="6" y1="3" x2="6" y2="15"/>
+        <circle cx="18" cy="6" r="3"/>
+        <circle cx="6" cy="18" r="3"/>
+        <path d="M18 9a9 9 0 01-9 9"/>
+      </svg>
+      <button class="branch-name-btn" onclick={() => { branchPickerOpen = !branchPickerOpen; branchSearch = ''; }} title="Switch branch">
+        {$branchInfo?.current || 'no branch'}
+      </button>
+      <button class="branch-new-btn" onclick={() => { newBranchMode = true; newBranchName = ''; newBranchFrom = $branchInfo?.current || ''; branchPickerOpen = false; }} title="New branch">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+
+    <!-- Branch picker dropdown -->
+    {#if branchPickerOpen}
+      <div class="branch-picker">
+        <input class="branch-search" type="text" placeholder="Filter branches…" bind:value={branchSearch} />
+        <div class="branch-list">
+          {#each ($branchInfo?.local ?? []).filter(b => b.toLowerCase().includes(branchSearch.toLowerCase())) as branch}
+            <div class="branch-item" class:current={branch === $branchInfo?.current}>
+              <button class="branch-item-name" onclick={async () => {
+                try { await checkoutBranch($activeProject!.id, branch); branchPickerOpen = false; branchError = null; }
+                catch (e) { branchError = String(e); }
+              }}>
+                {#if branch === $branchInfo?.current}
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                {/if}
+                {branch}
+              </button>
+              {#if branch !== $branchInfo?.current}
+                {#if deleteConfirmBranch === branch}
+                  <span class="delete-confirm-row">
+                    <button class="delete-yes" onclick={async () => {
+                      try { await deleteBranch($activeProject!.id, branch); deleteConfirmBranch = null; }
+                      catch (e) { branchError = String(e); deleteConfirmBranch = null; }
+                    }}>Delete</button>
+                    <button class="delete-no" onclick={() => deleteConfirmBranch = null}>Cancel</button>
+                  </span>
+                {:else}
+                  <button class="branch-delete-btn" onclick={() => deleteConfirmBranch = branch} title="Delete branch">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                  </button>
+                {/if}
+              {/if}
+            </div>
+          {/each}
+          {#if ($branchInfo?.remote ?? []).length > 0}
+            <div class="branch-section-label">Remote</div>
+            {#each ($branchInfo?.remote ?? []).filter(b => b.toLowerCase().includes(branchSearch.toLowerCase())) as branch}
+              <div class="branch-item remote">
+                <button class="branch-item-name" onclick={async () => {
+                  const localName = branch.split('/').slice(1).join('/');
+                  try { await createBranch($activeProject!.id, localName, branch); branchPickerOpen = false; }
+                  catch (e) { branchError = String(e); }
+                }}>{branch}</button>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <!-- New branch form -->
+    {#if newBranchMode}
+      <div class="new-branch-form">
+        <input class="branch-input" type="text" placeholder="Branch name…" bind:value={newBranchName} onkeydown={(e) => { if (e.key === 'Enter') createBranchSubmit(); if (e.key === 'Escape') newBranchMode = false; }} />
+        <div class="new-branch-actions">
+          <button class="branch-create-btn" onclick={createBranchSubmit}>Create</button>
+          <button class="branch-cancel-btn" onclick={() => newBranchMode = false}>Cancel</button>
+        </div>
+      </div>
+    {/if}
+
+    {#if branchError}
+      <div class="branch-error">{branchError} <button onclick={() => branchError = null}>✕</button></div>
+    {/if}
+  {/if}
 
   <div class="sc-content">
     {#if errorMsg}
@@ -804,6 +908,141 @@
   .spin {
     animation: spin 1s linear infinite;
   }
+
+  .branch-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .branch-icon { color: var(--text-muted); flex-shrink: 0; }
+  .branch-name-btn {
+    flex: 1;
+    text-align: left;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0;
+    transition: color 0.15s;
+  }
+  .branch-name-btn:hover { color: var(--accent); }
+  .branch-new-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    flex-shrink: 0;
+  }
+  .branch-new-btn:hover { background: var(--bg-hover); color: var(--accent); }
+  .branch-picker {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .branch-search {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--bg-primary);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 11px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .branch-list { max-height: 180px; overflow-y: auto; scrollbar-width: thin; }
+  .branch-item {
+    display: flex;
+    align-items: center;
+    padding: 1px 4px;
+  }
+  .branch-item.current { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .branch-item-name {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 8px;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    border-radius: 4px;
+    transition: background 0.12s, color 0.12s;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .branch-item-name:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .branch-item.current .branch-item-name { color: var(--accent); font-weight: 500; }
+  .branch-delete-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 4px;
+    background: transparent; border: none; cursor: pointer;
+    color: var(--text-muted); opacity: 0;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+  }
+  .branch-item:hover .branch-delete-btn { opacity: 1; }
+  .branch-delete-btn:hover { background: rgba(239,68,68,0.12); color: var(--error); }
+  .delete-confirm-row { display: flex; gap: 4px; padding-right: 6px; }
+  .delete-yes, .delete-no {
+    font-size: 10px; padding: 2px 7px; border-radius: 4px;
+    border: 1px solid var(--border); cursor: pointer; font-weight: 500;
+  }
+  .delete-yes { background: var(--error); color: #fff; border-color: var(--error); }
+  .delete-no { background: transparent; color: var(--text-muted); }
+  .branch-section-label {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text-muted);
+    padding: 6px 10px 2px; opacity: 0.7;
+  }
+  .branch-item.remote .branch-item-name { color: var(--text-muted); font-style: italic; }
+  .new-branch-form {
+    padding: 8px 10px; background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px;
+  }
+  .branch-input {
+    width: 100%; padding: 5px 8px; background: var(--bg-primary);
+    border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text-primary); font-size: 11px; outline: none;
+    box-sizing: border-box; transition: border-color 0.12s;
+  }
+  .branch-input:focus { border-color: var(--accent); }
+  .new-branch-actions { display: flex; gap: 4px; }
+  .branch-create-btn {
+    flex: 1; padding: 4px; background: var(--accent); color: #fff;
+    border: none; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
+    transition: opacity 0.12s;
+  }
+  .branch-create-btn:hover { opacity: 0.85; }
+  .branch-cancel-btn {
+    padding: 4px 10px; background: transparent; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 5px; font-size: 11px; cursor: pointer;
+  }
+  .branch-error {
+    padding: 6px 10px; background: color-mix(in srgb, var(--error) 10%, transparent);
+    border-bottom: 1px solid var(--error); color: var(--error); font-size: 11px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .branch-error button { background: none; border: none; color: var(--error); cursor: pointer; font-size: 12px; }
 
   @container sourcecontrol (max-width: 290px) {
     .commit-meta {

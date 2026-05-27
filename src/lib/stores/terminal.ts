@@ -12,6 +12,20 @@ export type TerminalSessionInfo = {
   lastActivatedAt?: number;
   role?: string | null;
   cwd?: string | null;
+  taskSummary?: string | null;
+};
+
+const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  codex: 'Codex CLI',
+  claude: 'Claude Code',
+  gemini: 'Gemini CLI',
+  aider: 'Aider',
+  agy: 'AGY',
+  opencode: 'OpenCode',
+  pi: 'Pi',
+  antigravity: 'Antigravity',
+  cursor: 'Cursor',
+  copilot: 'GitHub Copilot',
 };
 
 export type GridLayout = 'single' | '2h' | '2v' | '3h' | '3v' | '4' | '9';
@@ -66,6 +80,23 @@ export const activePaneIndex = writable<number>(0);
 
 const ptyInstances = new Map<number, PtySession>();
 const dataCallbacks = new Map<number, (data: Uint8Array) => void>();
+const exitCallbacks = new Map<number, (code: number) => void>();
+const sessionOutputBuffers = new Map<number, string>();
+const sessionOutputDecoders = new Map<number, TextDecoder>();
+const sessionInputBuffers = new Map<number, string>();
+const MAX_SESSION_BUFFER_CHARS = 250000;
+
+const AGENT_COMMAND_PATTERNS: Array<{ preset: string; pattern: RegExp }> = [
+  { preset: 'codex', pattern: /(?:^|\s)(?:codex)(?:\s|$)/i },
+  { preset: 'claude', pattern: /(?:^|\s)(?:claude|claude-code)(?:\s|$)/i },
+  { preset: 'opencode', pattern: /(?:^|\s)(?:opencode)(?:\s|$)/i },
+  { preset: 'pi', pattern: /(?:^|\s)(?:pi)(?:\s|$)/i },
+  { preset: 'antigravity', pattern: /(?:^|\s)(?:antigravity)(?:\s|$)/i },
+  { preset: 'aider', pattern: /(?:^|\s)(?:aider)(?:\s|$)/i },
+  { preset: 'gemini', pattern: /(?:^|\s)(?:gemini)(?:\s|$)/i },
+  { preset: 'cursor', pattern: /(?:^|\s)(?:cursor|cursor-agent)(?:\s|$)/i },
+  { preset: 'copilot', pattern: /(?:^|\s)(?:copilot)(?:\s|$)/i },
+];
 
 export function getLayoutPaneCount(layout: GridLayout): number {
   if (layout === 'single') return 1;
@@ -131,24 +162,83 @@ export function unregisterDataCallback(id: number) {
   dataCallbacks.delete(id);
 }
 
+export function registerExitCallback(id: number, cb: (code: number) => void) {
+  exitCallbacks.set(id, cb);
+}
+
+export function unregisterExitCallback(id: number) {
+  exitCallbacks.delete(id);
+}
+
+function detectAgentPresetFromCommand(command: string): string | null {
+  const normalized = command.trim().toLowerCase();
+  if (!normalized) return null;
+
+  for (const { preset, pattern } of AGENT_COMMAND_PATTERNS) {
+    if (pattern.test(normalized)) return preset;
+  }
+
+  return null;
+}
+
+function processSessionInputForAgentDetection(id: number, data: string) {
+  let buffer = sessionInputBuffers.get(id) ?? '';
+  for (const ch of data) {
+    if (ch === '\r' || ch === '\n') {
+      const preset = detectAgentPresetFromCommand(buffer);
+      if (preset) {
+        markSessionAgentPreset(id, preset);
+      }
+      buffer = '';
+      continue;
+    }
+    if (ch === '\b' || ch === '\u007f') {
+      buffer = buffer.slice(0, -1);
+      continue;
+    }
+    if (ch >= ' ') {
+      buffer += ch;
+      if (buffer.length > 512) {
+        buffer = buffer.slice(-512);
+      }
+    }
+  }
+  sessionInputBuffers.set(id, buffer);
+}
+
+function appendSessionOutputBuffer(id: number, bytes: Uint8Array) {
+  const decoder = sessionOutputDecoders.get(id) ?? new TextDecoder();
+  sessionOutputDecoders.set(id, decoder);
+  const text = decoder.decode(bytes, { stream: true });
+  if (!text) return;
+  const next = (sessionOutputBuffers.get(id) ?? '') + text;
+  sessionOutputBuffers.set(id, next.length > MAX_SESSION_BUFFER_CHARS ? next.slice(-MAX_SESSION_BUFFER_CHARS) : next);
+}
+
+export function getSessionOutputBuffer(id: number): string {
+  return sessionOutputBuffers.get(id) ?? '';
+}
+
 export async function createTerminalSession(cwd?: string, targetPaneIndex?: number): Promise<number | null> {
   try {
     let pty: PtySession;
 
     const ptyPromise = openPty(80, 24, {
       onData: (bytes) => {
+        appendSessionOutputBuffer(pty.id, bytes);
         const cb = dataCallbacks.get(pty.id);
         cb?.(bytes);
       },
       onExit: (code) => {
         const session = get(sessions).find((x) => x.id === pty.id);
+        exitCallbacks.get(pty.id)?.(code);
         sessions.update((s) =>
           s.map((x) => (x.id === pty.id ? { ...x, isRunning: false } : x)),
         );
         const label = session
           ? getSessionLabel(session, get(sessions))
           : `Terminal ${pty.id}`;
-        const isAgent = Boolean(session?.agentPreset);
+        const isAgent = isAgentSession(session);
         const clean = code === 0;
 
         if (isAgent) {
@@ -209,6 +299,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
 export function writeToSession(id: number, data: string) {
   const pty = ptyInstances.get(id);
   if (pty) {
+    processSessionInputForAgentDetection(id, data);
     pty.write(data).catch((err) => console.error('Failed to write to terminal:', err));
   }
 }
@@ -256,6 +347,116 @@ export function setSessionRole(id: number, role: string | null) {
 export function setSessionCwd(id: number, cwd: string | null) {
   sessions.update((s) =>
     s.map((x) => (x.id === id ? { ...x, cwd } : x))
+  );
+}
+
+export function summarizeTerminalTask(text: string): string {
+  const normalized = text
+    .replace(/\s+/g, ' ')
+    .replace(/\[[^\]]+\]\([^)]+\)/g, '')
+    .trim();
+  if (!normalized) return '';
+  const firstSentence = normalized.split(/(?<=[.!?])\s+/)[0] || normalized;
+  const summary = firstSentence.trim();
+  return summary.length > 72 ? `${summary.slice(0, 69)}...` : summary;
+}
+
+export function getAgentDisplayName(agentPreset: string | null | undefined): string | null {
+  if (!agentPreset) return null;
+  return AGENT_DISPLAY_NAMES[agentPreset] ?? agentPreset;
+}
+
+export function isAgentSession(session: TerminalSessionInfo | null | undefined): boolean {
+  if (!session) return false;
+  return Boolean(session.agentPreset);
+}
+
+function trimSummaryLine(line: string): string {
+  const cleaned = line
+    .replace(/^[\-*•]\s+/, '')
+    .replace(/^[0-9]+\.\s+/, '')
+    .replace(/^(summary|done|completed|result|final answer|answer|update)\s*:\s*/i, '')
+    .trim();
+  return cleaned.length > 72 ? `${cleaned.slice(0, 69)}...` : cleaned;
+}
+
+export function summarizeAgentResponse(output: string, command?: string, agentPreset?: string | null): string {
+  const clean = output
+    .replace(/\x1b\[[0-9;]*[mGKHFABCDJrsu]/g, '')
+    .replace(/\x1b\][^\x07]*\x07/g, '')
+    .replace(/\r/g, '')
+    .trim();
+  if (!clean) return '';
+
+  const lines = clean
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const shellNoise = /^(PS [A-Z]:\\|[A-Z]:\\.*>|[$#>])|^(warning|error):?\s*$/i;
+  const promptEcho = command?.trim();
+  const provider = (agentPreset ?? '').toLowerCase();
+
+  const labeledSummaryPatterns =
+    provider === 'claude'
+      ? [/^summary\s*:/i, /^done\s*:/i, /^completed\s*:/i, /^result\s*:/i]
+      : provider === 'codex'
+        ? [/^summary\s*:/i, /^final answer\s*:/i, /^result\s*:/i, /^done\s*:/i]
+        : provider === 'opencode'
+          ? [/^summary\s*:/i, /^update\s*:/i, /^done\s*:/i, /^completed\s*:/i]
+          : [/^summary\s*:/i, /^done\s*:/i, /^completed\s*:/i, /^result\s*:/i, /^final answer\s*:/i];
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (labeledSummaryPatterns.some((pattern) => pattern.test(line))) {
+      return trimSummaryLine(line);
+    }
+  }
+
+  if (provider === 'claude') {
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (/^(here('| i)s|i('| a)m|implemented|updated|fixed|added|removed|changed)\b/i.test(line)) {
+        return trimSummaryLine(line);
+      }
+    }
+  }
+
+  if (provider === 'codex') {
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (/^(implemented|fixed|updated|added|removed|wired|moved|changed|done)\b/i.test(line)) {
+        return trimSummaryLine(line);
+      }
+    }
+  }
+
+  if (provider === 'opencode') {
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (/^(updated|implemented|completed|finished|created|refactored)\b/i.test(line)) {
+        return trimSummaryLine(line);
+      }
+    }
+  }
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    let line = lines[i];
+    if (!line) continue;
+    if (promptEcho && line === promptEcho) continue;
+    if (shellNoise.test(line)) continue;
+    line = trimSummaryLine(line);
+    if (line.length < 6) continue;
+    return line;
+  }
+
+  const fallback = lines[lines.length - 1] ?? '';
+  return trimSummaryLine(fallback);
+}
+
+export function setSessionTaskSummary(id: number, taskSummary: string | null) {
+  sessions.update((s) =>
+    s.map((x) => (x.id === id ? { ...x, taskSummary } : x))
   );
 }
 
@@ -322,13 +523,17 @@ export function appendToCommandBlock(sessionId: number, text: string) {
 }
 
 export function finalizeCommandBlock(sessionId: number) {
+  finalizeCommandBlockWithExit(sessionId);
+}
+
+export function finalizeCommandBlockWithExit(sessionId: number, exitCode?: number) {
   commandBlocks.update((map) => {
     const list = map.get(sessionId);
     if (!list || list.length === 0) return map;
     const last = list[list.length - 1];
     if (last.endTime !== undefined) return map;
     const copy = new Map(map);
-    const updated = [...list.slice(0, -1), { ...last, endTime: Date.now(), collapsed: true }];
+    const updated = [...list.slice(0, -1), { ...last, endTime: Date.now(), exitCode, collapsed: true }];
     copy.set(sessionId, updated);
     return copy;
   });
@@ -354,7 +559,7 @@ export function findAvailablePaneForAgentRun() {
     const sessionId = panes[paneIdx];
     if (sessionId === null) return { paneIdx, sessionId: null as number | null };
     const session = allSessions.find((entry) => entry.id === sessionId);
-    if (session?.isRunning && !session.agentPreset) {
+    if (session?.isRunning && !isAgentSession(session)) {
       return { paneIdx, sessionId };
     }
   }
@@ -365,7 +570,7 @@ export function findAvailablePaneForAgentRun() {
   }
 
   const activeSession = allSessions.find((entry) => entry.id === activeSessionId);
-  if (activeSession?.isRunning && !activeSession.agentPreset) {
+  if (activeSession?.isRunning && !isAgentSession(activeSession)) {
     return { paneIdx: activeIdx, sessionId: activeSessionId };
   }
 
@@ -391,6 +596,10 @@ export async function killSession(id: number) {
     ptyInstances.delete(id);
   }
   dataCallbacks.delete(id);
+  exitCallbacks.delete(id);
+  sessionOutputBuffers.delete(id);
+  sessionOutputDecoders.delete(id);
+  sessionInputBuffers.delete(id);
   sessions.update((s) => s.filter((x) => x.id !== id));
 
   // Remove from pane assignments

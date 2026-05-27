@@ -9,12 +9,16 @@
   import WelcomeScreen from '$lib/components/workspace/WelcomeScreen.svelte';
   import ReviewPanel from '$lib/components/review/ReviewPanel.svelte';
   import TasksPanel from '$lib/components/workspace/TasksPanel.svelte';
-  import NotesPanel from '$lib/components/workspace/NotesPanel.svelte';
   import QuickRunPanel from '$lib/components/workspace/QuickRunPanel.svelte';
   import SnapshotsPanel from '$lib/components/layout/SnapshotsPanel.svelte';
+  import RunHistoryPanel from '$lib/components/workspace/RunHistoryPanel.svelte';
+  import HttpClientPanel from '$lib/components/http/HttpClientPanel.svelte';
   import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
+  import FloatingNotepad from '$lib/components/workspace/FloatingNotepad.svelte';
+  import UpdateBanner from '$lib/components/shared/UpdateBanner.svelte';
+  import { checkForUpdate } from '$lib/stores/updater';
 
-  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible } from '$lib/stores/layout';
+  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible } from '$lib/stores/layout';
   import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace, createNewWorkspace } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
@@ -22,6 +26,7 @@
   import { startProxy, stopProxy } from '$lib/stores/preview';
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
   import { createTerminalSession, killAllSessions } from '$lib/stores/terminal';
+  import { floatingNoteOpen, toggleFloatingNote } from '$lib/stores/notes';
 
   // Workspace renaming state
   let editingWorkspaceName = $state(false);
@@ -77,7 +82,8 @@
   let visiblePanels = $derived([
     { id: 'editor', visible: $layout.editorVisible },
     { id: 'preview', visible: $layout.previewVisible },
-    { id: 'review', visible: $layout.reviewVisible }
+    { id: 'review', visible: $layout.reviewVisible },
+    { id: 'http', visible: $layout.httpVisible }
   ].filter(p => p.visible));
 
   let firstPanelId = $derived(visiblePanels[0]?.id);
@@ -109,7 +115,7 @@
     const currentSidebarWidth = $layout.sidebarVisible ? (tabsCollapsed ? 48 : $layout.sidebarWidth) : 0;
     const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
     
-    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible) && auxPanelWidth > maxAllowedWidth) {
+    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible) && auxPanelWidth > maxAllowedWidth) {
       auxPanelWidth = Math.max(200, maxAllowedWidth);
     }
   });
@@ -232,6 +238,9 @@
         case 'stopProxy':
           stopProxy();
           break;
+        case 'toggleNotepad':
+          toggleFloatingNote();
+          break;
       }
     }
   }
@@ -248,12 +257,19 @@
       window.removeEventListener('pagehide', handlePageTeardown);
     };
   });
+
+  // Check for updates 5s after launch so it doesn't block startup
+  $effect(() => {
+    const t = setTimeout(() => checkForUpdate(), 5000);
+    return () => clearTimeout(t);
+  });
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} onmousemove={onMouseMove} onmouseup={onMouseUp} onkeydown={handleKeyDown} />
 
 <div class="app-shell">
   <TitleBar />
+  <UpdateBanner />
 
   <div class="zoom-wrapper">
   {#if $activeWorkspaceId}
@@ -359,6 +375,17 @@
                 <path d="M11 18H8a2 2 0 0 1-2-2V9"/>
               </svg>
             </button>
+            <button
+              class="svt-btn"
+              class:svt-active={$layout.httpVisible}
+              onclick={toggleHttpVisible}
+              title="HTTP Client"
+              aria-label="HTTP Client"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+              </svg>
+            </button>
           </div>
 
           <!-- Section Header (hide when very narrow) -->
@@ -441,20 +468,6 @@
               </button>
               <button
                 class="sidebar-tab"
-                class:active={$layout.sidebarTab === 'notes'}
-                onclick={() => setSidebarTab('notes')}
-                title="Notes"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                  <line x1="16" y1="13" x2="8" y2="13"/>
-                  <line x1="16" y1="17" x2="8" y2="17"/>
-                  <polyline points="10 9 9 9 8 9"/>
-                </svg>
-              </button>
-              <button
-                class="sidebar-tab"
                 class:active={$layout.sidebarTab === 'runs'}
                 onclick={() => setSidebarTab('runs')}
                 title="Quick Run"
@@ -475,6 +488,19 @@
                   <circle cx="12" cy="10" r="3"/>
                 </svg>
               </button>
+              <button
+                class="sidebar-tab"
+                class:active={$layout.sidebarTab === 'history'}
+                onclick={() => setSidebarTab('history')}
+                title="Run History"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 3v5h5"/>
+                  <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
+                  <line x1="12" y1="7" x2="12" y2="12"/>
+                  <line x1="12" y1="12" x2="15.5" y2="14"/>
+                </svg>
+              </button>
             </div>
           {/if}
 
@@ -487,12 +513,12 @@
                 <SourceControl />
               {:else if $layout.sidebarTab === 'tasks'}
                 <TasksPanel />
-              {:else if $layout.sidebarTab === 'notes'}
-                <NotesPanel />
               {:else if $layout.sidebarTab === 'runs'}
                 <QuickRunPanel />
               {:else if $layout.sidebarTab === 'snapshots'}
                 <SnapshotsPanel />
+              {:else if $layout.sidebarTab === 'history'}
+                <RunHistoryPanel />
               {/if}
             </div>
           {/if}
@@ -518,7 +544,7 @@
           </div>
 
         <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
-        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible}
+        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible}
           <!-- Vertical Resize Handle between Terminal and Auxiliary Panel -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
@@ -556,6 +582,8 @@
                   <PreviewPanel />
                 {:else if firstPanelId === 'review'}
                   <ReviewPanel />
+                {:else if firstPanelId === 'http'}
+                  <HttpClientPanel />
                 {/if}
               </div>
               
@@ -576,6 +604,8 @@
                   <PreviewPanel />
                 {:else if secondPanelId === 'review'}
                   <ReviewPanel />
+                {:else if secondPanelId === 'http'}
+                  <HttpClientPanel />
                 {/if}
               </div>
             {:else if visiblePanels.length === 1}
@@ -587,6 +617,8 @@
                   <PreviewPanel />
                 {:else if firstPanelId === 'review'}
                   <ReviewPanel />
+                {:else if firstPanelId === 'http'}
+                  <HttpClientPanel />
                 {/if}
               </div>
             {/if}
@@ -606,6 +638,10 @@
     </div>
   {/if}
   </div>
+
+  {#if $floatingNoteOpen}
+    <FloatingNotepad />
+  {/if}
 
   <StatusBar />
 </div>

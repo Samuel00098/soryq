@@ -2,6 +2,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { activeProject, closeProject, activeProjectId, activeWorkspaceId, activeWorkspace, clearAllStores } from '$lib/stores/workspace';
   import { openSettings, layout, toggleSidebar, setSidebarTab } from '$lib/stores/layout';
+  import { floatingNoteOpen, toggleFloatingNote } from '$lib/stores/notes';
   import { isOpen as paletteOpen, search as paletteSearch, toggleCommandPalette } from '$lib/stores/commandpalette';
   import { get } from 'svelte/store';
   import { invoke } from '@tauri-apps/api/core';
@@ -305,6 +306,23 @@
         </div>
       {/if}
     </div>
+
+    <!-- Scratchpad button -->
+    <button
+      class="icon-btn"
+      class:active={$floatingNoteOpen}
+      onclick={toggleFloatingNote}
+      aria-label="Scratchpad"
+      title="Toggle Scratchpad (Ctrl+Shift+N)"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+    </button>
 
     <!-- Settings button -->
     <button class="icon-btn" onclick={openSettings} aria-label="Settings" title="Settings (Ctrl+,)">
@@ -664,6 +682,11 @@
   .icon-btn:hover {
     background: var(--bg-hover);
     color: var(--titlebar-text);
+    opacity: 1;
+  }
+  .icon-btn.active {
+    background: var(--accent-light);
+    color: var(--accent);
     opacity: 1;
   }
 

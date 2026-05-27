@@ -451,6 +451,25 @@ fn is_private_target(url: &str) -> bool {
     false
 }
 
+async fn has_private_resolved_ip(host: &str, port: u16) -> bool {
+    use std::net::IpAddr;
+    let addr_str = format!("{}:{}", host, port);
+    match tokio::net::lookup_host(addr_str).await {
+        Ok(addrs) => addrs.into_iter().any(|sa| {
+            match sa.ip() {
+                IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_multicast(),
+                IpAddr::V6(v6) => {
+                    let segs = v6.segments();
+                    v6.is_loopback() || v6.is_multicast() || v6.is_unspecified()
+                        || (segs[0] & 0xfe00) == 0xfc00  // ULA fc00::/7
+                        || (segs[0] & 0xffc0) == 0xfe80  // link-local fe80::/10
+                }
+            }
+        }),
+        Err(_) => false,
+    }
+}
+
 fn is_loopback_target(url: &str) -> bool {
     if let Ok(parsed) = url::Url::parse(url) {
         if let Some(host) = parsed.host_str() {
@@ -699,6 +718,16 @@ async fn proxy_external_url(
     if is_private_target(target_url) {
         return (StatusCode::FORBIDDEN, "Access to private/internal resources is not allowed").into_response();
     }
+    // DNS rebinding protection: resolve hostname and check resolved IPs
+    if let Some(host) = target.host_str() {
+        if host.parse::<std::net::IpAddr>().is_err() {
+            // Only do DNS check for domain names — IPs were already checked above
+            let port = target.port_or_known_default().unwrap_or(80);
+            if has_private_resolved_ip(host, port).await {
+                return (StatusCode::FORBIDDEN, "Access to private/internal resources is not allowed").into_response();
+            }
+        }
+    }
     if let Some(port) = target.port() {
         if is_restricted_port(port) {
             return (StatusCode::FORBIDDEN, "Access to restricted ports is not allowed").into_response();
@@ -801,7 +830,7 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
             ) {
               continue;
             }
-            if strip_embed_headers && (key_lower == "x-frame-options" || key_lower == "content-security-policy" || key_lower == "content-security-policy-report-only") {
+            if strip_embed_headers && key_lower == "x-frame-options" {
               continue;
             }
             builder = builder.header(key, value);
@@ -821,7 +850,7 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
         ) {
             continue;
         }
-        if strip_embed_headers && (key_lower == "x-frame-options" || key_lower == "content-security-policy" || key_lower == "content-security-policy-report-only") {
+        if strip_embed_headers && key_lower == "x-frame-options" {
             continue;
         }
         builder = builder.header(key, value);

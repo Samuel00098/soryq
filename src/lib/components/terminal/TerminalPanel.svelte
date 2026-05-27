@@ -59,13 +59,13 @@
 
   // Layout options for the picker
   const layouts: { id: GridLayout; label: string; icon: string; count: number }[] = [
-    { id: 'single', label: 'Single',     icon: '▪',     count: 1 },
-    { id: '2h',     label: 'Split H',    icon: '◫',     count: 2 },
-    { id: '3h',     label: 'Triple H',   icon: '☰',     count: 3 },
-    { id: '2v',     label: 'Split V',    icon: '⬒',     count: 2 },
-    { id: '3v',     label: 'Triple V',   icon: '≡',     count: 3 },
-    { id: '4',      label: 'Grid 2×2',   icon: '▦',     count: 4 },
-    { id: '9',      label: 'Grid 3×3',   icon: '⧉',     count: 9 },
+    { id: 'single', label: 'Single',   icon: '1',   count: 1 },
+    { id: '2h',     label: 'Split H',  icon: '2H',  count: 2 },
+    { id: '3h',     label: 'Triple H', icon: '3H',  count: 3 },
+    { id: '2v',     label: 'Split V',  icon: '2V',  count: 2 },
+    { id: '3v',     label: 'Triple V', icon: '3V',  count: 3 },
+    { id: '4',      label: 'Grid 2x2', icon: '2x2', count: 4 },
+    { id: '9',      label: 'Grid 3x3', icon: '3x3', count: 9 },
   ];
 
   let layoutPickerOpen = $state(false);
@@ -244,7 +244,140 @@
     }
   }
 
-  // ── Pane resize state ──────────────────────
+  function findPanePosition(paneIndex: number): { colIdx: number; cellIdx: number } | null {
+    for (let colIdx = 0; colIdx < columns.length; colIdx += 1) {
+      const cellIdx = columns[colIdx].cells.findIndex((cell) => cell.index === paneIndex);
+      if (cellIdx !== -1) return { colIdx, cellIdx };
+    }
+    return null;
+  }
+
+  function findAdjacentPaneIndex(direction: 'left' | 'right' | 'up' | 'down', paneIndex = $activePaneIndex): number | null {
+    const position = findPanePosition(paneIndex);
+    if (!position) return null;
+
+    const { colIdx, cellIdx } = position;
+    if (direction === 'left') {
+      return colIdx > 0 ? columns[colIdx - 1]?.cells[Math.min(cellIdx, columns[colIdx - 1].cells.length - 1)]?.index ?? null : null;
+    }
+    if (direction === 'right') {
+      return colIdx < columns.length - 1 ? columns[colIdx + 1]?.cells[Math.min(cellIdx, columns[colIdx + 1].cells.length - 1)]?.index ?? null : null;
+    }
+    if (direction === 'up') {
+      return cellIdx > 0 ? columns[colIdx].cells[cellIdx - 1]?.index ?? null : null;
+    }
+    return cellIdx < columns[colIdx].cells.length - 1 ? columns[colIdx].cells[cellIdx + 1]?.index ?? null : null;
+  }
+
+  function focusAdjacentPane(direction: 'left' | 'right' | 'up' | 'down') {
+    const nextPaneIndex = findAdjacentPaneIndex(direction);
+    if (nextPaneIndex === null) return;
+    focusPane(nextPaneIndex);
+  }
+
+  function resizeActivePane(direction: 'left' | 'right' | 'up' | 'down') {
+    const position = findPanePosition($activePaneIndex);
+    if (!position) return;
+
+    const delta = 4;
+    const minSize = 14;
+    const { colIdx, cellIdx } = position;
+
+    if (direction === 'left' && colIdx > 0) {
+      const left = colWidths[colIdx - 1];
+      const current = colWidths[colIdx];
+      if (left - delta >= minSize && current + delta >= minSize) {
+        colWidths[colIdx - 1] = left - delta;
+        colWidths[colIdx] = current + delta;
+        colWidths = [...colWidths];
+      }
+      return;
+    }
+
+    if (direction === 'right' && colIdx < colWidths.length - 1) {
+      const current = colWidths[colIdx];
+      const right = colWidths[colIdx + 1];
+      if (current + delta >= minSize && right - delta >= minSize) {
+        colWidths[colIdx] = current + delta;
+        colWidths[colIdx + 1] = right - delta;
+        colWidths = [...colWidths];
+      }
+      return;
+    }
+
+    const heights = cellHeights[colIdx];
+    if (!heights) return;
+
+    if (direction === 'up' && cellIdx > 0) {
+      const above = heights[cellIdx - 1];
+      const current = heights[cellIdx];
+      if (above - delta >= minSize && current + delta >= minSize) {
+        heights[cellIdx - 1] = above - delta;
+        heights[cellIdx] = current + delta;
+        cellHeights = [...cellHeights];
+      }
+      return;
+    }
+
+    if (direction === 'down' && cellIdx < heights.length - 1) {
+      const current = heights[cellIdx];
+      const below = heights[cellIdx + 1];
+      if (current + delta >= minSize && below - delta >= minSize) {
+        heights[cellIdx] = current + delta;
+        heights[cellIdx + 1] = below - delta;
+        cellHeights = [...cellHeights];
+      }
+    }
+  }
+
+  function focusLastUsedPane(reverse = false) {
+    const panes = $paneAssignments
+      .map((sessionId, paneIndex) => ({ sessionId, paneIndex }))
+      .filter((entry) => entry.sessionId !== null) as { sessionId: number; paneIndex: number }[];
+    const sessionMap = new Map($sessions.map((session) => [session.id, session]));
+    const ordered = panes
+      .map((entry) => ({ ...entry, session: sessionMap.get(entry.sessionId) }))
+      .filter((entry) => entry.session)
+      .sort((a, b) => (b.session!.lastActivatedAt ?? 0) - (a.session!.lastActivatedAt ?? 0));
+
+    const currentIdx = ordered.findIndex((entry) => entry.paneIndex === $activePaneIndex);
+    if (currentIdx === -1 || ordered.length < 2) return;
+    const next = reverse
+      ? ordered[(currentIdx - 1 + ordered.length) % ordered.length]
+      : ordered[(currentIdx + 1) % ordered.length];
+    focusPane(next.paneIndex);
+  }
+
+  function handleWindowKeyDown(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    const tag = target?.tagName?.toLowerCase();
+    const isEditable = Boolean(target?.isContentEditable || tag === 'input' || tag === 'textarea' || tag === 'select');
+    if (isEditable) return;
+
+    if (event.altKey && event.shiftKey && event.key === 'Enter') {
+      event.preventDefault();
+      togglePaneMaximize($activePaneIndex);
+      return;
+    }
+
+    if (event.altKey && event.shiftKey) {
+      if (event.key === 'ArrowLeft') { event.preventDefault(); resizeActivePane('left'); return; }
+      if (event.key === 'ArrowRight') { event.preventDefault(); resizeActivePane('right'); return; }
+      if (event.key === 'ArrowUp') { event.preventDefault(); resizeActivePane('up'); return; }
+      if (event.key === 'ArrowDown') { event.preventDefault(); resizeActivePane('down'); return; }
+    }
+
+    if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      if (event.key === 'ArrowLeft') { event.preventDefault(); focusAdjacentPane('left'); return; }
+      if (event.key === 'ArrowRight') { event.preventDefault(); focusAdjacentPane('right'); return; }
+      if (event.key === 'ArrowUp') { event.preventDefault(); focusAdjacentPane('up'); return; }
+      if (event.key === 'ArrowDown') { event.preventDefault(); focusAdjacentPane('down'); return; }
+      if (event.key === '[') { event.preventDefault(); focusLastUsedPane(true); return; }
+      if (event.key === ']') { event.preventDefault(); focusLastUsedPane(false); }
+    }
+  }
+
+  // â”€â”€ Pane resize state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   interface CellInfo {
     index: number;
   }
@@ -268,7 +401,6 @@
     const project = $activeProject;
     const projectId = project ? project.id : null;
     if (projectId !== currentProjectId) {
-      // Save previous project's dimensions
       if (currentProjectId) {
         gridCache.set(currentProjectId, {
           columns: $state.snapshot(columns),
@@ -277,7 +409,6 @@
         });
       }
 
-      // Load new project's dimensions
       if (projectId) {
         const cached = gridCache.get(projectId);
         if (cached) {
@@ -285,7 +416,6 @@
           colWidths = cached.colWidths;
           cellHeights = cached.cellHeights;
         } else {
-          // Defaults for a new project
           columns = [{ cells: [{ index: 0 }] }];
           colWidths = [100];
           cellHeights = [[100]];
@@ -297,7 +427,6 @@
       }
 
       currentProjectId = projectId;
-      // Set lastAppliedLayout to the new gridLayout value so the layout $effect doesn't overwrite our restored dimensions
       lastAppliedLayout = $gridLayout;
     }
   });
@@ -471,11 +600,11 @@
   }
 </script>
 
-<svelte:window onclick={handleOutsideClick} onmousemove={onMouseMove} onmouseup={onMouseUp} />
+<svelte:window onclick={handleOutsideClick} onmousemove={onMouseMove} onmouseup={onMouseUp} onkeydown={handleWindowKeyDown} />
 
 <div class="terminal-fullscreen">
 
-  <!-- ── Toolbar ─────────────────────────── -->
+  <!-- â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <div class="terminal-toolbar">
 
     <!-- Session tabs (macOS pill style) -->
@@ -526,7 +655,7 @@
           onclick={(e) => { e.stopPropagation(); layoutPickerOpen = !layoutPickerOpen; }}
           title="Terminal layout"
         >
-          <span class="layout-current-icon">{layouts.find(l => l.id === $gridLayout)?.icon ?? '▪'}</span>
+          <span class="layout-current-icon">{layouts.find(l => l.id === $gridLayout)?.icon ?? '1'}</span>
           <svg class="layout-trigger-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2"></rect>
             <line x1="12" y1="4" x2="12" y2="20"></line>
@@ -565,7 +694,7 @@
     </div>
   </div>
 
-  <!-- ── Terminal Grid ─────────────────────── -->
+  <!-- â”€â”€ Terminal Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <div
     class="terminal-grid-flex"
     bind:this={gridEl}
@@ -651,7 +780,7 @@
 </div>
 
 <style>
-  /* ── Outer shell ────────────────────────── */
+  /* â”€â”€ Outer shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .terminal-fullscreen {
     display: flex;
     flex-direction: column;
@@ -661,7 +790,7 @@
     overflow: hidden;
   }
 
-  /* ── Toolbar ────────────────────────────── */
+  /* â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .terminal-toolbar {
     display: flex;
     align-items: center;
@@ -674,7 +803,7 @@
     gap: 0;
   }
 
-  /* Session tabs — macOS pill style */
+  /* Session tabs â€” macOS pill style */
   .session-tabs {
     display: flex;
     align-items: center;
@@ -791,12 +920,14 @@
   }
 
   .layout-current-icon {
-    font-size: 15px;
+    font-size: 12px;
     line-height: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
+    width: 16px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
   }
 
   .layout-trigger-icon {
@@ -891,11 +1022,13 @@
   }
 
   .lo-icon {
-    font-size: 16px;
-    width: 22px;
+    font-size: 12px;
+    width: 18px;
     text-align: center;
     flex-shrink: 0;
     color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.2px;
   }
 
   .lo-info {
@@ -914,7 +1047,7 @@
     color: var(--text-muted);
   }
 
-  /* ── Terminal Grid ────────────────────────── */
+  /* â”€â”€ Terminal Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .terminal-grid-flex {
     flex: 1;
     display: flex;
@@ -945,7 +1078,7 @@
     width: 100%;
   }
 
-  /* ── Empty pane ──────────────────────────── */
+  /* â”€â”€ Empty pane â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .empty-pane {
     display: flex;
     flex-direction: column;
@@ -984,7 +1117,7 @@
     color: var(--text-muted);
   }
 
-  /* ── Resize handles ──────────────────────── */
+  /* â”€â”€ Resize handles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   /* Wide transparent hit zone + thin visible line via pseudo-element */
   .col-resize-divider {
     position: relative;

@@ -1,13 +1,33 @@
 <script lang="ts">
-  import FileTree from './FileTree.svelte';
+  import FileNode from './FileNode.svelte';
   import EmptyWorkspace from './EmptyWorkspace.svelte';
-  import { contextMenu, hideContextMenu, createFile, createDir, deleteFile, renameFile, loadRootDirectory } from '$lib/stores/explorer';
-  import { activeProject, activeWorkspace, openProjectIds } from '$lib/stores/workspace';
+  import {
+    contextMenu,
+    hideContextMenu,
+    createFile,
+    createDir,
+    deleteFile,
+    renameFile,
+    loadRootDirectory,
+    projectRootNodes,
+    loadingProjectRoots
+  } from '$lib/stores/explorer';
+  import {
+    activeProject,
+    activeWorkspace,
+    openProjectIds,
+    openProjectsList,
+    switchToProject,
+    closeProject,
+    openProject
+  } from '$lib/stores/workspace';
 
-  let renamingPath: string | null = null;
-  let renamingValue = '';
-  let creating: { parentPath: string; type: 'file' | 'dir' } | null = null;
-  let creatingValue = '';
+  let collapsedRoots = $state<Set<string>>(new Set());
+  let renamingPath = $state<string | null>(null);
+  let renamingValue = $state('');
+  let creating = $state<{ parentPath: string; type: 'file' | 'dir' } | null>(null);
+  let creatingValue = $state('');
+
   function handleContextAction(action: string) {
     const { path, isDir } = $contextMenu;
     hideContextMenu();
@@ -48,11 +68,33 @@
   }
 
   function refreshExplorer() {
-    if ($activeProject) {
-      loadRootDirectory($activeProject.root_path);
+    for (const project of $openProjectsList) {
+      loadRootDirectory(project.root_path);
     }
   }
 
+  function toggleRootCollapse(projectId: string) {
+    const next = new Set(collapsedRoots);
+    if (next.has(projectId)) {
+      next.delete(projectId);
+    } else {
+      next.add(projectId);
+    }
+    collapsedRoots = next;
+  }
+
+  function isRootCollapsed(projectId: string) {
+    return collapsedRoots.has(projectId);
+  }
+
+  function activateProjectRoot(projectId: string) {
+    switchToProject(projectId);
+    collapsedRoots = new Set(
+      $openProjectsList
+        .map((project) => project.id)
+        .filter((id) => id !== projectId)
+    );
+  }
 
   async function confirmCreate() {
     if (!creating) return;
@@ -117,6 +159,24 @@
       if (renamingPath) confirmRename();
     }
   }
+
+  $effect(() => {
+    for (const project of $openProjectsList) {
+      if (!$projectRootNodes.has(project.root_path)) {
+        loadRootDirectory(project.root_path);
+      }
+    }
+  });
+
+  $effect(() => {
+    const activeId = $activeProject?.id;
+    if (!activeId) return;
+    collapsedRoots = new Set(
+      $openProjectsList
+        .map((project) => project.id)
+        .filter((id) => id !== activeId)
+    );
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -146,24 +206,117 @@
         </svg>
       </button>
     {/if}
+    {#if $activeWorkspace}
+      <button class="header-btn add-root-btn" onclick={openProject} title="Add Folder to Workspace">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+          <line x1="12" y1="11" x2="12" y2="17"/>
+          <line x1="9" y1="14" x2="15" y2="14"/>
+          <line x1="19" y1="8" x2="19" y2="2"/>
+          <line x1="16" y1="5" x2="22" y2="5"/>
+        </svg>
+      </button>
+    {/if}
   </div>
 
   <div class="explorer-content">
-    {#if $activeProject}
-      {#if creating}
-        <div class="create-input" style="padding-left: 24px">
-          {creating.type === 'file' ? '📄' : '📁'}
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            type="text"
-            placeholder={creating.type === 'file' ? 'filename.ts' : 'folder-name'}
-            bind:value={creatingValue}
-            autofocus
-            onblur={confirmCreate}
-          />
-        </div>
-      {/if}
-      <FileTree />
+    {#if $openProjectsList.length > 0}
+      <div class="root-list" role="tree">
+        {#each $openProjectsList as project (project.id)}
+          {@const rootChildren = $projectRootNodes.get(project.root_path) ?? []}
+          {@const rootLoading = $loadingProjectRoots.has(project.root_path)}
+          {@const rootCollapsed = isRootCollapsed(project.id)}
+          <section class="root-section">
+            <div
+              class="root-header"
+              class:active={project.id === $activeProject?.id}
+              role="treeitem"
+              aria-expanded={!rootCollapsed}
+              aria-selected={project.id === $activeProject?.id}
+              tabindex="0"
+              onclick={() => activateProjectRoot(project.id)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  activateProjectRoot(project.id);
+                } else if (e.key === 'ArrowLeft' && !rootCollapsed) {
+                  e.preventDefault();
+                  toggleRootCollapse(project.id);
+                } else if (e.key === 'ArrowRight' && rootCollapsed) {
+                  e.preventDefault();
+                  toggleRootCollapse(project.id);
+                }
+              }}
+            >
+              <button
+                class="root-chevron"
+                class:collapsed={rootCollapsed}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  toggleRootCollapse(project.id);
+                }}
+                title={rootCollapsed ? 'Expand root' : 'Collapse root'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="9,18 15,12 9,6"/>
+                </svg>
+              </button>
+              <div class="root-labels">
+                <span class="root-name">{project.name}</span>
+                <span class="root-path">{project.root_path}</span>
+              </div>
+              {#if project.id === $activeProject?.id}
+                <span class="root-active-pill">Active</span>
+              {/if}
+              <button
+                class="root-close-btn"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  closeProject(project.id);
+                }}
+                title="Remove root from workspace"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+
+            {#if !rootCollapsed}
+              {#if creating && creating.parentPath === project.root_path}
+                <div class="create-input" style="padding-left: 24px">
+                  {creating.type === 'file' ? 'File' : 'Dir'}
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input
+                    type="text"
+                    placeholder={creating.type === 'file' ? 'filename.ts' : 'folder-name'}
+                    bind:value={creatingValue}
+                    autofocus
+                    onblur={confirmCreate}
+                  />
+                </div>
+              {/if}
+
+              {#if rootLoading}
+                <div class="tree-loading">
+                  <span class="loading-spinner"></span>
+                  <span>Loading files...</span>
+                </div>
+              {:else if rootChildren.length > 0}
+                <div class="root-children">
+                  {#each rootChildren as node (node.entry.path)}
+                    <FileNode {node} />
+                  {/each}
+                </div>
+              {:else}
+                <div class="tree-empty">
+                  <p>No files found</p>
+                </div>
+              {/if}
+            {/if}
+          </section>
+        {/each}
+      </div>
     {:else if $activeWorkspace && $openProjectIds.length === 0}
       <EmptyWorkspace />
     {:else}
@@ -255,6 +408,108 @@
     flex-direction: column;
   }
 
+  .root-list {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: none;
+    padding: 4px 0 8px;
+  }
+
+  .root-section + .root-section {
+    margin-top: 6px;
+  }
+
+  .root-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    margin: 0 6px;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-secondary);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .root-header:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .root-header.active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--text-primary);
+  }
+
+  .root-chevron,
+  .root-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    color: inherit;
+    flex-shrink: 0;
+  }
+
+  .root-chevron:hover,
+  .root-close-btn:hover {
+    background: var(--bg-active);
+  }
+
+  .root-chevron svg {
+    transition: transform 0.15s;
+  }
+
+  .root-chevron.collapsed svg {
+    transform: rotate(-90deg);
+  }
+
+  .root-labels {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+  }
+
+  .root-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .root-path {
+    font-size: 10px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .root-active-pill {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 999px;
+    padding: 2px 6px;
+    flex-shrink: 0;
+  }
+
+  .root-children {
+    display: flex;
+    flex-direction: column;
+  }
+
   .no-project {
     display: flex;
     align-items: center;
@@ -291,6 +546,30 @@
     height: 18px;
   }
 
+  .tree-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .tree-empty {
+    padding: 12px 16px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .loading-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
   .context-menu {
     position: fixed;
     z-index: 1000;
@@ -321,5 +600,9 @@
 
   .context-item.danger:hover {
     background: var(--error);
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>

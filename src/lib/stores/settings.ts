@@ -156,6 +156,7 @@ export const shortcutActions: ShortcutAction[] = [
   { id: 'zoomIn',         label: 'Zoom In',         category: 'Window' },
   { id: 'zoomOut',        label: 'Zoom Out',        category: 'Window' },
   { id: 'resetZoom',      label: 'Reset Zoom',      category: 'Window' },
+  { id: 'toggleNotepad',  label: 'Toggle Scratchpad', category: 'View' },
 ];
 
 export const defaultShortcuts: KeyboardShortcut[] = [
@@ -176,6 +177,7 @@ export const defaultShortcuts: KeyboardShortcut[] = [
   { id: 'zoomIn',         label: 'Zoom In',         keys: 'Ctrl+=' },
   { id: 'zoomOut',        label: 'Zoom Out',        keys: 'Ctrl+-' },
   { id: 'resetZoom',      label: 'Reset Zoom',      keys: 'Ctrl+0' },
+  { id: 'toggleNotepad',  label: 'Toggle Scratchpad', keys: 'Ctrl+Shift+N' },
 ];
 
 export const userShortcuts = persistentWritable<KeyboardShortcut[]>('userShortcuts', defaultShortcuts);

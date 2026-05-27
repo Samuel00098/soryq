@@ -101,7 +101,7 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
 
       const recognizer: BrowserSpeechRecognition = new SpeechRecognition();
       recognition = recognizer;
-      recognizer.continuous = false;
+      recognizer.continuous = true;
       recognizer.interimResults = false;
       recognizer.lang = 'en-US';
 

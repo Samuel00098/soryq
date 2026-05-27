@@ -8,7 +8,10 @@
   import {
     writeToSession,
     registerDataCallback,
+    registerExitCallback,
     unregisterDataCallback,
+    unregisterExitCallback,
+    getSessionOutputBuffer,
     resizeSession,
     sessions,
     killSession,
@@ -16,14 +19,13 @@
     setSessionRole,
     setSessionCwd,
     appendToCommandBlock,
-    finalizeCommandBlock,
+    finalizeCommandBlockWithExit,
     paneAssignments,
     createTerminalSession,
     terminalInputRequest,
     getSessionLabel,
     activateSessionInPane,
   } from '$lib/stores/terminal';
-  import CommandBlockStrip from './CommandBlockStrip.svelte';
   import {
     terminalFontSize,
     terminalCursorStyle,
@@ -36,6 +38,7 @@
   import { activeProject } from '$lib/stores/workspace';
   import { clearProxyTarget, currentUrl, ensureProxyRunning, setPreferredLocalHost, setTargetPort } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
+  import { appendRunOutput, finalizeRunEntry, activeRunIds } from '$lib/stores/runHistory';
 
   let {
     sessionId,
@@ -274,6 +277,7 @@
     return parts[parts.length - 1] || 'shell';
   })());
   let sessionLabel = $derived(sessionInfo ? getSessionLabel(sessionInfo, $sessions) : promptPath);
+  let sessionTaskSummary = $derived(sessionInfo?.taskSummary?.trim() || '');
   let isDead = $derived(sessionInfo ? !sessionInfo.isRunning : false);
   let isLightTheme = $derived($activeTheme?.type === 'light');
 
@@ -390,10 +394,12 @@
     }
   });
 
+  const _layoutActiveView = $derived($layout.activeView);
+
   $effect(() => {
     if (fitAddon) {
       scheduleFit();
-      if ((isActive || isMaximized) && $layout.activeView === 'terminal') {
+      if ((isActive || isMaximized) && _layoutActiveView === 'terminal') {
         requestAnimationFrame(() => term?.focus());
       }
     }
@@ -469,6 +475,11 @@
       container.addEventListener('mousedown', handleTerminalLinkMouseDown, true);
       container.addEventListener('mouseup', handleTerminalLinkMouseUp, true);
 
+      const existingBuffer = getSessionOutputBuffer(sessionId);
+      if (existingBuffer) {
+        term.write(existingBuffer);
+      }
+
       // Double rAF lets flex layout settle, then wait for fonts for accurate glyph metrics
       requestAnimationFrame(() => requestAnimationFrame(() => fitAfterFonts()));
 
@@ -484,15 +495,32 @@
           detectDevServerUrl(text);
           detectBuildProcess(text);
           detectAgentNeedsAttention(text);
-          if (isSessionExecutingNow(sessionId)) appendToCommandBlock(sessionId, text);
+          if (isSessionExecutingNow(sessionId)) {
+            appendToCommandBlock(sessionId, text);
+            const runId = activeRunIds.get(sessionId);
+            if (runId) appendRunOutput(runId, text);
+          }
         } catch {}
         if (executingTimeout) clearTimeout(executingTimeout);
         executingTimeout = setTimeout(() => {
           if (isSessionExecutingNow(sessionId)) {
             setSessionExecuting(sessionId, false);
-            finalizeCommandBlock(sessionId);
+            finalizeCommandBlockWithExit(sessionId, 0);
+            const runId = activeRunIds.get(sessionId);
+            if (runId) { finalizeRunEntry(runId, 0); activeRunIds.delete(sessionId); }
           }
         }, 800);
+      });
+
+      registerExitCallback(sessionId, (code: number) => {
+        if (executingTimeout) clearTimeout(executingTimeout);
+        setSessionExecuting(sessionId, false);
+        finalizeCommandBlockWithExit(sessionId, code);
+        const runId = activeRunIds.get(sessionId);
+        if (runId) {
+          finalizeRunEntry(runId, code);
+          activeRunIds.delete(sessionId);
+        }
       });
 
       resizeObserver = new ResizeObserver(scheduleFit);
@@ -545,6 +573,7 @@
     container?.removeEventListener('mousedown', handleTerminalLinkMouseDown, true);
     container?.removeEventListener('mouseup', handleTerminalLinkMouseUp, true);
     unregisterDataCallback(sessionId);
+    unregisterExitCallback(sessionId);
     term?.dispose();
   });
 
@@ -635,12 +664,21 @@
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <span class="pane-title" onclick={openRolePicker} title="Click to set role">
-      {#if sessionInfo?.role}
-        <span class="role-dot" style="background: {getRoleColor(sessionInfo.role)}"></span>
-        {sessionLabel}
-      {:else}
-        {sessionInfo?.title ?? promptPath}
+    <span
+      class="pane-title"
+      onclick={openRolePicker}
+      title={sessionTaskSummary ? `${sessionLabel} - ${sessionTaskSummary}` : 'Click to set role'}
+    >
+      <span class="pane-title-main">
+        {#if sessionInfo?.role}
+          <span class="role-dot" style="background: {getRoleColor(sessionInfo.role)}"></span>
+          {sessionLabel}
+        {:else}
+          {sessionInfo?.title ?? promptPath}
+        {/if}
+      </span>
+      {#if sessionTaskSummary}
+        <span class="pane-title-summary">{sessionTaskSummary}</span>
       {/if}
     </span>
 
@@ -709,7 +747,6 @@
   {/if}
 
   <!-- Command history blocks above the live terminal -->
-  <CommandBlockStrip {sessionId} />
 
   <!-- xterm.js fills all remaining space — click and type directly -->
   <div class="xterm-container" bind:this={container}></div>
@@ -722,16 +759,22 @@
     background: var(--editor-bg, var(--bg-primary));
     overflow: hidden;
     position: relative;
-    border: 1.5px solid transparent;
-    transition: border-color 0.15s;
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s, filter 0.15s;
   }
 
   .terminal-pane.active {
-    border-color: var(--accent-light);
+    border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
   }
 
   .terminal-pane.dead {
     opacity: 0.55;
+  }
+
+  .terminal-pane:not(.active):not(.dead) {
+    opacity: 0.92;
   }
 
   .terminal-pane.maximized {
@@ -752,6 +795,12 @@
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .terminal-pane:not(.active) .pane-titlebar {
+    background: color-mix(in srgb, var(--bg-secondary) 84%, var(--bg-primary));
+    border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
   }
 
   .pane-close-btn {
@@ -814,14 +863,35 @@
   /* ── Pane title ── */
   .pane-title {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 11.5px;
     font-weight: 500;
     color: var(--text-muted);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     cursor: pointer;
     transition: color 0.15s;
+  }
+
+  .pane-title-main {
+    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pane-title-summary {
+    min-width: 0;
+    flex: 1;
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--text-muted);
+    opacity: 0.82;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .terminal-pane.active .pane-title {
@@ -853,6 +923,12 @@
     overflow: hidden;
     min-height: 0;
     padding: 6px 6px 8px 6px;
+    transition: opacity 0.15s, filter 0.15s;
+  }
+
+  .terminal-pane:not(.active):not(.dead) .xterm-container {
+    opacity: 0.88;
+    filter: saturate(0.94);
   }
 
   .xterm-container :global(.xterm) {

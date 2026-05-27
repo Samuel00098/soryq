@@ -1,8 +1,9 @@
 <script lang="ts">
   import { activeProject } from '$lib/stores/workspace';
   import { activeFile, fileCache, activeLine, activeColumn } from '$lib/stores/editor';
-  import { layout } from '$lib/stores/layout';
+  import { layout, setSidebarTab } from '$lib/stores/layout';
   import { uiZoom } from '$lib/stores/settings';
+  import { branchInfo } from '$lib/stores/gitBranch';
 
   $: activeFileInfo = $activeFile ? $fileCache.get($activeFile) : null;
   $: languageLabel = activeFileInfo
@@ -33,6 +34,18 @@
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
         </svg>
         {$activeProject.name}
+      </span>
+    {/if}
+    {#if $branchInfo?.current}
+      <span class="sb-sep">·</span>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <span class="sb-item sb-branch" onclick={() => setSidebarTab('git')} title="Switch branch">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+          <path d="M18 9a9 9 0 01-9 9"/>
+        </svg>
+        {$branchInfo.current}
       </span>
     {/if}
   </div>
@@ -113,4 +126,7 @@
     text-align: center;
     font-variant-numeric: tabular-nums;
   }
+
+  .sb-branch { cursor: pointer; }
+  .sb-branch:hover { color: var(--accent); }
 </style>

@@ -75,6 +75,9 @@ pub fn workspace_git_commit(
     if message.len() > 10_000 {
         return Err("Commit message is too long (limit 10 000 characters)".to_string());
     }
+    if message.contains('\0') {
+        return Err("Commit message contains invalid characters.".to_string());
+    }
 
     // 1. Stage all changes
     let add_output = Command::new("git")
@@ -193,11 +196,16 @@ pub fn workspace_git_fetch(
 
 
 #[tauri::command]
-pub fn workspace_detect_port(path: String) -> u16 {
+pub fn workspace_detect_port(path: String, state: State<AppState>) -> u16 {
     let root = match std::fs::canonicalize(std::path::PathBuf::from(&path)) {
         Ok(r) => crate::commands::clean_path_buf(r),
         Err(_) => return 5173,
     };
+    // Only read files that belong to an open project
+    let projects = state.workspace_manager.list_projects();
+    if !projects.iter().any(|p| root.starts_with(&p.root_path)) {
+        return 5173;
+    }
     
     // 1. Try to read package.json
     let package_json_path = root.join("package.json");
@@ -838,6 +846,114 @@ pub fn workspace_git_log(
     }
 
     Ok(entries)
+}
+
+fn validate_branch_name(name: &str) -> Result<(), String> {
+    if name.is_empty() { return Err("Branch name cannot be empty".to_string()); }
+    if name.starts_with('-') { return Err("Invalid branch name".to_string()); }
+    if name.contains("..") { return Err("Invalid branch name".to_string()); }
+    // Only allow safe characters
+    if !name.chars().all(|c| c.is_alphanumeric() || "-_./".contains(c)) {
+        return Err("Branch name contains invalid characters".to_string());
+    }
+    Ok(())
+}
+
+fn get_project_path(project_id: &str, state: &AppState) -> Result<std::path::PathBuf, String> {
+    let projects = state.workspace_manager.list_projects();
+    let project = projects.iter().find(|p| p.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+    Ok(project.root_path.clone())
+}
+
+#[derive(serde::Serialize)]
+pub struct GitBranchInfo {
+    pub current: String,
+    pub local: Vec<String>,
+    pub remote: Vec<String>,
+}
+
+#[tauri::command]
+pub fn workspace_git_branches(project_id: String, state: State<AppState>) -> Result<GitBranchInfo, String> {
+    let root_path = get_project_path(&project_id, &state)?;
+    if !root_path.join(".git").exists() {
+        return Err("Not a git repository".to_string());
+    }
+    let output = Command::new("git")
+        .args(["branch", "-a", "--format=%(refname:short)|||%(HEAD)"])
+        .current_dir(&root_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut current = String::new();
+    let mut local = Vec::new();
+    let mut remote = Vec::new();
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.splitn(2, "|||").collect();
+        if parts.len() < 2 { continue; }
+        let name = parts[0].trim().to_string();
+        let is_head = parts[1].trim() == "*";
+        if name.starts_with("remotes/") {
+            let short = name.trim_start_matches("remotes/").to_string();
+            if !short.contains("/HEAD") { remote.push(short); }
+        } else {
+            if is_head { current = name.clone(); }
+            local.push(name);
+        }
+    }
+    Ok(GitBranchInfo { current, local, remote })
+}
+
+#[tauri::command]
+pub fn workspace_git_checkout(project_id: String, branch: String, state: State<AppState>) -> Result<String, String> {
+    validate_branch_name(&branch)?;
+    let root_path = get_project_path(&project_id, &state)?;
+    let output = Command::new("git")
+        .args(["checkout", "--", &branch])
+        .current_dir(&root_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(format!("Switched to branch '{}'", branch))
+    } else {
+        Err(sanitize_git_error(&String::from_utf8_lossy(&output.stderr)))
+    }
+}
+
+#[tauri::command]
+pub fn workspace_git_branch_create(project_id: String, name: String, from: Option<String>, state: State<AppState>) -> Result<String, String> {
+    validate_branch_name(&name)?;
+    if let Some(ref f) = from { validate_branch_name(f)?; }
+    let root_path = get_project_path(&project_id, &state)?;
+    let mut args = vec!["checkout", "-b", &name];
+    if let Some(ref f) = from { args.push(f); }
+    let output = Command::new("git")
+        .args(&args)
+        .current_dir(&root_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(format!("Created and switched to branch '{}'", name))
+    } else {
+        Err(sanitize_git_error(&String::from_utf8_lossy(&output.stderr)))
+    }
+}
+
+#[tauri::command]
+pub fn workspace_git_branch_delete(project_id: String, name: String, force: bool, state: State<AppState>) -> Result<String, String> {
+    validate_branch_name(&name)?;
+    let root_path = get_project_path(&project_id, &state)?;
+    let flag = if force { "-D" } else { "-d" };
+    let output = Command::new("git")
+        .args(["branch", flag, &name])
+        .current_dir(&root_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(format!("Deleted branch '{}'", name))
+    } else {
+        Err(sanitize_git_error(&String::from_utf8_lossy(&output.stderr)))
+    }
 }
 
 #[tauri::command]

@@ -20,6 +20,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState::new(config_dir))
         .invoke_handler(tauri::generate_handler![
             commands::theme::theme_list,
@@ -42,6 +44,10 @@ pub fn run() {
             commands::workspace::workspace_git_discard_all,
             commands::workspace::workspace_detect_port,
             commands::workspace::workspace_search_codebase,
+            commands::workspace::workspace_git_branches,
+            commands::workspace::workspace_git_checkout,
+            commands::workspace::workspace_git_branch_create,
+            commands::workspace::workspace_git_branch_delete,
             commands::file_system::fs_read_dir,
             commands::file_system::fs_create_file,
             commands::file_system::fs_create_dir,

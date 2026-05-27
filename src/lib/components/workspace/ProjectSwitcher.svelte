@@ -46,12 +46,6 @@
         </button>
       </div>
     {/each}
-    <button class="project-add" onclick={handleOpen} title="Add folder to workspace">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <line x1="12" y1="5" x2="12" y2="19"/>
-        <line x1="5" y1="12" x2="19" y2="12"/>
-      </svg>
-    </button>
   </div>
 {:else}
   <div class="project-switcher project-switcher-empty">
@@ -129,20 +123,6 @@
   .project-tab:hover .project-close,
   .project-tab.active .project-close { opacity: 1; }
   .project-close:hover { background: rgba(248,113,113,0.15); color: var(--error); }
-
-  .project-add {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    margin-left: 2px;
-    transition: color 0.15s, background 0.15s;
-  }
-  .project-add:hover { color: var(--text-primary); background: var(--bg-hover); }
 
   .project-switcher-empty { padding: 6px 8px; }
 

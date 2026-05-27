@@ -79,10 +79,17 @@ const projectStateCache = new Map<string, ProjectWorkspaceState>();
 
 // ── Per-project localStorage persistence ──────────────────────────────────
 
+interface PersistedTerminalPane {
+  role: string | null;
+  cwd: string | null;
+}
+
 interface PersistedProjectState {
   openFiles: string[];
   activeFile: string | null;
   expandedPaths: string[];
+  terminalLayout?: string;
+  terminalPanes?: PersistedTerminalPane[];
 }
 
 function projectStorageKey(projectId: string) {
@@ -91,10 +98,18 @@ function projectStorageKey(projectId: string) {
 
 function saveProjectStateToStorage(projectId: string) {
   if (typeof window === 'undefined') return;
+  const currentSessions = get(sessions);
+  const currentPanes = get(paneAssignments);
+  const terminalPanes: PersistedTerminalPane[] = currentPanes.map((sessionId) => {
+    const session = currentSessions.find((s) => s.id === sessionId);
+    return { role: session?.role ?? null, cwd: session?.cwd ?? null };
+  });
   const state: PersistedProjectState = {
     openFiles: get(openFiles),
     activeFile: get(activeFile),
     expandedPaths: Array.from(get(expandedPaths)),
+    terminalLayout: get(gridLayout),
+    terminalPanes,
   };
   localStorage.setItem(projectStorageKey(projectId), JSON.stringify(state));
 }
@@ -213,8 +228,28 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       expandedPaths.set(new Set(persisted.expandedPaths));
     }
 
-    // Always spawn a fresh terminal session on reopen
-    await createTerminalSession(rootPath);
+    // Restore terminal layout if saved, otherwise spawn a single fresh session
+    if (persisted?.terminalPanes && persisted.terminalPanes.length > 0) {
+      const { setGridLayout, setSessionRole } = await import('./terminal');
+      if (persisted.terminalLayout) {
+        setGridLayout(persisted.terminalLayout as any);
+      }
+      const spawnedIds: number[] = [];
+      for (let i = 0; i < persisted.terminalPanes.length; i++) {
+        const pane = persisted.terminalPanes[i];
+        const id = await createTerminalSession(pane.cwd || rootPath, i);
+        if (id !== null) {
+          spawnedIds.push(id);
+          if (pane.role) setSessionRole(id, pane.role);
+        }
+      }
+      const { showToast } = await import('./notification');
+      if (spawnedIds.length > 1) {
+        showToast(`Restored ${spawnedIds.length} terminal sessions`, 'info', 3000);
+      }
+    } else {
+      await createTerminalSession(rootPath);
+    }
   }
 }
 

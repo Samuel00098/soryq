@@ -1,0 +1,24 @@
+[    1043ms] [ERROR] Failed to switch theme: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at invoke (http://localhost:1420/node_modules/.vite/deps/chunk-G7S6KQDI.js?v=f9b45d6a:109:37)
+    at switchTheme (http://localhost:1420/src/lib/stores/theme.ts?t=1779867926962:80:25)
+    at http://localhost:1420/src/lib/stores/theme.ts?t=1779867926962:32:7
+    at Object.subscribe (http://localhost:1420/node_modules/.vite/deps/chunk-ZIF2VAHG.js?v=f9b45d6a:2373:5)
+    at http://localhost:1420/src/lib/stores/theme.ts?t=1779867926962:17:14 @ http://localhost:1420/src/lib/stores/theme.ts?t=1779867926962:90
+[    1055ms] TypeError: Cannot read properties of undefined (reading 'metadata')
+
+	in <unknown>
+	in AppShell.svelte
+	in App.svelte
+	in undefined
+
+    at getCurrentWindow (http://localhost:1420/node_modules/.vite/deps/@tauri-apps_api_window.js?v=f9b45d6a:328:48)
+    at TitleBar (http://localhost:1420/src/lib/components/layout/TitleBar.svelte?t=1779873888815:129:14)
+    at http://localhost:1420/node_modules/.vite/deps/chunk-6V5A2EVB.js?v=f9b45d6a:314:56
+    at update_reaction (http://localhost:1420/node_modules/.vite/deps/chunk-ZIF2VAHG.js?v=f9b45d6a:4202:18)
+    at update_effect (http://localhost:1420/node_modules/.vite/deps/chunk-ZIF2VAHG.js?v=f9b45d6a:4343:21)
+    at create_effect (http://localhost:1420/node_modules/.vite/deps/chunk-ZIF2VAHG.js?v=f9b45d6a:3689:7)
+    at branch (http://localhost:1420/node_modules/.vite/deps/chunk-ZIF2VAHG.js?v=f9b45d6a:3863:10)
+    at http://localhost:1420/node_modules/.vite/deps/chunk-6V5A2EVB.js?v=f9b45d6a:308:17
+    at update_reaction (http://localhost:1420/node_modules/.vite/deps/chunk-ZIF2VAHG.js?v=f9b45d6a:4202:18)
+    at update_effect (http://localhost:1420/node_modules/.vite/deps/chunk-ZIF2VAHG.js?v=f9b45d6a:4343:21)
+[    1759ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:1420/favicon.ico:0
