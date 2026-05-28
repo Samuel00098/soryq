@@ -53,6 +53,7 @@ jobs:
         run: npm ci
 
       - name: Create release in releases repo
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
