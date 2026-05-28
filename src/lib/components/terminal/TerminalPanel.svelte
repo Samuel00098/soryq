@@ -20,9 +20,17 @@
   import { activeFile } from '$lib/stores/editor';
 
   let maximizedPaneIndex = $state<number | null>(null);
+  const maximizeCache = new Map<string, number | null>();
+
+  function setMaximizedPaneIndex(paneIndex: number | null) {
+    maximizedPaneIndex = paneIndex;
+    if (currentProjectId) {
+      maximizeCache.set(currentProjectId, paneIndex);
+    }
+  }
 
   function togglePaneMaximize(paneIndex: number) {
-    maximizedPaneIndex = maximizedPaneIndex === paneIndex ? null : paneIndex;
+    setMaximizedPaneIndex(maximizedPaneIndex === paneIndex ? null : paneIndex);
   }
 
   function getStartingCwd(): string | undefined {
@@ -407,6 +415,7 @@
           colWidths: $state.snapshot(colWidths),
           cellHeights: $state.snapshot(cellHeights)
         });
+        maximizeCache.set(currentProjectId, maximizedPaneIndex);
       }
 
       if (projectId) {
@@ -420,10 +429,12 @@
           colWidths = [100];
           cellHeights = [[100]];
         }
+        maximizedPaneIndex = maximizeCache.get(projectId) ?? null;
       } else {
         columns = [{ cells: [{ index: 0 }] }];
         colWidths = [100];
         cellHeights = [[100]];
+        maximizedPaneIndex = null;
       }
 
       currentProjectId = projectId;
@@ -437,6 +448,15 @@
     for (const key of gridCache.keys()) {
       if (!openIds.includes(key)) {
         gridCache.delete(key);
+      }
+    }
+  });
+
+  $effect(() => {
+    const openIds = $openProjectIds;
+    for (const key of maximizeCache.keys()) {
+      if (!openIds.includes(key)) {
+        maximizeCache.delete(key);
       }
     }
   });

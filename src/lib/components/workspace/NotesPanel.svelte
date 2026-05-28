@@ -11,6 +11,7 @@
   let panelEl = $state<HTMLDivElement | null>(null);
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
   let isListening = $state(false);
+  let voiceBaseContent = $state('');
 
   function persistNote(val: string) {
     saved = false;
@@ -29,13 +30,14 @@
   const voiceInput = createVoiceInputSession({
     onStart: () => {
       isListening = true;
+      voiceBaseContent = content.trim();
       showToast('Listening for notes...', 'info');
     },
     onResult: (transcript) => {
       if (!textareaEl) return;
-      const spacer = textareaEl.value.trim().length > 0 ? ' ' : '';
-      const nextValue = `${textareaEl.value}${spacer}${transcript}`;
+      const nextValue = voiceBaseContent ? (transcript ? `${voiceBaseContent} ${transcript}` : voiceBaseContent) : transcript;
       textareaEl.value = nextValue;
+      content = nextValue;
       persistNote(nextValue);
       requestAnimationFrame(() => textareaEl?.focus());
     },
@@ -44,6 +46,7 @@
     },
     onError: (message) => {
       isListening = false;
+      voiceBaseContent = '';
       showToast(message, 'error');
     },
   });

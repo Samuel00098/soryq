@@ -45,6 +45,7 @@
   // Manually-pinned target session ID — overrides auto-selection when set
   let manualTargetId = $state<number | null>(null);
   let targetPickerOpen = $state(false);
+  let voiceDraftBase = $state('');
   let isActive = $derived(
     isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag)
   );
@@ -286,15 +287,23 @@
     }
 
     if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      stepHistory(1);
-      return;
+      const cursorPos = inputEl?.selectionStart ?? 0;
+      const onFirstLine = !inputValue.substring(0, cursorPos).includes('\n');
+      if (onFirstLine) {
+        event.preventDefault();
+        stepHistory(1);
+        return;
+      }
     }
 
     if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      stepHistory(-1);
-      return;
+      const cursorPos = inputEl?.selectionStart ?? inputValue.length;
+      const onLastLine = !inputValue.substring(cursorPos).includes('\n');
+      if (onLastLine) {
+        event.preventDefault();
+        stepHistory(-1);
+        return;
+      }
     }
 
     if (event.key === 'Escape') {
@@ -314,10 +323,11 @@
   const voiceInput = createVoiceInputSession({
     onStart: () => {
       isListening = true;
+      voiceDraftBase = inputValue.trim();
       showToast('Listening for terminal prompt...', 'info');
     },
     onResult: (transcript) => {
-      inputValue = inputValue ? `${inputValue} ${transcript}` : transcript;
+      inputValue = voiceDraftBase ? (transcript ? `${voiceDraftBase} ${transcript}` : voiceDraftBase) : transcript;
       requestAnimationFrame(adjustInputHeight);
       focusInput();
     },
@@ -337,6 +347,7 @@
       voiceLocked = false;
       voiceHeld = false;
       voiceStopping = false;
+      voiceDraftBase = '';
       showToast(message, 'error');
     },
   });
@@ -346,6 +357,7 @@
       voiceLocked = false;
       voiceStopping = true;
       voiceInput.stop();
+      voiceDraftBase = '';
       return;
     }
     voiceLocked = true;

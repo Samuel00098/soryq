@@ -77,6 +77,9 @@ function mapRecognitionError(code: string | undefined) {
 export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceInputSession {
   let recognition: BrowserSpeechRecognition | null = null;
   let starting = false;
+  let stopRequested = false;
+  let finalTranscript = '';
+  let interimTranscript = '';
 
   return {
     isSupported() {
@@ -92,27 +95,51 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
       }
 
       starting = true;
+      stopRequested = false;
+      finalTranscript = '';
+      interimTranscript = '';
       const micError = await verifyMicrophoneAccess();
       if (micError) {
         starting = false;
         callbacks.onError?.(micError);
         return;
       }
+      if (stopRequested) {
+        starting = false;
+        return;
+      }
 
       const recognizer: BrowserSpeechRecognition = new SpeechRecognition();
       recognition = recognizer;
       recognizer.continuous = true;
-      recognizer.interimResults = false;
-      recognizer.lang = 'en-US';
+      recognizer.interimResults = true;
+      recognizer.lang = typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en-US';
 
       recognizer.onstart = () => {
         starting = false;
+        if (stopRequested) {
+          recognizer.stop();
+          return;
+        }
         callbacks.onStart?.();
       };
 
       recognizer.onresult = (event: any) => {
-        const transcript = event?.results?.[0]?.[0]?.transcript?.trim();
-        if (transcript) callbacks.onResult(transcript);
+        interimTranscript = '';
+        const results = event?.results ?? [];
+        const startIndex = event?.resultIndex ?? 0;
+        for (let i = startIndex; i < results.length; i += 1) {
+          const result = results[i];
+          const transcript = result?.[0]?.transcript?.trim();
+          if (!transcript) continue;
+          if (result.isFinal) {
+            finalTranscript = `${finalTranscript} ${transcript}`.trim();
+          } else {
+            interimTranscript = transcript;
+          }
+        }
+        const transcript = [finalTranscript, interimTranscript].filter(Boolean).join(' ').trim();
+        callbacks.onResult(transcript);
       };
 
       recognizer.onerror = (event: any) => {
@@ -135,7 +162,9 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
     },
 
     stop() {
+      stopRequested = true;
       recognition?.stop();
+      recognition = null;
     },
   };
 }

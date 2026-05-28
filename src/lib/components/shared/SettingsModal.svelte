@@ -25,6 +25,7 @@
   import { getAvailableShells, type ShellInfo } from '$lib/services/pty-bridge';
   import { showToast } from '$lib/stores/notification';
   import { clearAllApplicationState } from '$lib/stores/workspace';
+  import { checkForUpdate, pendingUpdate } from '$lib/stores/updater';
 
   type Tab = 'general' | 'terminal' | 'shortcuts' | 'themes' | 'about';
   let activeTab = $state<Tab>('general');
@@ -36,14 +37,18 @@
     if (updateStatus === 'checking') return;
     updateStatus = 'checking';
     updateMessage = 'Checking for updates...';
-    
-    // Simulate a network check to give a premium feel
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
+
     try {
-      updateStatus = 'latest';
-      updateMessage = 'Soryq is up to date!';
-      showToast('Soryq is up to date!', 'success');
+      await checkForUpdate();
+      if ($pendingUpdate) {
+        updateStatus = 'available';
+        updateMessage = `Update available: v${$pendingUpdate.version}`;
+        showToast(`Update available: v${$pendingUpdate.version}`, 'success');
+      } else {
+        updateStatus = 'latest';
+        updateMessage = 'Soryq is up to date!';
+        showToast('Soryq is up to date!', 'success');
+      }
     } catch (err) {
       updateStatus = 'error';
       updateMessage = 'Failed to check for updates.';
@@ -1061,7 +1066,7 @@
 
         <div class="about-rows">
           {#each [
-            ['Version', '0.1.3'],
+            ['Version', '0.1.4'],
             ['Built with', 'Tauri 2 · Svelte 5 · Rust'],
             ['Runtime', 'WebView2 (Windows)'],
             ['License', 'MIT'],
@@ -1105,12 +1110,26 @@
                 </svg>
                 <div class="updater-text">
                   <span class="status-title">Up to date</span>
-                  <span class="status-desc">Soryq v0.1.3 is the latest version.</span>
+                  <span class="status-desc">Soryq v0.1.4 is the latest version.</span>
                 </div>
               </div>
               <button class="updater-btn-subtle" onclick={handleCheckForUpdates}>
                 Check again
               </button>
+            </div>
+          {:else if updateStatus === 'available'}
+            <div class="updater-status success">
+              <div class="status-left">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <div class="updater-text">
+                  <span class="status-title">Update available</span>
+                  <span class="status-desc">{updateMessage}</span>
+                </div>
+              </div>
             </div>
           {:else if updateStatus === 'error'}
             <div class="updater-status error">

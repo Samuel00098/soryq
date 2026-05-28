@@ -21,9 +21,13 @@ export async function checkForUpdate() {
     cachedUpdate = update ?? null;
     if (update?.available) {
       pendingUpdate.set({ version: update.version, body: update.body ?? null });
+    } else {
+      pendingUpdate.set(null);
     }
   } catch {
-    // Silently ignore — no network, no update server, dev mode, etc.
+    cachedUpdate = null;
+    pendingUpdate.set(null);
+    throw new Error('Failed to check for updates');
   } finally {
     updateChecking.set(false);
   }
@@ -53,6 +57,7 @@ export async function installUpdate() {
       }
     });
 
+    pendingUpdate.set(null);
     await relaunch();
   } catch (e) {
     console.error('Update install failed:', e);

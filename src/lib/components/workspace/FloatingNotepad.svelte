@@ -26,6 +26,7 @@
   let voiceLocked = $state(false);
   let voiceHeld = $state(false);
   let voiceStopping = $state(false);
+  let voiceBaseContent = $state('');
   let renderedHtml = $derived(
     previewMode ? DOMPurify.sanitize(marked.parse(content) as string) : ''
   );
@@ -63,11 +64,11 @@
   const voiceInput = createVoiceInputSession({
     onStart: () => {
       isListening = true;
+      voiceBaseContent = content.trim();
       showToast('Listening for notes...', 'info');
     },
     onResult: (transcript) => {
-      const spacer = content.trim().length > 0 ? ' ' : '';
-      content = `${content}${spacer}${transcript}`;
+      content = voiceBaseContent ? (transcript ? `${voiceBaseContent} ${transcript}` : voiceBaseContent) : transcript;
       queueSave();
       requestAnimationFrame(() => textareaEl?.focus());
     },
@@ -87,6 +88,7 @@
       voiceLocked = false;
       voiceHeld = false;
       voiceStopping = false;
+      voiceBaseContent = '';
       showToast(message, 'error');
     },
   });

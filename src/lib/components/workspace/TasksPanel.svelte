@@ -7,6 +7,7 @@
   let panelEl = $state<HTMLDivElement | null>(null);
   let newTaskInputs = $state({ todo: '', doing: '', done: '' });
   let listeningStatus = $state<{ todo: boolean; doing: boolean; done: boolean }>({ todo: false, doing: false, done: false });
+  let voiceBaseInputs = $state<{ todo: string; doing: string; done: string }>({ todo: '', doing: '', done: '' });
   let projectId = $derived($activeProject?.id ?? '');
 
   let projectTasks = $derived(
@@ -38,48 +39,54 @@
     todo: createVoiceInputSession({
       onStart: () => {
         listeningStatus.todo = true;
+        voiceBaseInputs.todo = newTaskInputs.todo.trim();
         showToast('Listening for To Do task...', 'info');
       },
       onResult: (transcript) => {
-        newTaskInputs.todo = newTaskInputs.todo ? `${newTaskInputs.todo} ${transcript}` : transcript;
+        newTaskInputs.todo = voiceBaseInputs.todo ? (transcript ? `${voiceBaseInputs.todo} ${transcript}` : voiceBaseInputs.todo) : transcript;
       },
       onEnd: () => {
         listeningStatus.todo = false;
       },
       onError: (message) => {
         listeningStatus.todo = false;
+        voiceBaseInputs.todo = '';
         showToast(message, 'error');
       },
     }),
     doing: createVoiceInputSession({
       onStart: () => {
         listeningStatus.doing = true;
+        voiceBaseInputs.doing = newTaskInputs.doing.trim();
         showToast('Listening for In Progress task...', 'info');
       },
       onResult: (transcript) => {
-        newTaskInputs.doing = newTaskInputs.doing ? `${newTaskInputs.doing} ${transcript}` : transcript;
+        newTaskInputs.doing = voiceBaseInputs.doing ? (transcript ? `${voiceBaseInputs.doing} ${transcript}` : voiceBaseInputs.doing) : transcript;
       },
       onEnd: () => {
         listeningStatus.doing = false;
       },
       onError: (message) => {
         listeningStatus.doing = false;
+        voiceBaseInputs.doing = '';
         showToast(message, 'error');
       },
     }),
     done: createVoiceInputSession({
       onStart: () => {
         listeningStatus.done = true;
+        voiceBaseInputs.done = newTaskInputs.done.trim();
         showToast('Listening for Done task...', 'info');
       },
       onResult: (transcript) => {
-        newTaskInputs.done = newTaskInputs.done ? `${newTaskInputs.done} ${transcript}` : transcript;
+        newTaskInputs.done = voiceBaseInputs.done ? (transcript ? `${voiceBaseInputs.done} ${transcript}` : voiceBaseInputs.done) : transcript;
       },
       onEnd: () => {
         listeningStatus.done = false;
       },
       onError: (message) => {
         listeningStatus.done = false;
+        voiceBaseInputs.done = '';
         showToast(message, 'error');
       },
     }),

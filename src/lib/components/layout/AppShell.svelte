@@ -271,7 +271,9 @@
 
   // Check for updates 5s after launch so it doesn't block startup
   $effect(() => {
-    const t = setTimeout(() => checkForUpdate(), 5000);
+    const t = setTimeout(() => {
+      void checkForUpdate().catch(() => {});
+    }, 5000);
     return () => clearTimeout(t);
   });
 </script>

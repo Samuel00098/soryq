@@ -2,6 +2,16 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.4] - 2026-05-28
+
+### Bug Fixes
+
+- **Updater — "Check for Updates" now works** — the button in Settings → About was previously a simulation that always reported "up to date" regardless of the actual release. It now calls the real Tauri updater and correctly shows whether an update is available.
+- **Floating bar — arrow keys move cursor in multi-line input** — pressing Up/Down in the floating prompt bar always hijacked cursor movement to navigate command history, even mid-sentence. Up now only goes to history when the cursor is already on the first line; Down only when on the last line.
+- **Floating bar — messages auto-send to all agent CLIs** — prompts sent to Claude Code and Gemini CLI sessions were being written directly to the PTY in a single raw write, which interactive readline-based CLIs don't process reliably. All agent sessions (Claude Code, Gemini CLI, Codex CLI) now use the correct two-step path: paste text through xterm, then send Enter 80 ms later.
+
+---
+
 ## [0.1.3] - 2026-05-28
 
 ### Changes
