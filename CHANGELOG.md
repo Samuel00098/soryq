@@ -2,6 +2,15 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.1] - 2026-05-28
+
+### Bug Fixes
+
+- **Theme persistence** — selected theme is now correctly restored on app restart. The appearance subscriber was racing against `loadThemes()` on startup and overwriting the saved theme preference.
+- **Per-project layout isolation** — panel visibility (preview, editor, review, HTTP client), active view, auxiliary panel dimensions, sidebar width, sidebar visibility, and sidebar tab are now fully isolated per project in a workspace. Previously, toggling the browser preview or resizing a panel in one project would affect all other projects.
+
+---
+
 ## [0.1.0] - 2026-05-27
 
 ### Initial public release
