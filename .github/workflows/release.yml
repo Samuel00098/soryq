@@ -52,15 +52,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Create tag in releases repo
+      - name: Create release in releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          SHA=$(gh api repos/Samuel00098/soryq-releases/git/ref/heads/main --jq '.object.sha')
-          gh api repos/Samuel00098/soryq-releases/git/refs \
-            --method POST \
-            -f ref="refs/tags/${{ github.ref_name }}" \
-            -f sha="$SHA" 2>/dev/null || true
+          gh release create ${{ github.ref_name }} \
+            --repo Samuel00098/soryq-releases \
+            --title "Soryq ${{ github.ref_name }}" \
+            --notes "See [CHANGELOG.md](https://github.com/Samuel00098/soryq/blob/main/CHANGELOG.md) for what's new." \
+            --target main \
+            2>/dev/null || true
 
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
