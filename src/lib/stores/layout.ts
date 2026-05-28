@@ -14,6 +14,8 @@ const defaultLayout: LayoutState = {
   previewVisible: false,
   reviewVisible: false,
   httpVisible: false,
+  auxPanelWidth: 400,
+  auxEditorHeight: 50,
 };
 
 function loadLayout(): LayoutState {

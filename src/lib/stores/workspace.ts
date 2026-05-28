@@ -5,7 +5,7 @@ import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
 import { expandedPaths, selectedPath } from './explorer';
 import { resetSettingsToDefault } from './settings';
-import { resetLayoutToDefault } from './layout';
+import { resetLayoutToDefault, layout } from './layout';
 
 function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
   if (typeof window === 'undefined') {
@@ -80,6 +80,16 @@ interface ProjectWorkspaceState {
   explorer: {
     expandedPaths: Set<string>;
     selectedPath: string | null;
+  };
+  layout: {
+    activeView: string;
+    editorVisible: boolean;
+    previewVisible: boolean;
+    reviewVisible: boolean;
+    httpVisible: boolean;
+    editorSplitPreview: boolean;
+    auxPanelWidth: number;
+    auxEditorHeight: number;
   };
 }
 
@@ -164,7 +174,17 @@ export function saveProjectState(projectId: string) {
     explorer: {
       expandedPaths: new Set(get(expandedPaths)),
       selectedPath: get(selectedPath),
-    }
+    },
+    layout: {
+      activeView: get(layout).activeView,
+      editorVisible: get(layout).editorVisible,
+      previewVisible: get(layout).previewVisible,
+      reviewVisible: get(layout).reviewVisible,
+      httpVisible: get(layout).httpVisible,
+      editorSplitPreview: get(layout).editorSplitPreview,
+      auxPanelWidth: get(layout).auxPanelWidth,
+      auxEditorHeight: get(layout).auxEditorHeight,
+    },
   });
   // Also persist to localStorage so state survives app close
   saveProjectStateToStorage(projectId);
@@ -211,6 +231,18 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
 
     expandedPaths.set(new Set(cached.explorer.expandedPaths));
     selectedPath.set(cached.explorer.selectedPath);
+
+    layout.update((l) => ({
+      ...l,
+      activeView: cached.layout.activeView as any,
+      editorVisible: cached.layout.editorVisible,
+      previewVisible: cached.layout.previewVisible,
+      reviewVisible: cached.layout.reviewVisible,
+      httpVisible: cached.layout.httpVisible,
+      editorSplitPreview: cached.layout.editorSplitPreview,
+      auxPanelWidth: cached.layout.auxPanelWidth,
+      auxEditorHeight: cached.layout.auxEditorHeight,
+    }));
 
     // Sync preview target with the backend. A local URL in the address bar wins over stale cached ports.
     try {
@@ -286,6 +318,18 @@ export function clearAllStores() {
 
   expandedPaths.set(new Set());
   selectedPath.set(null);
+
+  layout.update((l) => ({
+    ...l,
+    activeView: 'terminal',
+    editorVisible: false,
+    previewVisible: false,
+    reviewVisible: false,
+    httpVisible: false,
+    editorSplitPreview: false,
+    auxPanelWidth: 400,
+    auxEditorHeight: 50,
+  }));
 }
 
 export function setActiveProject(project: Project) {

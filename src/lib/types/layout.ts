@@ -14,4 +14,6 @@ export interface LayoutState {
   previewVisible: boolean;
   reviewVisible: boolean;
   httpVisible: boolean;
+  auxPanelWidth: number;
+  auxEditorHeight: number; // percentage split between editor and preview panes
 }

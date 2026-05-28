@@ -61,11 +61,17 @@
   let sidebarStartWidth = 0;
   let windowWidth = $state(window.innerWidth);
 
-  // Auxiliary panel resize state
-  let auxPanelWidth = $state(400);
-  let auxEditorHeight = $state(50); // percentage (e.g. 50%) for the editor pane height when both are open
+  // Auxiliary panel resize state — initialised from layout store, synced back on mouse-up
+  let auxPanelWidth = $state($layout.auxPanelWidth);
+  let auxEditorHeight = $state($layout.auxEditorHeight);
   let auxResizing = $state(false);
   let auxRowResizing = $state(false);
+
+  // Keep local state in sync when the active project changes (project switch restores layout)
+  $effect(() => {
+    auxPanelWidth = $layout.auxPanelWidth;
+    auxEditorHeight = $layout.auxEditorHeight;
+  });
 
   let auxStartX = 0;
   let auxStartWidth = 0;
@@ -182,11 +188,16 @@
   }
 
   function onMouseUp() {
+    const wasAuxResize = auxResizing || auxRowResizing;
     sidebarResizing = false;
     auxResizing = false;
     auxRowResizing = false;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    // Persist panel dimensions to the layout store so they're saved per-project
+    if (wasAuxResize) {
+      layout.update((l) => ({ ...l, auxPanelWidth, auxEditorHeight }));
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
