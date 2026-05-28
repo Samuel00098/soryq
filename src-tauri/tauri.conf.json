@@ -35,13 +35,28 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      },
+      "wix": {
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "macOS": {
+      "dmg": {
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 },
+        "windowSize": { "width": 660, "height": 400 }
+      }
+    }
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE2NTMxNTZCQTFCMzg5NEYKUldSUGliT2hheFZURnBla2dIcTBzSHJtdnQ5TTNSemxPSmdCVUo2dTcwQXZtYmhPeW1Vd2crK2YK",
       "endpoints": [
-        "https://github.com/Samuel00098/soryq/releases/latest/download/latest.json"
+        "https://github.com/Samuel00098/soryq-releases/releases/latest/download/latest.json"
       ]
     }
   }
