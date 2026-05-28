@@ -814,7 +814,12 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
             Err(err) => return (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
         };
         let html = String::from_utf8_lossy(&body_bytes);
-        let injected = inject_inspector_script(html.as_ref());
+        // Only inject inspector into local dev server responses, never external sites.
+        let injected = if !strip_embed_headers {
+            inject_inspector_script(html.as_ref())
+        } else {
+            html.into_owned()
+        };
 
         let mut builder = Response::builder().status(status);
         for (key, value) in headers.iter() {

@@ -79,6 +79,7 @@
   let layoutPickerOpen = $state(false);
 
   function handleLayoutSelect(gl: GridLayout) {
+    setMaximizedPaneIndex(null);
     setGridLayout(gl);
     applyGridLayout(gl);
     layoutPickerOpen = false;
@@ -87,6 +88,9 @@
   let projectPath = $derived($activeProject?.root_path);
 
   async function handleNewTerminal() {
+    if (maximizedPaneIndex !== null) {
+      setMaximizedPaneIndex(null);
+    }
     const panes = $paneAssignments;
     const emptyIdx = panes.findIndex((p) => p === null);
     const cwd = getStartingCwd();
@@ -98,11 +102,17 @@
   }
 
   function handleEmptyPaneClick(paneIdx: number) {
+    if (maximizedPaneIndex !== null) {
+      setMaximizedPaneIndex(null);
+    }
     focusPane(paneIdx);
     createTerminalSession(getStartingCwd(), paneIdx);
   }
 
   async function handleSplitRight() {
+    if (maximizedPaneIndex !== null) {
+      setMaximizedPaneIndex(null);
+    }
     const cwd = getStartingCwd();
 
     // Find coordinates of active pane
@@ -118,7 +128,9 @@
       if (found) break;
     }
 
-    if (found) {
+    if (!found) found = { colIdx: columns.length - 1, cellIdx: 0 };
+
+    {
       const { colIdx } = found;
       const nextIdx = $paneAssignments.length;
       paneAssignments.update((p) => [...p, null]);
@@ -141,6 +153,9 @@
   }
 
   async function handleSplitBelow() {
+    if (maximizedPaneIndex !== null) {
+      setMaximizedPaneIndex(null);
+    }
     const cwd = getStartingCwd();
 
     // Find coordinates of active pane
@@ -156,7 +171,9 @@
       if (found) break;
     }
 
-    if (found) {
+    if (!found) found = { colIdx: 0, cellIdx: columns[0].cells.length - 1 };
+
+    {
       const { colIdx, cellIdx } = found;
       const nextIdx = $paneAssignments.length;
       paneAssignments.update((p) => [...p, null]);
@@ -176,79 +193,31 @@
   }
 
   function closePane(paneIndex: number) {
-    let foundColIdx = -1;
-    let foundCellIdx = -1;
-    for (let c = 0; c < columns.length; c++) {
-      const cell = columns[c].cells.findIndex(p => p.index === paneIndex);
-      if (cell !== -1) {
-        foundColIdx = c;
-        foundCellIdx = cell;
-        break;
-      }
-    }
-
-    if (foundColIdx === -1) return;
-
+    const nextPanes = [...$paneAssignments];
     const sessionId = $paneAssignments[paneIndex];
     if (sessionId !== null && sessionId !== undefined) {
       killSession(sessionId);
     }
 
-    // Remove cell from column
-    columns[foundColIdx].cells.splice(foundCellIdx, 1);
-    cellHeights[foundColIdx].splice(foundCellIdx, 1);
-
-    if (columns[foundColIdx].cells.length === 0) {
-      // Column is now empty, remove it completely
-      columns.splice(foundColIdx, 1);
-      colWidths.splice(foundColIdx, 1);
-      cellHeights.splice(foundColIdx, 1);
-
-      // Redistribute widths of remaining columns
-      if (columns.length > 0) {
-        const C = columns.length;
-        colWidths = Array(C).fill(100 / C);
-      }
-    } else {
-      // Redistribute heights of remaining cells in this column
-      const numCells = columns[foundColIdx].cells.length;
-      cellHeights[foundColIdx] = Array(numCells).fill(100 / numCells);
-    }
-
     paneAssignments.update((panes) => {
       const copy = [...panes];
-      copy.splice(paneIndex, 1);
+      if (paneIndex >= 0 && paneIndex < copy.length) {
+        copy[paneIndex] = null;
+      }
       return copy;
     });
 
-    // Decrement cell indices that were greater than the closed one
-    for (let c = 0; c < columns.length; c++) {
-      for (let cell = 0; cell < columns[c].cells.length; cell++) {
-        if (columns[c].cells[cell].index > paneIndex) {
-          columns[c].cells[cell].index -= 1;
-        }
-      }
-    }
-
     activePaneIndex.update((active) => {
       if (active === paneIndex) {
-        return Math.max(0, paneIndex - 1);
-      } else if (active > paneIndex) {
-        return active - 1;
+        nextPanes[paneIndex] = null;
+        const nextPane = nextPanes.findIndex((session, idx) => idx !== paneIndex && session !== null);
+        return nextPane !== -1 ? nextPane : Math.max(0, paneIndex - 1);
       }
       return active;
     });
 
-    if (columns.length === 0) {
-      columns = [{ cells: [{ index: 0 }] }];
-      colWidths = [100];
-      cellHeights = [[100]];
-      paneAssignments.set([null]);
-      activePaneIndex.set(0);
-    } else {
-      columns = [...columns];
-      colWidths = [...colWidths];
-      cellHeights = [...cellHeights];
+    if (maximizedPaneIndex === paneIndex) {
+      setMaximizedPaneIndex(null);
     }
   }
 
@@ -461,7 +430,14 @@
     }
   });
 
+  $effect(() => {
+    if (maximizedPaneIndex !== null && !findPanePosition(maximizedPaneIndex)) {
+      maximizedPaneIndex = null;
+    }
+  });
+
   function applyGridLayout(gl: GridLayout) {
+    setMaximizedPaneIndex(null);
     lastAppliedLayout = gl;
     if (gl === 'single') {
       columns = [{ cells: [{ index: 0 }] }];
@@ -721,81 +697,88 @@
     class:dragging-col={activeDragType === 'col'}
     class:dragging-row={activeDragType === 'row'}
   >
-    {#each columns as column, colIdx}
-      <div class="terminal-column" style="flex: {colWidths[colIdx] ?? 100} 1 0%;">
-        {#each column.cells as cell, cellIdx}
-          {@const sessionId = $paneAssignments[cell.index]}
-          <div class="terminal-cell" style="flex: {cellHeights[colIdx]?.[cellIdx] ?? 100} 1 0%;">
-            {#if sessionId !== undefined && sessionId !== null}
-              {#key sessionId}
-                <TerminalPane
-                  {sessionId}
-                  isActive={$activePaneIndex === cell.index}
-                  isMaximized={maximizedPaneIndex === cell.index}
-                  onActivate={() => focusPane(cell.index)}
-                  onClose={() => closePane(cell.index)}
-                  onMaximize={() => togglePaneMaximize(cell.index)}
-                  onResizeLeft={colIdx > 0 ? (e) => startColResize(e, colIdx - 1) : undefined}
-                  onResizeRight={colIdx < columns.length - 1 ? (e) => startColResize(e, colIdx) : undefined}
-                  onResizeTop={cellIdx > 0 ? (e) => startCellResize(e, colIdx, cellIdx - 1) : undefined}
-                  onResizeBottom={cellIdx < column.cells.length - 1 ? (e) => startCellResize(e, colIdx, cellIdx) : undefined}
-                />
-              {/key}
-            {:else}
-              <!-- Empty pane placeholder -->
-              <div class="empty-pane-wrapper">
+    {#if maximizedPaneIndex !== null}
+      {@const maximizedPane = columns.flatMap((column) => column.cells.map((cell) => ({ column, cell }))).find(({ cell }) => cell.index === maximizedPaneIndex)}
+      {#if maximizedPane}
+        {@const sessionId = $paneAssignments[maximizedPane.cell.index]}
+        <div class="terminal-maximized-layer">
+          {#if sessionId !== undefined && sessionId !== null}
+            {#key sessionId}
+              <TerminalPane
+                {sessionId}
+                isActive={true}
+                isMaximized={true}
+                onActivate={() => focusPane(maximizedPane.cell.index)}
+                onClose={() => closePane(maximizedPane.cell.index)}
+                onMaximize={() => togglePaneMaximize(maximizedPane.cell.index)}
+              />
+            {/key}
+          {/if}
+        </div>
+      {/if}
+    {:else}
+      {#each columns as column, colIdx}
+        <div class="terminal-column" style="flex: {colWidths[colIdx] ?? 100} 1 0%;">
+          {#each column.cells as cell, cellIdx}
+            {@const sessionId = $paneAssignments[cell.index]}
+            <div class="terminal-cell" style="flex: {cellHeights[colIdx]?.[cellIdx] ?? 100} 1 0%;">
+              {#if sessionId !== undefined && sessionId !== null}
+                {#key sessionId}
+                  <TerminalPane
+                    {sessionId}
+                    isActive={$activePaneIndex === cell.index}
+                    isMaximized={false}
+                    onActivate={() => focusPane(cell.index)}
+                    onClose={() => closePane(cell.index)}
+                    onMaximize={() => togglePaneMaximize(cell.index)}
+                    onResizeLeft={colIdx > 0 ? (e) => startColResize(e, colIdx - 1) : undefined}
+                    onResizeRight={colIdx < columns.length - 1 ? (e) => startColResize(e, colIdx) : undefined}
+                    onResizeTop={cellIdx > 0 ? (e) => startCellResize(e, colIdx, cellIdx - 1) : undefined}
+                    onResizeBottom={cellIdx < column.cells.length - 1 ? (e) => startCellResize(e, colIdx, cellIdx) : undefined}
+                  />
+                {/key}
+              {:else}
                 <button
                   class="empty-pane"
                   class:active={$activePaneIndex === cell.index}
                   onclick={() => handleEmptyPaneClick(cell.index)}
-                  aria-label="New terminal in this pane"
+                  aria-label="Open terminal"
                 >
-                  <div class="empty-pane-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <span class="empty-pane-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                       <rect x="2" y="3" width="20" height="18" rx="3"/>
                       <polyline points="8,9 4,12 8,15"/>
                       <line x1="12" y1="15" x2="20" y2="15"/>
                     </svg>
-                  </div>
-                  <span class="empty-pane-label">Click to open terminal</span>
-                  <span class="empty-pane-hint">or press +</span>
+                  </span>
+                  <span class="empty-pane-label">Open terminal</span>
                 </button>
-                <button
-                  class="empty-pane-close"
-                  onclick={(e) => { e.stopPropagation(); closePane(cell.index); }}
-                  aria-label="Close pane"
-                  title="Close pane"
-                >
-                  <svg width="9" height="9" viewBox="0 0 9 9">
-                    <path d="M1 1l7 7M8 1L1 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  </svg>
-                </button>
-              </div>
+              {/if}
+            </div>
+            {#if cellIdx < column.cells.length - 1}
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <div
+                class="row-resize-divider"
+                onmousedown={(e) => startCellResize(e, colIdx, cellIdx)}
+                title="Drag to resize height"
+                role="separator"
+                aria-label="Row resize divider"
+              ></div>
             {/if}
-          </div>
-          {#if cellIdx < column.cells.length - 1}
-            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <div
-              class="row-resize-divider"
-              onmousedown={(e) => startCellResize(e, colIdx, cellIdx)}
-              title="Drag to resize height"
-              role="separator"
-              aria-label="Row resize divider"
-            ></div>
-          {/if}
-        {/each}
-      </div>
-      {#if colIdx < columns.length - 1}
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <div
-          class="col-resize-divider"
-          onmousedown={(e) => startColResize(e, colIdx)}
-          title="Drag to resize width"
-          role="separator"
-          aria-label="Column resize divider"
-        ></div>
-      {/if}
-    {/each}
+          {/each}
+        </div>
+        {#if colIdx < columns.length - 1}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <div
+            class="col-resize-divider"
+            onmousedown={(e) => startColResize(e, colIdx)}
+            title="Drag to resize width"
+            role="separator"
+            aria-label="Column resize divider"
+          ></div>
+        {/if}
+      {/each}
+    {/if}
   </div>
 </div>
 
@@ -1101,40 +1084,46 @@
   /* â”€â”€ Empty pane â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .empty-pane {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    background: var(--bg-secondary);
-    border: 1.5px dashed var(--border);
+    gap: 10px;
+    background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--border) 84%, transparent);
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color 0.15s, background 0.15s, color 0.15s, opacity 0.15s;
     width: 100%;
     height: 100%;
+    opacity: 0.72;
   }
 
   .empty-pane:hover {
-    background: var(--accent-light);
-    border-color: var(--accent);
+    background: color-mix(in srgb, var(--bg-secondary) 84%, var(--accent) 8%);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    opacity: 1;
   }
 
   .empty-pane.active {
-    border-color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+    opacity: 1;
   }
 
   .empty-pane-icon {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
     color: var(--text-muted);
+    flex-shrink: 0;
   }
 
   .empty-pane-label {
     font-size: 12px;
     color: var(--text-secondary);
     font-weight: 500;
-  }
-
-  .empty-pane-hint {
-    font-size: 10px;
-    color: var(--text-muted);
   }
 
   /* â”€â”€ Resize handles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -1232,38 +1221,4 @@
   /* Global cursor override while dragging */
   :global(body.dragging-col) { cursor: col-resize !important; }
   :global(body.dragging-row) { cursor: row-resize !important; }
-
-  .empty-pane-wrapper {
-    position: relative;
-    width: 100%;
-    height: 100%;
-  }
-
-  .empty-pane-close {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    color: var(--text-muted);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    opacity: 0;
-    transition: opacity 0.15s, background 0.15s, color 0.15s;
-    cursor: pointer;
-  }
-
-  .empty-pane-wrapper:hover .empty-pane-close {
-    opacity: 1;
-  }
-
-  .empty-pane-close:hover {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--error);
-    border-color: rgba(239, 68, 68, 0.3);
-  }
 </style>

@@ -24,6 +24,10 @@
   import { activeProject } from '$lib/stores/workspace';
   import { addRunEntry } from '$lib/stores/runHistory';
 
+  // Per-project state cache
+  const barProjectCache = new Map<string, { inputValue: string; manualTargetId: number | null }>();
+  let lastBarProjectId = $state<string | null>(null);
+
   let inputValue = $state('');
   let inputEl = $state<HTMLTextAreaElement | null>(null);
   let historyIndex = $state(-1);
@@ -76,6 +80,34 @@
   let runningSessions = $derived($sessions.filter((s) => s.isRunning));
   let historyItems = $derived(($commandHistory || []).slice(0, 12));
   let canSend = $derived(broadcastAgents ? broadcastTargets.length > 0 : Boolean(promptTarget?.isRunning));
+
+  // Per-project state: save/restore inputValue and pinned target when project changes
+  $effect(() => {
+    const projectId = $activeProject?.id ?? null;
+    if (projectId === lastBarProjectId) return;
+
+    if (lastBarProjectId !== null) {
+      barProjectCache.set(lastBarProjectId, { inputValue, manualTargetId });
+    }
+
+    if (projectId !== null) {
+      const cached = barProjectCache.get(projectId);
+      inputValue = cached?.inputValue ?? '';
+      const sessionAlive = cached?.manualTargetId != null &&
+        $sessions.some((s) => s.id === cached.manualTargetId && s.isRunning);
+      manualTargetId = sessionAlive ? (cached?.manualTargetId ?? null) : null;
+    } else {
+      inputValue = '';
+      manualTargetId = null;
+    }
+
+    lastBarProjectId = projectId;
+    historyIndex = -1;
+    draftBeforeHistory = '';
+    historyOpen = false;
+    targetPickerOpen = false;
+    requestAnimationFrame(adjustInputHeight);
+  });
 
   // Clear manual pin if the session dies
   $effect(() => {
@@ -206,7 +238,7 @@
       const paths = await Promise.all(toSave.map(saveImageToDisk));
       const validPaths = paths.filter(Boolean) as string[];
       if (validPaths.length > 0) {
-        const quoted = validPaths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
+        const quoted = validPaths.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(' ');
         finalText = finalText ? `${finalText} ${quoted}` : quoted;
       }
       toSave.forEach((img) => URL.revokeObjectURL(img.objectUrl));
@@ -378,7 +410,7 @@
       const paths = (Array.isArray(selected) ? selected : [selected])
         .map((path) => {
           const value = String(path);
-          return value.includes(' ') ? `"${value}"` : value;
+          return `'${value.replace(/'/g, "'\\''")}'`;
         })
         .join(' ');
 

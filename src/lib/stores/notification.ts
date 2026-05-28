@@ -58,7 +58,10 @@ export function showToast(
   const id = Math.random().toString(36).substring(2, 9);
   const newToast: Toast = { id, message, type, duration: actualDuration, action };
   
-  toasts.update((list) => [...list, newToast]);
+  toasts.update((list) => {
+    const next = [...list, newToast];
+    return next.length > 5 ? next.slice(next.length - 5) : next;
+  });
 
   if (notifySystem) {
     showDesktopNotification(message, type);

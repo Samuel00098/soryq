@@ -18,7 +18,7 @@
   import { checkForUpdate } from '$lib/stores/updater';
 
   import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible } from '$lib/stores/layout';
-  import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace, createNewWorkspace } from '$lib/stores/workspace';
+  import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace, createNewWorkspace, isProjectSwitching } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
@@ -538,6 +538,9 @@
           <div class="terminal-container">
             <TerminalPanel />
             <FloatingPromptBar />
+            {#if $isProjectSwitching}
+              <div class="project-switch-overlay"></div>
+            {/if}
           </div>
 
         <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
@@ -994,6 +997,22 @@
     position: relative;
     container-type: inline-size;
     container-name: center-panel;
+  }
+
+  .project-switch-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: var(--bg-primary, #111116);
+    opacity: 0;
+    animation: project-switch-fade 0.22s ease forwards;
+    pointer-events: none;
+  }
+
+  @keyframes project-switch-fade {
+    0%   { opacity: 0.55; }
+    60%  { opacity: 0.55; }
+    100% { opacity: 0; }
   }
 
   /* Auxiliary Panel col resize handle */

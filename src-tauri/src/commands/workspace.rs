@@ -21,6 +21,9 @@ fn sanitize_git_error(stderr: &str) -> String {
 }
 
 fn validate_relative_path(file_path: &str) -> Result<(), String> {
+    if file_path.contains('\0') {
+        return Err("Invalid file path".to_string());
+    }
     if file_path.starts_with("--") {
         return Err("Invalid file path".to_string());
     }

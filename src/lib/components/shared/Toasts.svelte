@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { fly } from 'svelte/transition';
   import { toasts, dismissToast } from '$lib/stores/notification';
 </script>
 
 <div class="toast-container">
   {#each $toasts as toast (toast.id)}
-    <div class="toast {toast.type}" role="alert">
+    <div class="toast {toast.type}" role="alert" out:fly={{ y: 8, duration: 180, opacity: 0 }}>
       <div class="toast-icon">
         {#if toast.type === 'success'}
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">

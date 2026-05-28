@@ -384,6 +384,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
 
     pty = await ptyPromise;
     ptyInstances.set(pty.id, pty);
+    terminalSessionProjects.set(pty.id, owningProjectId);
 
     const sessionNum = getProjectState(owningProjectId).sessions.length + 1;
     const info: TerminalSessionInfo = {
@@ -403,7 +404,8 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
     updateProjectState(owningProjectId, (state) => {
       const paneAssignments = [...state.paneAssignments];
       let nextActivePaneIndex = state.activePaneIndex;
-      if (targetPaneIndex !== undefined && targetPaneIndex >= 0 && targetPaneIndex < paneAssignments.length) {
+      if (targetPaneIndex !== undefined && targetPaneIndex >= 0) {
+        while (paneAssignments.length <= targetPaneIndex) paneAssignments.push(null);
         paneAssignments[targetPaneIndex] = pty.id;
         nextActivePaneIndex = targetPaneIndex;
       } else {

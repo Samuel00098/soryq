@@ -100,6 +100,7 @@ const projectStateCache = new Map<string, ProjectWorkspaceState>();
 let restoreProjectStateGeneration = 0;
 let projectAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let isRestoringProjectState = false;
+export const isProjectSwitching = writable(false);
 
 function scheduleProjectAutosave() {
   if (isRestoringProjectState) return;
@@ -287,6 +288,7 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
   const generation = ++restoreProjectStateGeneration;
   const { invoke } = await import('@tauri-apps/api/core');
   isRestoringProjectState = true;
+  isProjectSwitching.set(true);
   try {
     try {
       await invoke('workspace_set_active', { projectId });
@@ -415,6 +417,7 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
     }
   } finally {
     isRestoringProjectState = false;
+    isProjectSwitching.set(false);
   }
 }
 

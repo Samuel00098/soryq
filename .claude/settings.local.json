@@ -14,7 +14,12 @@
       "Bash(npx tsc *)",
       "Bash(npm audit *)",
       "Bash(npx svelte-check *)",
-      "PowerShell(cmdkey *)"
+      "PowerShell(cmdkey *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git tag *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)"
     ]
   }
 }

@@ -98,6 +98,21 @@ export function duplicateRequest(id: string) {
   activeRequestId.set(copy.id);
 }
 
+function isPrivateUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    if (hostname === 'localhost') return true;
+    const parts = hostname.split('.').map(Number);
+    if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
+      const [a, b] = parts;
+      return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 169;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function sendRequest(req: HttpRequest): Promise<void> {
   httpLoading.set(true);
   httpResponse.set(null);
@@ -107,6 +122,13 @@ export async function sendRequest(req: HttpRequest): Promise<void> {
     let url = req.url.trim();
     if (!url) throw new Error('URL is required');
     if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
+
+    if (isPrivateUrl(url)) {
+      const proceed = window.confirm(
+        `This request targets a local/private address (${new URL(url).hostname}).\n\nSending requests to internal services can expose sensitive data. Continue?`
+      );
+      if (!proceed) { httpLoading.set(false); return; }
+    }
 
     const headers: Record<string, string> = {};
     for (const h of req.headers) {
