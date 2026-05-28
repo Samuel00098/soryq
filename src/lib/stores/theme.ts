@@ -18,6 +18,8 @@ const handleSystemThemeChange = (e: MediaQueryListEvent | MediaQueryList) => {
 };
 
 if (typeof window !== 'undefined') {
+  let isAppearanceInitialLoad = true;
+
   appearance.subscribe((value) => {
     if (mediaQueryList) {
       try {
@@ -30,11 +32,7 @@ if (typeof window !== 'undefined') {
       mediaQueryList = null;
     }
 
-    if (value === 'light') {
-      switchTheme('forge-light', false);
-    } else if (value === 'dark') {
-      switchTheme('forge-dark', false);
-    } else if (value === 'system') {
+    if (value === 'system') {
       mediaQueryList = window.matchMedia('(prefers-color-scheme: dark)');
       try {
         mediaQueryList.addEventListener('change', handleSystemThemeChange);
@@ -43,8 +41,20 @@ if (typeof window !== 'undefined') {
           mediaQueryList.addListener(handleSystemThemeChange);
         } catch (_) {}
       }
-      handleSystemThemeChange(mediaQueryList);
+      // Only apply the system theme on explicit user changes, not on startup.
+      // loadThemes() handles the initial theme from localStorage.
+      if (!isAppearanceInitialLoad) {
+        handleSystemThemeChange(mediaQueryList);
+      }
+    } else if (!isAppearanceInitialLoad) {
+      if (value === 'light') {
+        switchTheme('forge-light', false);
+      } else if (value === 'dark') {
+        switchTheme('forge-dark', false);
+      }
     }
+
+    isAppearanceInitialLoad = false;
   });
 }
 
