@@ -4,7 +4,7 @@
   import { openFile } from '$lib/stores/editor';
   import { showToast } from '$lib/stores/notification';
   import FileIcon from './FileIcon.svelte';
-  import { branchInfo, branchLoading, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
+  import { branchInfo, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
 
   interface GitLogEntry {
     graph: string;
@@ -35,6 +35,9 @@
   let branchSearch = $state('');
   let deleteConfirmBranch = $state<string | null>(null);
   let branchError = $state<string | null>(null);
+  let refreshGeneration = 0;
+  let statusRequestGeneration = 0;
+  let historyRequestGeneration = 0;
 
   const graphColors = [
     '#22d3ee', // Cyan
@@ -54,31 +57,41 @@
   $effect(() => {
     const projectId = $activeProjectId;
     if (projectId) {
+      gitStatus = null;
+      gitHistory = null;
+      errorMsg = null;
+      branchPickerOpen = false;
+      newBranchMode = false;
+      deleteConfirmBranch = null;
+      branchError = null;
+      commitMessage = '';
       refreshAll();
       refreshBranches(projectId);
     } else {
       gitStatus = null;
       gitHistory = null;
       errorMsg = null;
-      branchInfo.set(null);
     }
   });
 
   async function refreshAll() {
+    const generation = ++refreshGeneration;
     errorMsg = null;
     await Promise.all([
-      fetchStatus(),
-      fetchHistory()
+      fetchStatus(generation),
+      fetchHistory(generation)
     ]);
   }
 
-  async function fetchStatus() {
+  async function fetchStatus(generation: number) {
     const id = $activeProjectId;
     if (!id) return;
 
+    const requestGeneration = ++statusRequestGeneration;
     isFetchingStatus = true;
     try {
       const status = await invoke<any>('workspace_git_status', { projectId: id });
+      if (generation !== refreshGeneration || requestGeneration !== statusRequestGeneration) return;
       gitStatus = status;
 
       // Auto-generate commit message if empty
@@ -110,26 +123,34 @@
         }
       }
     } catch (err) {
+      if (generation !== refreshGeneration || requestGeneration !== statusRequestGeneration) return;
       console.error('Failed to get git status:', err);
       errorMsg = String(err);
       gitStatus = null;
     } finally {
-      isFetchingStatus = false;
+      if (generation === refreshGeneration && requestGeneration === statusRequestGeneration) {
+        isFetchingStatus = false;
+      }
     }
   }
 
-  async function fetchHistory() {
+  async function fetchHistory(generation: number) {
     const id = $activeProjectId;
     if (!id) return;
 
+    const requestGeneration = ++historyRequestGeneration;
     isFetchingHistory = true;
     try {
       const history = await invoke<GitLogEntry[]>('workspace_git_log', { projectId: id });
+      if (generation !== refreshGeneration || requestGeneration !== historyRequestGeneration) return;
       gitHistory = history;
     } catch (err) {
+      if (generation !== refreshGeneration || requestGeneration !== historyRequestGeneration) return;
       console.error('Failed to get git history:', err);
     } finally {
-      isFetchingHistory = false;
+      if (generation === refreshGeneration && requestGeneration === historyRequestGeneration) {
+        isFetchingHistory = false;
+      }
     }
   }
 

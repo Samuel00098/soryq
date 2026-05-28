@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn, restoreEditorFiles } from './editor';
-import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession } from './terminal';
+import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession, getTerminalProjectState, restoreTerminalProjectState, setActiveTerminalProject } from './terminal';
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
 import { expandedPaths, selectedPath } from './explorer';
 import { resetSettingsToDefault } from './settings';
@@ -97,6 +97,59 @@ interface ProjectWorkspaceState {
 }
 
 const projectStateCache = new Map<string, ProjectWorkspaceState>();
+let restoreProjectStateGeneration = 0;
+let projectAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let isRestoringProjectState = false;
+
+function scheduleProjectAutosave() {
+  if (isRestoringProjectState) return;
+  if (typeof window === 'undefined') return;
+  const projectId = get(activeProjectId);
+  if (!projectId) return;
+
+  if (projectAutosaveTimer) {
+    clearTimeout(projectAutosaveTimer);
+  }
+
+  projectAutosaveTimer = setTimeout(() => {
+    projectAutosaveTimer = null;
+    const currentId = get(activeProjectId);
+    if (!currentId || isRestoringProjectState) return;
+    saveProjectState(currentId);
+  }, 150);
+}
+
+function bindProjectAutosave() {
+  const trackedStores = [
+    openFiles,
+    activeFile,
+    fileCache,
+    activeLine,
+    activeColumn,
+    sessions,
+    activeSessionId,
+    gridLayout,
+    paneAssignments,
+    activePaneIndex,
+    targetPort,
+    proxyPort,
+    proxyStarted,
+    currentUrl,
+    previewTabs,
+    activePreviewTabId,
+    expandedPaths,
+    selectedPath,
+    layout,
+  ];
+
+  for (const store of trackedStores) {
+    store.subscribe(() => {
+      scheduleProjectAutosave();
+    });
+  }
+}
+
+bindProjectAutosave();
 
 // ── Per-project localStorage persistence ──────────────────────────────────
 
@@ -132,10 +185,9 @@ function projectStorageKey(projectId: string) {
 
 function saveProjectStateToStorage(projectId: string) {
   if (typeof window === 'undefined') return;
-  const currentSessions = get(sessions);
-  const currentPanes = get(paneAssignments);
-  const terminalPanes: PersistedTerminalPane[] = currentPanes.map((sessionId) => {
-    const session = currentSessions.find((s) => s.id === sessionId);
+  const terminalState = getTerminalProjectState(projectId);
+  const terminalPanes: PersistedTerminalPane[] = terminalState.paneAssignments.map((sessionId) => {
+    const session = terminalState.sessions.find((s) => s.id === sessionId);
     return { role: session?.role ?? null, cwd: session?.cwd ?? null };
   });
   const currentLayout = get(layout);
@@ -178,6 +230,7 @@ function loadProjectStateFromStorage(projectId: string): PersistedProjectState |
 // ─────────────────────────────────────────────────────────────────────────
 
 export function saveProjectState(projectId: string) {
+  const terminalState = getTerminalProjectState(projectId);
   projectStateCache.set(projectId, {
     editor: {
       openFiles: get(openFiles),
@@ -187,11 +240,11 @@ export function saveProjectState(projectId: string) {
       activeColumn: get(activeColumn),
     },
     terminal: {
-      sessions: get(sessions),
-      activeSessionId: get(activeSessionId),
-      gridLayout: get(gridLayout),
-      paneAssignments: get(paneAssignments),
-      activePaneIndex: get(activePaneIndex),
+      sessions: terminalState.sessions,
+      activeSessionId: terminalState.activeSessionId,
+      gridLayout: terminalState.gridLayout,
+      paneAssignments: terminalState.paneAssignments,
+      activePaneIndex: terminalState.activePaneIndex,
     },
     preview: {
       targetPort: get(targetPort),
@@ -231,122 +284,137 @@ function saveCurrentProjectState() {
 }
 
 export async function restoreProjectState(projectId: string, rootPath: string) {
+  const generation = ++restoreProjectStateGeneration;
   const { invoke } = await import('@tauri-apps/api/core');
+  isRestoringProjectState = true;
   try {
-    await invoke('workspace_set_active', { projectId });
-  } catch (e) {
-    console.error('Failed to notify backend of active project switch:', e);
-  }
-
-  const cached = projectStateCache.get(projectId);
-  if (cached) {
-    openFiles.set(cached.editor.openFiles);
-    activeFile.set(cached.editor.activeFile);
-    fileCache.set(new Map(cached.editor.fileCache));
-    activeLine.set(cached.editor.activeLine);
-    activeColumn.set(cached.editor.activeColumn);
-
-    sessions.set(cached.terminal.sessions);
-    activeSessionId.set(cached.terminal.activeSessionId);
-    gridLayout.set(cached.terminal.gridLayout);
-    paneAssignments.set(cached.terminal.paneAssignments);
-    activePaneIndex.set(cached.terminal.activePaneIndex);
-
-    const restoredUrl = cached.preview.currentUrl || '/';
-    const localPreview = parseLocalPreviewUrl(restoredUrl);
-    const restoredTargetPort = localPreview?.port ?? cached.preview.targetPort;
-
-    targetPort.set(restoredTargetPort);
-    proxyPort.set(cached.preview.proxyPort);
-    proxyStarted.set(cached.preview.proxyStarted);
-    restorePreviewTabsState(cached.preview.tabs, cached.preview.activeTabId);
-    preferredLocalHost.set(localPreview?.host || 'localhost');
-
-    expandedPaths.set(new Set(cached.explorer.expandedPaths));
-    selectedPath.set(cached.explorer.selectedPath);
-
-    layout.update((l) => ({
-      ...l,
-      activeView: cached.layout.activeView as any,
-      editorVisible: cached.layout.editorVisible,
-      previewVisible: cached.layout.previewVisible,
-      reviewVisible: cached.layout.reviewVisible,
-      httpVisible: cached.layout.httpVisible,
-      editorSplitPreview: cached.layout.editorSplitPreview,
-      auxPanelWidth: cached.layout.auxPanelWidth,
-      auxEditorHeight: cached.layout.auxEditorHeight,
-      sidebarVisible: cached.layout.sidebarVisible,
-      sidebarWidth: cached.layout.sidebarWidth,
-      sidebarTab: cached.layout.sidebarTab as any,
-    }));
-
-    // Sync preview target with the backend. A local URL in the address bar wins over stale cached ports.
     try {
-      await setPreferredLocalHost(localPreview?.host ?? null);
-      await invoke('preview_set_target_port', { port: restoredTargetPort });
+      await invoke('workspace_set_active', { projectId });
     } catch (e) {
-      console.error('Failed to restore preview target port:', e);
+      console.error('Failed to notify backend of active project switch:', e);
     }
-  } else {
-    // No in-memory cache — check localStorage for persisted state from a previous session
-    const persisted = loadProjectStateFromStorage(projectId);
+    if (generation !== restoreProjectStateGeneration) return;
 
     clearAllStores();
+    setActiveTerminalProject(projectId);
 
-    // Auto-detect a likely local dev port, but leave preview off until the user enables it.
-    try {
-      const port = await invoke<number>('workspace_detect_port', { path: rootPath });
-      await setTargetPort(port, { silent: true });
-    } catch (err) {
-      console.error('Failed to auto-detect/set up preview for new project:', err);
-    }
+    const cached = projectStateCache.get(projectId);
+    if (cached) {
+      if (generation !== restoreProjectStateGeneration) return;
+      openFiles.set(cached.editor.openFiles);
+      activeFile.set(cached.editor.activeFile);
+      fileCache.set(new Map(cached.editor.fileCache));
+      activeLine.set(cached.editor.activeLine);
+      activeColumn.set(cached.editor.activeColumn);
 
-    if (persisted && persisted.openFiles.length > 0) {
-      // Restore editor tabs from disk (silently, without switching view)
-      await restoreEditorFiles(persisted.openFiles, persisted.activeFile);
-      expandedPaths.set(new Set(persisted.expandedPaths));
-    }
+      const currentTerminalState = getTerminalProjectState(projectId);
+      const hasLiveTerminalState =
+        currentTerminalState.sessions.length > 0 ||
+        currentTerminalState.activeSessionId !== null ||
+        currentTerminalState.paneAssignments.some((value) => value !== null);
+      if (!hasLiveTerminalState) {
+        restoreTerminalProjectState(projectId, cached.terminal as any);
+        setActiveTerminalProject(projectId);
+      }
 
-    // Restore per-project layout state (panel visibility, sizes, sidebar)
-    if (persisted?.layout) {
+      const restoredUrl = cached.preview.currentUrl || '/';
+      const localPreview = parseLocalPreviewUrl(restoredUrl);
+      const restoredTargetPort = localPreview?.port ?? cached.preview.targetPort;
+
+      targetPort.set(restoredTargetPort);
+      proxyPort.set(cached.preview.proxyPort);
+      proxyStarted.set(cached.preview.proxyStarted);
+      restorePreviewTabsState(cached.preview.tabs, cached.preview.activeTabId);
+      preferredLocalHost.set(localPreview?.host || 'localhost');
+
+      expandedPaths.set(new Set(cached.explorer.expandedPaths));
+      selectedPath.set(cached.explorer.selectedPath);
+
       layout.update((l) => ({
         ...l,
-        activeView: (persisted.layout!.activeView as any) ?? 'terminal',
-        editorVisible: persisted.layout!.editorVisible ?? false,
-        previewVisible: persisted.layout!.previewVisible ?? false,
-        reviewVisible: persisted.layout!.reviewVisible ?? false,
-        httpVisible: persisted.layout!.httpVisible ?? false,
-        editorSplitPreview: persisted.layout!.editorSplitPreview ?? false,
-        auxPanelWidth: persisted.layout!.auxPanelWidth ?? 400,
-        auxEditorHeight: persisted.layout!.auxEditorHeight ?? 50,
-        sidebarVisible: persisted.layout!.sidebarVisible ?? true,
-        sidebarWidth: persisted.layout!.sidebarWidth ?? 260,
-        sidebarTab: (persisted.layout!.sidebarTab as any) ?? 'files',
+        activeView: cached.layout.activeView as any,
+        editorVisible: cached.layout.editorVisible,
+        previewVisible: cached.layout.previewVisible,
+        reviewVisible: cached.layout.reviewVisible,
+        httpVisible: cached.layout.httpVisible,
+        editorSplitPreview: cached.layout.editorSplitPreview,
+        auxPanelWidth: cached.layout.auxPanelWidth,
+        auxEditorHeight: cached.layout.auxEditorHeight,
+        sidebarVisible: cached.layout.sidebarVisible,
+        sidebarWidth: cached.layout.sidebarWidth,
+        sidebarTab: cached.layout.sidebarTab as any,
       }));
-    }
 
-    // Restore terminal layout if saved, otherwise spawn a single fresh session
-    if (persisted?.terminalPanes && persisted.terminalPanes.length > 0) {
-      const { setGridLayout, setSessionRole } = await import('./terminal');
-      if (persisted.terminalLayout) {
-        setGridLayout(persisted.terminalLayout as any);
-      }
-      const spawnedIds: number[] = [];
-      for (let i = 0; i < persisted.terminalPanes.length; i++) {
-        const pane = persisted.terminalPanes[i];
-        const id = await createTerminalSession(pane.cwd || rootPath, i);
-        if (id !== null) {
-          spawnedIds.push(id);
-          if (pane.role) setSessionRole(id, pane.role);
-        }
-      }
-      const { showToast } = await import('./notification');
-      if (spawnedIds.length > 1) {
-        showToast(`Restored ${spawnedIds.length} terminal sessions`, 'info', 3000);
+      try {
+        await setPreferredLocalHost(localPreview?.host ?? null);
+        if (generation !== restoreProjectStateGeneration) return;
+        await invoke('preview_set_target_port', { port: restoredTargetPort });
+      } catch (e) {
+        console.error('Failed to restore preview target port:', e);
       }
     } else {
-      await createTerminalSession(rootPath);
+      const persisted = loadProjectStateFromStorage(projectId);
+      if (generation !== restoreProjectStateGeneration) return;
+
+      try {
+        const port = await invoke<number>('workspace_detect_port', { path: rootPath });
+        if (generation !== restoreProjectStateGeneration) return;
+        await setTargetPort(port, { silent: true });
+      } catch (err) {
+        console.error('Failed to auto-detect/set up preview for new project:', err);
+      }
+
+      if (persisted && persisted.openFiles.length > 0) {
+        if (generation !== restoreProjectStateGeneration) return;
+        await restoreEditorFiles(persisted.openFiles, persisted.activeFile);
+        expandedPaths.set(new Set(persisted.expandedPaths));
+      }
+
+      if (generation !== restoreProjectStateGeneration) return;
+      if (persisted?.layout) {
+        layout.update((l) => ({
+          ...l,
+          activeView: (persisted.layout!.activeView as any) ?? 'terminal',
+          editorVisible: persisted.layout!.editorVisible ?? false,
+          previewVisible: persisted.layout!.previewVisible ?? false,
+          reviewVisible: persisted.layout!.reviewVisible ?? false,
+          httpVisible: persisted.layout!.httpVisible ?? false,
+          editorSplitPreview: persisted.layout!.editorSplitPreview ?? false,
+          auxPanelWidth: persisted.layout!.auxPanelWidth ?? 400,
+          auxEditorHeight: persisted.layout!.auxEditorHeight ?? 50,
+          sidebarVisible: persisted.layout!.sidebarVisible ?? true,
+          sidebarWidth: persisted.layout!.sidebarWidth ?? 260,
+          sidebarTab: (persisted.layout!.sidebarTab as any) ?? 'files',
+        }));
+      }
+
+      if (persisted?.terminalPanes && persisted.terminalPanes.length > 0) {
+        const { setGridLayout, setSessionRole } = await import('./terminal');
+        if (persisted.terminalLayout) {
+          setGridLayout(persisted.terminalLayout as any);
+        }
+        const spawnedIds: number[] = [];
+        for (let i = 0; i < persisted.terminalPanes.length; i++) {
+          if (generation !== restoreProjectStateGeneration) return;
+          const pane = persisted.terminalPanes[i];
+          const id = await createTerminalSession(pane.cwd || rootPath, i);
+          if (id !== null) {
+            spawnedIds.push(id);
+            if (pane.role) setSessionRole(id, pane.role);
+          }
+        }
+        const { showToast } = await import('./notification');
+        if (generation !== restoreProjectStateGeneration) return;
+        if (spawnedIds.length > 1) {
+          showToast(`Restored ${spawnedIds.length} terminal sessions`, 'info', 3000);
+        }
+      } else {
+        if (generation !== restoreProjectStateGeneration) return;
+        await createTerminalSession(rootPath);
+      }
     }
+  } finally {
+    isRestoringProjectState = false;
   }
 }
 
@@ -399,6 +467,7 @@ export function setActiveProject(project: Project) {
   });
 
   activeProjectId.set(project.id);
+  setActiveTerminalProject(project.id);
 
   // Update active workspace's active path
   const wsId = get(activeWorkspaceId);
@@ -416,6 +485,7 @@ export function setActiveProject(project: Project) {
 export function clearActiveProject() {
   saveCurrentProjectState();
   activeProjectId.set(null);
+  setActiveTerminalProject(null);
   clearAllStores();
   import('@tauri-apps/api/core').then(({ invoke }) => {
     invoke('workspace_set_active', { projectId: null }).catch((e) => {
@@ -477,6 +547,7 @@ export async function openWorkspace(workspaceId: string) {
   projects.set(new Map());
   openProjectIds.set([]);
   activeProjectId.set(null);
+  setActiveTerminalProject(null);
 
   // Load all projects in the workspace
   if (targetWs.project_paths.length > 0) {
@@ -500,6 +571,7 @@ export async function openWorkspace(workspaceId: string) {
       const activeProj = Array.from(allProjects.values()).find((p) => p.root_path === targetWs.active_project_path);
       if (activeProj) {
         activeProjectId.set(activeProj.id);
+        setActiveTerminalProject(activeProj.id);
         restoreProjectState(activeProj.id, activeProj.root_path).catch((e) => console.error('restoreProjectState failed:', e));
       } else {
         const firstProjId = get(openProjectIds)[0];
@@ -507,6 +579,7 @@ export async function openWorkspace(workspaceId: string) {
           const firstProj = allProjects.get(firstProjId);
           if (firstProj) {
             activeProjectId.set(firstProjId);
+            setActiveTerminalProject(firstProjId);
             restoreProjectState(firstProjId, firstProj.root_path).catch((e) => console.error('restoreProjectState failed:', e));
           }
         }
@@ -517,6 +590,7 @@ export async function openWorkspace(workspaceId: string) {
         const firstProj = get(projects).get(firstProjId);
         if (firstProj) {
           activeProjectId.set(firstProjId);
+          setActiveTerminalProject(firstProjId);
           restoreProjectState(firstProjId, firstProj.root_path).catch((e) => console.error('restoreProjectState failed:', e));
         }
       }
@@ -549,6 +623,7 @@ export async function addFolderToWorkspace(path: string) {
     });
 
     activeProjectId.set(project.id);
+    setActiveTerminalProject(project.id);
     await restoreProjectState(project.id, project.root_path);
 
     // Update active workspace
@@ -659,6 +734,7 @@ export function closeProject(projectId: string) {
         restoreProjectState(nextId, nextProject.root_path).catch((e) => console.error('restoreProjectState failed:', e));
       }
     } else {
+      setActiveTerminalProject(null);
       clearAllStores();
       import('@tauri-apps/api/core').then(({ invoke }) => {
         invoke('workspace_set_active', { projectId: null }).catch((e) => {
@@ -682,6 +758,7 @@ export function switchToProject(projectId: string) {
   const p = get(projects).get(projectId);
   if (p) {
     activeProjectId.set(projectId);
+    setActiveTerminalProject(projectId);
     
     const wsId = get(activeWorkspaceId);
     if (wsId) {
@@ -726,6 +803,7 @@ export async function clearAllApplicationState() {
 
   resetSettingsToDefault();
   resetLayoutToDefault();
+  setActiveTerminalProject(null);
   clearAllStores();
   recentWorkspaces.set([]);
   activeWorkspaceId.set(null);

@@ -17,12 +17,9 @@
     activeWorkspace,
     openProjectIds,
     openProjectsList,
-    switchToProject,
-    closeProject,
     openProject
   } from '$lib/stores/workspace';
 
-  let collapsedRoots = $state<Set<string>>(new Set());
   let renamingPath = $state<string | null>(null);
   let renamingValue = $state('');
   let creating = $state<{ parentPath: string; type: 'file' | 'dir' } | null>(null);
@@ -71,29 +68,6 @@
     for (const project of $openProjectsList) {
       loadRootDirectory(project.root_path);
     }
-  }
-
-  function toggleRootCollapse(projectId: string) {
-    const next = new Set(collapsedRoots);
-    if (next.has(projectId)) {
-      next.delete(projectId);
-    } else {
-      next.add(projectId);
-    }
-    collapsedRoots = next;
-  }
-
-  function isRootCollapsed(projectId: string) {
-    return collapsedRoots.has(projectId);
-  }
-
-  function activateProjectRoot(projectId: string) {
-    switchToProject(projectId);
-    collapsedRoots = new Set(
-      $openProjectsList
-        .map((project) => project.id)
-        .filter((id) => id !== projectId)
-    );
   }
 
   async function confirmCreate() {
@@ -168,15 +142,7 @@
     }
   });
 
-  $effect(() => {
-    const activeId = $activeProject?.id;
-    if (!activeId) return;
-    collapsedRoots = new Set(
-      $openProjectsList
-        .map((project) => project.id)
-        .filter((id) => id !== activeId)
-    );
-  });
+
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -206,15 +172,13 @@
         </svg>
       </button>
     {/if}
-    {#if $activeWorkspace}
-      <button class="header-btn add-root-btn" onclick={openProject} title="Add Folder to Workspace">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          <path d="M16 5V1"/>
-          <path d="M14 3h4"/>
-        </svg>
-      </button>
-    {/if}
+    <button class="header-btn add-root-btn" onclick={openProject} title="Add Folder to Workspace">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <path d="M16 5V1"/>
+        <path d="M14 3h4"/>
+      </svg>
+    </button>
   </div>
 
   <div class="explorer-content">
@@ -223,94 +187,36 @@
         {#each $openProjectsList as project (project.id)}
           {@const rootChildren = $projectRootNodes.get(project.root_path) ?? []}
           {@const rootLoading = $loadingProjectRoots.has(project.root_path)}
-          {@const rootCollapsed = isRootCollapsed(project.id)}
           <section class="root-section">
-            <div
-              class="root-header"
-              class:active={project.id === $activeProject?.id}
-              role="treeitem"
-              aria-expanded={!rootCollapsed}
-              aria-selected={project.id === $activeProject?.id}
-              tabindex="0"
-              onclick={() => activateProjectRoot(project.id)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  activateProjectRoot(project.id);
-                } else if (e.key === 'ArrowLeft' && !rootCollapsed) {
-                  e.preventDefault();
-                  toggleRootCollapse(project.id);
-                } else if (e.key === 'ArrowRight' && rootCollapsed) {
-                  e.preventDefault();
-                  toggleRootCollapse(project.id);
-                }
-              }}
-            >
-              <button
-                class="root-chevron"
-                class:collapsed={rootCollapsed}
-                onclick={(e) => {
-                  e.stopPropagation();
-                  toggleRootCollapse(project.id);
-                }}
-                title={rootCollapsed ? 'Expand root' : 'Collapse root'}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="9,18 15,12 9,6"/>
-                </svg>
-              </button>
-              <div class="root-labels">
-                <span class="root-name">{project.name}</span>
-                <span class="root-path">{project.root_path}</span>
+            {#if creating && creating.parentPath === project.root_path}
+              <div class="create-input" style="padding-left: 24px">
+                {creating.type === 'file' ? 'File' : 'Dir'}
+                <!-- svelte-ignore a11y_autofocus -->
+                <input
+                  type="text"
+                  placeholder={creating.type === 'file' ? 'filename.ts' : 'folder-name'}
+                  bind:value={creatingValue}
+                  autofocus
+                  onblur={confirmCreate}
+                />
               </div>
-              {#if project.id === $activeProject?.id}
-                <span class="root-active-pill">Active</span>
-              {/if}
-              <button
-                class="root-close-btn"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  closeProject(project.id);
-                }}
-                title="Remove root from workspace"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 6L6 18M6 6l12 12"/>
-                </svg>
-              </button>
-            </div>
+            {/if}
 
-            {#if !rootCollapsed}
-              {#if creating && creating.parentPath === project.root_path}
-                <div class="create-input" style="padding-left: 24px">
-                  {creating.type === 'file' ? 'File' : 'Dir'}
-                  <!-- svelte-ignore a11y_autofocus -->
-                  <input
-                    type="text"
-                    placeholder={creating.type === 'file' ? 'filename.ts' : 'folder-name'}
-                    bind:value={creatingValue}
-                    autofocus
-                    onblur={confirmCreate}
-                  />
-                </div>
-              {/if}
-
-              {#if rootLoading}
-                <div class="tree-loading">
-                  <span class="loading-spinner"></span>
-                  <span>Loading files...</span>
-                </div>
-              {:else if rootChildren.length > 0}
-                <div class="root-children">
-                  {#each rootChildren as node (node.entry.path)}
-                    <FileNode {node} />
-                  {/each}
-                </div>
-              {:else}
-                <div class="tree-empty">
-                  <p>No files found</p>
-                </div>
-              {/if}
+            {#if rootLoading}
+              <div class="tree-loading">
+                <span class="loading-spinner"></span>
+                <span>Loading files...</span>
+              </div>
+            {:else if rootChildren.length > 0}
+              <div class="root-children">
+                {#each rootChildren as node (node.entry.path)}
+                  <FileNode {node} />
+                {/each}
+              </div>
+            {:else}
+              <div class="tree-empty">
+                <p>No files found</p>
+              </div>
             {/if}
           </section>
         {/each}
@@ -415,92 +321,6 @@
 
   .root-section + .root-section {
     margin-top: 6px;
-  }
-
-  .root-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    margin: 0 6px;
-    border-radius: 8px;
-    cursor: pointer;
-    user-select: none;
-    color: var(--text-secondary);
-    transition: background 0.15s, color 0.15s;
-  }
-
-  .root-header:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .root-header.active {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    color: var(--text-primary);
-  }
-
-  .root-chevron,
-  .root-close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    color: inherit;
-    flex-shrink: 0;
-  }
-
-  .root-chevron:hover,
-  .root-close-btn:hover {
-    background: var(--bg-active);
-  }
-
-  .root-chevron svg {
-    transition: transform 0.15s;
-  }
-
-  .root-chevron.collapsed svg {
-    transform: rotate(-90deg);
-  }
-
-  .root-labels {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    flex: 1;
-  }
-
-  .root-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: inherit;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .root-path {
-    font-size: 10px;
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .root-active-pill {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    border-radius: 999px;
-    padding: 2px 6px;
-    flex-shrink: 0;
   }
 
   .root-children {

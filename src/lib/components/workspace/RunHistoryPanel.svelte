@@ -253,8 +253,11 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
+    min-width: 0;
     overflow: hidden;
     background: var(--bg-primary);
+    container-type: inline-size;
   }
 
   /* â”€â”€ Header â”€â”€ */
@@ -337,6 +340,7 @@
   .search-row {
     padding: 6px 8px 4px;
     flex-shrink: 0;
+    min-width: 0;
   }
 
   .search-wrap {
@@ -402,6 +406,7 @@
     gap: 2px;
     padding: 0 8px 6px;
     flex-shrink: 0;
+    min-width: 0;
   }
 
   .scope-tab {
@@ -454,6 +459,9 @@
   .entries-list {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    min-width: 0;
     padding: 4px 8px 8px;
     display: flex;
     flex-direction: column;
@@ -496,6 +504,7 @@
     background: var(--bg-secondary);
     overflow: hidden;
     transition: border-color 0.12s;
+    min-width: 0;
   }
 
   .entry-card:hover {
@@ -509,6 +518,7 @@
     gap: 7px;
     padding: 7px 8px;
     min-width: 0;
+    flex-wrap: wrap;
   }
 
   /* â”€â”€ Status dot â”€â”€ */
@@ -633,6 +643,7 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
+    min-width: 0;
   }
 
   .label-badge {
@@ -668,6 +679,7 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 1px;
+    min-width: 0;
   }
 
   .entry-duration {
@@ -709,5 +721,58 @@
   .replay-btn:hover {
     background: color-mix(in srgb, var(--accent) 15%, var(--bg-primary));
     color: var(--accent);
+  }
+
+  @container (max-width: 360px) {
+    .panel-header,
+    .search-row,
+    .filter-tabs,
+    .entries-list {
+      padding-left: 6px;
+      padding-right: 6px;
+    }
+
+    .panel-header {
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .header-actions {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .entry-header {
+      gap: 6px 8px;
+    }
+
+    .entry-meta {
+      align-items: flex-start;
+      width: 100%;
+      order: 4;
+      flex-direction: row;
+      gap: 8px;
+    }
+
+    .entry-actions {
+      margin-left: auto;
+    }
+  }
+
+  @container (max-width: 280px) {
+    .scope-tab,
+    .filter-tab {
+      font-size: 9.5px;
+      padding-top: 3px;
+      padding-bottom: 3px;
+    }
+
+    .entry-command {
+      font-size: 10.5px;
+    }
+
+    .entry-response-preview {
+      font-size: 9.5px;
+    }
   }
 </style>

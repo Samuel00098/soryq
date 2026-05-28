@@ -1,5 +1,6 @@
-import { writable } from 'svelte/store';
+import { derived, writable } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
+import { activeProjectId } from './workspace';
 
 export interface GitBranchInfo {
   current: string;
@@ -7,19 +8,36 @@ export interface GitBranchInfo {
   remote: string[];
 }
 
-export const branchInfo = writable<GitBranchInfo | null>(null);
-export const branchLoading = writable(false);
+const branchInfoByProject = writable<Record<string, GitBranchInfo>>({});
+const branchLoadingByProject = writable<Record<string, boolean>>({});
+
+export const branchInfo = derived([branchInfoByProject, activeProjectId], ([$branchInfoByProject, $activeProjectId]) =>
+  $activeProjectId ? $branchInfoByProject[$activeProjectId] ?? null : null
+);
+export const branchLoading = derived([branchLoadingByProject, activeProjectId], ([$branchLoadingByProject, $activeProjectId]) =>
+  $activeProjectId ? $branchLoadingByProject[$activeProjectId] ?? false : false
+);
+let branchRequestGeneration = 0;
 
 export async function refreshBranches(projectId: string) {
-  if (!projectId) { branchInfo.set(null); return; }
-  branchLoading.set(true);
+  if (!projectId) return;
+  const generation = ++branchRequestGeneration;
+  branchLoadingByProject.update((state) => ({ ...state, [projectId]: true }));
   try {
     const info = await invoke<GitBranchInfo>('workspace_git_branches', { projectId });
-    branchInfo.set(info);
+    if (generation !== branchRequestGeneration) return;
+    branchInfoByProject.update((state) => ({ ...state, [projectId]: info }));
   } catch {
-    branchInfo.set(null);
+    if (generation !== branchRequestGeneration) return;
+    branchInfoByProject.update((state) => {
+      const next = { ...state };
+      delete next[projectId];
+      return next;
+    });
   } finally {
-    branchLoading.set(false);
+    if (generation === branchRequestGeneration) {
+      branchLoadingByProject.update((state) => ({ ...state, [projectId]: false }));
+    }
   }
 }
 

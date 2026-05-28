@@ -681,11 +681,22 @@
         onmouseenter={() => isHovered = true}
         onmouseleave={() => isHovered = false}
       >
-        {#each historyItems as item}
-          <button class="history-item" onclick={() => selectHistoryItem(item)} title={item}>
-            <span>{item}</span>
-          </button>
-        {/each}
+        <div class="history-header">
+          <span class="history-label">Recent prompts</span>
+          <span class="history-hint">Click to re-use</span>
+        </div>
+        <div class="history-list">
+          {#each historyItems as item, i}
+            <button class="history-item" onclick={() => selectHistoryItem(item)} title={item}>
+              <span class="history-index">{i + 1}</span>
+              <span class="history-text">{item}</span>
+              <svg class="history-insert-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 10 4 15 9 20"/>
+                <path d="M20 4v7a4 4 0 0 1-4 4H4"/>
+              </svg>
+            </button>
+          {/each}
+        </div>
       </div>
     {/if}
 
@@ -876,33 +887,78 @@
   }
 
   .history-panel {
-    max-height: 200px;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 10px;
     border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
     border-radius: 16px;
-    background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
-    backdrop-filter: blur(18px);
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    backdrop-filter: blur(20px);
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
-  }
-
-  .history-item {
-    width: 100%;
-    border: 0;
-    border-radius: 10px;
-    padding: 10px 12px;
-    text-align: left;
-    color: var(--text-secondary);
-    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
-    transition: background 0.15s, color 0.15s;
     overflow: hidden;
   }
 
-  .history-item span {
-    display: block;
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 6px;
+    flex-shrink: 0;
+  }
+
+  .history-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+  }
+
+  .history-hint {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 6px 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb, rgba(128,128,128,0.2)) transparent;
+  }
+
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: 0;
+    border-radius: 9px;
+    padding: 8px 10px;
+    text-align: left;
+    color: var(--text-secondary);
+    background: transparent;
+    transition: background 0.12s, color 0.12s;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .history-index {
+    flex-shrink: 0;
+    width: 16px;
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-align: center;
+    opacity: 0.5;
+  }
+
+  .history-text {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -910,9 +966,25 @@
     font-size: 12px;
   }
 
+  .history-insert-icon {
+    flex-shrink: 0;
+    opacity: 0;
+    color: var(--accent);
+    transition: opacity 0.12s;
+  }
+
   .history-item:hover {
-    background: var(--bg-hover);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
     color: var(--text-primary);
+  }
+
+  .history-item:hover .history-insert-icon {
+    opacity: 1;
+  }
+
+  .history-item:hover .history-index {
+    opacity: 1;
+    color: var(--accent);
   }
 
   .floating-prompt-bar {
@@ -1231,15 +1303,14 @@
     }
 
     .history-panel {
-      padding: 8px;
       border-radius: 14px;
     }
 
     .history-item {
-      padding: 8px 10px;
+      padding: 7px 8px;
     }
 
-    .history-item span {
+    .history-text {
       font-size: 11px;
     }
 
@@ -1301,17 +1372,20 @@
     }
 
     .history-panel {
-      max-height: 160px;
-      padding: 7px;
       border-radius: 12px;
     }
 
+    .history-list {
+      max-height: 160px;
+      padding: 3px 4px 6px;
+    }
+
     .history-item {
-      padding: 7px 8px;
+      padding: 6px 7px;
       border-radius: 8px;
     }
 
-    .history-item span {
+    .history-text {
       font-size: 10px;
     }
 

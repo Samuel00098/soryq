@@ -5,8 +5,8 @@ import {
   sessions,
   paneAssignments,
   gridLayout,
-  killAllSessions,
   createTerminalSession,
+  killSession,
   setSessionRole,
   setGridLayout,
 } from '$lib/stores/terminal';
@@ -89,8 +89,9 @@ export function saveSnapshot(name: string): WorkspaceSnapshot {
 }
 
 export async function restoreSnapshot(snapshot: WorkspaceSnapshot) {
-  // 1. Kill all existing sessions
-  await killAllSessions();
+  // 1. Kill only the active project's sessions
+  const allSessions = get(sessions);
+  await Promise.all(allSessions.map((session) => killSession(session.id)));
 
   // 2. Apply grid layout — this sets the pane count
   setGridLayout(snapshot.gridLayout);

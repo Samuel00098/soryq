@@ -11,7 +11,6 @@
   import TasksPanel from '$lib/components/workspace/TasksPanel.svelte';
   import QuickRunPanel from '$lib/components/workspace/QuickRunPanel.svelte';
   import SnapshotsPanel from '$lib/components/layout/SnapshotsPanel.svelte';
-  import RunHistoryPanel from '$lib/components/workspace/RunHistoryPanel.svelte';
   import HttpClientPanel from '$lib/components/http/HttpClientPanel.svelte';
   import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
   import FloatingNotepad from '$lib/components/workspace/FloatingNotepad.svelte';
@@ -501,19 +500,6 @@
                   <circle cx="12" cy="10" r="3"/>
                 </svg>
               </button>
-              <button
-                class="sidebar-tab"
-                class:active={$layout.sidebarTab === 'history'}
-                onclick={() => setSidebarTab('history')}
-                title="Run History"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 3v5h5"/>
-                  <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
-                  <line x1="12" y1="7" x2="12" y2="12"/>
-                  <line x1="12" y1="12" x2="15.5" y2="14"/>
-                </svg>
-              </button>
             </div>
           {/if}
 
@@ -530,8 +516,6 @@
                 <QuickRunPanel />
               {:else if $layout.sidebarTab === 'snapshots'}
                 <SnapshotsPanel />
-              {:else if $layout.sidebarTab === 'history'}
-                <RunHistoryPanel />
               {/if}
             </div>
           {/if}

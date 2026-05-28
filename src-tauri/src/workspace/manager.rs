@@ -58,9 +58,6 @@ impl WorkspaceManager {
         let id = project.id.clone();
         self.projects.insert(id.clone(), project.clone());
 
-        let mut active = self.active_project_id.write().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
-        *active = Some(id.clone());
-
         self.add_to_recent(&project);
         Ok(project)
     }

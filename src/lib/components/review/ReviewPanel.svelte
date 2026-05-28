@@ -37,11 +37,22 @@
   
   let isFetchingStatus = $state(false);
   let errorMsg = $state<string | null>(null);
+  let refreshGeneration = 0;
+  let statusRequestGeneration = 0;
+  const diffRequestGenerationByFile = new Map<string, number>();
 
   // Watch project changes to refresh
   $effect(() => {
     const projectId = $activeProjectId;
     if (projectId) {
+      files = [];
+      branch = '';
+      totalAdditions = 0;
+      totalDeletions = 0;
+      expandedFiles = {};
+      fileDiffs = {};
+      loadingDiffs = {};
+      errorMsg = null;
       refreshAll();
     } else {
       files = [];
@@ -56,15 +67,17 @@
   });
 
   async function refreshAll() {
+    const generation = ++refreshGeneration;
     errorMsg = null;
-    await fetchStatus();
+    await fetchStatus(generation);
     
     // Refresh diffs for any files that are currently expanded
     for (const filePath of Object.keys(expandedFiles)) {
+      if (generation !== refreshGeneration) return;
       if (expandedFiles[filePath]) {
         const fileStillExists = files.some((f) => f.path === filePath);
         if (fileStillExists) {
-          await fetchDiffForFile(filePath);
+          await fetchDiffForFile(filePath, generation);
         } else {
           delete expandedFiles[filePath];
           delete fileDiffs[filePath];
@@ -73,10 +86,11 @@
     }
   }
 
-  async function fetchStatus() {
+  async function fetchStatus(generation: number) {
     const id = $activeProjectId;
     if (!id) return;
 
+    const requestGeneration = ++statusRequestGeneration;
     isFetchingStatus = true;
     try {
       const status = await invoke<{
@@ -89,6 +103,7 @@
         total_additions: number;
         total_deletions: number;
       }>('workspace_git_status', { projectId: id });
+      if (generation !== refreshGeneration || requestGeneration !== statusRequestGeneration) return;
 
       branch = status.branch;
       totalAdditions = status.total_additions;
@@ -118,31 +133,40 @@
 
       files = list;
     } catch (err) {
+      if (generation !== refreshGeneration || requestGeneration !== statusRequestGeneration) return;
       console.error('Failed to get git status:', err);
       errorMsg = String(err);
       files = [];
     } finally {
-      isFetchingStatus = false;
+      if (generation === refreshGeneration && requestGeneration === statusRequestGeneration) {
+        isFetchingStatus = false;
+      }
     }
   }
 
-  async function fetchDiffForFile(filePath: string) {
+  async function fetchDiffForFile(filePath: string, generation: number) {
     const id = $activeProjectId;
     if (!id) return;
 
+    const requestGeneration = (diffRequestGenerationByFile.get(filePath) ?? 0) + 1;
+    diffRequestGenerationByFile.set(filePath, requestGeneration);
     loadingDiffs[filePath] = true;
     try {
       const diff = await invoke<string>('workspace_git_diff', {
         projectId: id,
         filePath
       });
+      if (generation !== refreshGeneration || diffRequestGenerationByFile.get(filePath) !== requestGeneration) return;
       fileDiffs[filePath] = diff;
     } catch (err) {
+      if (generation !== refreshGeneration || diffRequestGenerationByFile.get(filePath) !== requestGeneration) return;
       console.error('Failed to get git diff:', err);
       showToast(`Failed to fetch diff details for ${getFilename(filePath)}`, 'error');
       fileDiffs[filePath] = '';
     } finally {
-      loadingDiffs[filePath] = false;
+      if (generation === refreshGeneration && diffRequestGenerationByFile.get(filePath) === requestGeneration) {
+        loadingDiffs[filePath] = false;
+      }
     }
   }
 
@@ -152,7 +176,7 @@
     } else {
       expandedFiles[filePath] = true;
       if (fileDiffs[filePath] === undefined) {
-        await fetchDiffForFile(filePath);
+        await fetchDiffForFile(filePath, refreshGeneration);
       }
     }
   }

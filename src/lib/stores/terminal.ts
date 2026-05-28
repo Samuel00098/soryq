@@ -5,6 +5,7 @@ import { showToast } from '$lib/stores/notification';
 
 export type TerminalSessionInfo = {
   id: number;
+  projectId: string;
   title: string;
   isRunning: boolean;
   isExecuting?: boolean;
@@ -84,6 +85,82 @@ export const paneAssignments = writable<(number | null)[]>([null]);
 // Which pane index is focused (receives keyboard)
 export const activePaneIndex = writable<number>(0);
 
+type TerminalProjectState = {
+  sessions: TerminalSessionInfo[];
+  activeSessionId: number | null;
+  gridLayout: GridLayout;
+  paneAssignments: (number | null)[];
+  activePaneIndex: number;
+};
+
+function createDefaultProjectState(): TerminalProjectState {
+  return {
+    sessions: [],
+    activeSessionId: null,
+    gridLayout: 'single',
+    paneAssignments: [null],
+    activePaneIndex: 0,
+  };
+}
+
+function cloneProjectState(state: TerminalProjectState): TerminalProjectState {
+  return {
+    sessions: state.sessions.map((session) => ({ ...session })),
+    activeSessionId: state.activeSessionId,
+    gridLayout: state.gridLayout,
+    paneAssignments: [...state.paneAssignments],
+    activePaneIndex: state.activePaneIndex,
+  };
+}
+
+const terminalProjectStates = new Map<string, TerminalProjectState>();
+const terminalSessionProjects = new Map<number, string>();
+let activeTerminalProjectId: string | null = null;
+
+function getProjectState(projectId: string): TerminalProjectState {
+  const existing = terminalProjectStates.get(projectId);
+  if (existing) return existing;
+  const created = createDefaultProjectState();
+  terminalProjectStates.set(projectId, created);
+  return created;
+}
+
+function setVisibleProjectState(state: TerminalProjectState) {
+  sessions.set(state.sessions.map((session) => ({ ...session })));
+  activeSessionId.set(state.activeSessionId);
+  gridLayout.set(state.gridLayout);
+  paneAssignments.set([...state.paneAssignments]);
+  activePaneIndex.set(state.activePaneIndex);
+}
+
+function updateProjectState(projectId: string, updater: (state: TerminalProjectState) => TerminalProjectState) {
+  const next = updater(cloneProjectState(getProjectState(projectId)));
+  terminalProjectStates.set(projectId, next);
+  if (projectId === activeTerminalProjectId) {
+    setVisibleProjectState(next);
+  }
+}
+
+export function setActiveTerminalProject(projectId: string | null) {
+  activeTerminalProjectId = projectId;
+  if (!projectId) {
+    setVisibleProjectState(createDefaultProjectState());
+    return;
+  }
+  setVisibleProjectState(getProjectState(projectId));
+}
+
+export function getTerminalProjectState(projectId: string): TerminalProjectState {
+  return cloneProjectState(getProjectState(projectId));
+}
+
+export function restoreTerminalProjectState(projectId: string, state: TerminalProjectState) {
+  terminalProjectStates.set(projectId, cloneProjectState(state));
+  if (activeTerminalProjectId === projectId) {
+    setVisibleProjectState(getProjectState(projectId));
+  }
+}
+
 const ptyInstances = new Map<number, PtySession>();
 const dataCallbacks = new Map<number, (data: Uint8Array) => void>();
 const exitCallbacks = new Map<number, (code: number) => void>();
@@ -113,28 +190,62 @@ export function getLayoutPaneCount(layout: GridLayout): number {
 }
 
 export function setGridLayout(layout: GridLayout) {
-  gridLayout.set(layout);
+  const projectId = activeTerminalProjectId;
   const count = getLayoutPaneCount(layout);
-  paneAssignments.update((current) => {
-    const updated = [...current];
-    // Trim or extend
-    while (updated.length < count) updated.push(null);
-    return updated.slice(0, count);
+  if (!projectId) {
+    gridLayout.set(layout);
+    paneAssignments.update((current) => {
+      const updated = [...current];
+      while (updated.length < count) updated.push(null);
+      return updated.slice(0, count);
+    });
+    activePaneIndex.update((i) => Math.min(i, count - 1));
+    return;
+  }
+
+  updateProjectState(projectId, (state) => {
+    const paneAssignments = [...state.paneAssignments];
+    while (paneAssignments.length < count) paneAssignments.push(null);
+    return {
+      ...state,
+      gridLayout: layout,
+      paneAssignments: paneAssignments.slice(0, count),
+      activePaneIndex: Math.min(state.activePaneIndex, count - 1),
+    };
   });
-  activePaneIndex.update((i) => Math.min(i, count - 1));
 }
 
 export function assignToPane(paneIdx: number, sessionId: number | null) {
-  paneAssignments.update((p) => {
-    const copy = [...p];
-    copy[paneIdx] = sessionId;
-    return copy;
+  const projectId = activeTerminalProjectId;
+  if (!projectId) {
+    paneAssignments.update((p) => {
+      const copy = [...p];
+      copy[paneIdx] = sessionId;
+      return copy;
+    });
+    return;
+  }
+
+  updateProjectState(projectId, (state) => {
+    const paneAssignments = [...state.paneAssignments];
+    paneAssignments[paneIdx] = sessionId;
+    return { ...state, paneAssignments };
   });
 }
 
 export function focusPane(paneIdx: number) {
-  activePaneIndex.set(paneIdx);
-  const panes = get(paneAssignments);
+  const projectId = activeTerminalProjectId;
+  if (!projectId) {
+    activePaneIndex.set(paneIdx);
+    const panes = get(paneAssignments);
+    if (panes[paneIdx] !== null) {
+      activateSessionInPane(panes[paneIdx]!);
+    }
+    return;
+  }
+
+  updateProjectState(projectId, (state) => ({ ...state, activePaneIndex: paneIdx }));
+  const panes = getProjectState(projectId).paneAssignments;
   if (panes[paneIdx] !== null) {
     activateSessionInPane(panes[paneIdx]!);
   }
@@ -145,19 +256,22 @@ export function setActiveSession(id: number) {
 }
 
 export function activateSessionInPane(id: number) {
-  const panes = get(paneAssignments);
-  const idx = panes.indexOf(id);
-  if (idx !== -1) {
-    activePaneIndex.set(idx);
-  }
-  activeSessionId.set(id);
-  sessions.update((all) =>
-    all.map((session) => (
-      session.id === id
-        ? { ...session, lastActivatedAt: Date.now() }
-        : session
-    ))
-  );
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+
+  updateProjectState(projectId, (state) => {
+    const idx = state.paneAssignments.indexOf(id);
+    return {
+      ...state,
+      activePaneIndex: idx !== -1 ? idx : state.activePaneIndex,
+      activeSessionId: id,
+      sessions: state.sessions.map((session) => (
+        session.id === id
+          ? { ...session, lastActivatedAt: Date.now() }
+          : session
+      )),
+    };
+  });
 }
 
 export function registerDataCallback(id: number, cb: (data: Uint8Array) => void) {
@@ -225,9 +339,14 @@ export function getSessionOutputBuffer(id: number): string {
   return sessionOutputBuffers.get(id) ?? '';
 }
 
-export async function createTerminalSession(cwd?: string, targetPaneIndex?: number): Promise<number | null> {
+export async function createTerminalSession(cwd?: string, targetPaneIndex?: number, projectId?: string): Promise<number | null> {
   try {
     let pty: PtySession;
+    const owningProjectId = projectId ?? activeTerminalProjectId;
+    if (!owningProjectId) {
+      console.warn('Cannot create terminal session without an active project');
+      return null;
+    }
 
     const ptyPromise = openPty(80, 24, {
       onData: (bytes) => {
@@ -236,14 +355,16 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
         cb?.(bytes);
       },
       onExit: (code) => {
-        const session = get(sessions).find((x) => x.id === pty.id);
+        const sessionProjectId = terminalSessionProjects.get(pty.id) ?? owningProjectId;
+        const state = getProjectState(sessionProjectId);
+        const session = state.sessions.find((x) => x.id === pty.id);
         exitCallbacks.get(pty.id)?.(code);
-        sessions.update((s) =>
-          s.map((x) => (x.id === pty.id ? { ...x, isRunning: false } : x)),
-        );
-        const label = session
-          ? getSessionLabel(session, get(sessions))
-          : `Terminal ${pty.id}`;
+        updateProjectState(sessionProjectId, (current) => ({
+          ...current,
+          sessions: current.sessions.map((x) => (x.id === pty.id ? { ...x, isRunning: false } : x)),
+        }));
+        const visibleSessions = sessionProjectId === activeTerminalProjectId ? get(sessions) : state.sessions;
+        const label = session ? getSessionLabel(session, visibleSessions) : `Terminal ${pty.id}`;
         const isAgent = isAgentSession(session);
         const clean = code === 0;
 
@@ -264,35 +385,43 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
     pty = await ptyPromise;
     ptyInstances.set(pty.id, pty);
 
-    const sessionNum = get(sessions).length + 1;
+    const sessionNum = getProjectState(owningProjectId).sessions.length + 1;
     const info: TerminalSessionInfo = {
       id: pty.id,
+      projectId: owningProjectId,
       title: `Terminal ${sessionNum}`,
       isRunning: true,
       lastActivatedAt: Date.now(),
     };
 
-    sessions.update((s) => [...s, info]);
-    activeSessionId.set(pty.id);
+    updateProjectState(owningProjectId, (state) => ({
+      ...state,
+      sessions: [...state.sessions, info],
+      activeSessionId: pty.id,
+    }));
 
-    // Assign to target index if specified, otherwise first empty pane, or add to a pane if all full
-    paneAssignments.update((panes) => {
-      const copy = [...panes];
-      if (targetPaneIndex !== undefined && targetPaneIndex >= 0 && targetPaneIndex < copy.length) {
-        copy[targetPaneIndex] = pty.id;
-        activePaneIndex.set(targetPaneIndex);
-        return copy;
+    updateProjectState(owningProjectId, (state) => {
+      const paneAssignments = [...state.paneAssignments];
+      let nextActivePaneIndex = state.activePaneIndex;
+      if (targetPaneIndex !== undefined && targetPaneIndex >= 0 && targetPaneIndex < paneAssignments.length) {
+        paneAssignments[targetPaneIndex] = pty.id;
+        nextActivePaneIndex = targetPaneIndex;
+      } else {
+        const emptyIdx = paneAssignments.findIndex((p) => p === null);
+        if (emptyIdx !== -1) {
+          paneAssignments[emptyIdx] = pty.id;
+          nextActivePaneIndex = emptyIdx;
+        } else {
+          const activeIdx = Math.min(state.activePaneIndex, paneAssignments.length - 1);
+          paneAssignments[activeIdx] = pty.id;
+          nextActivePaneIndex = activeIdx;
+        }
       }
-      const emptyIdx = copy.findIndex((p) => p === null);
-      if (emptyIdx !== -1) {
-        copy[emptyIdx] = pty.id;
-        activePaneIndex.set(emptyIdx);
-        return copy;
-      }
-      // All panes full — assign to the currently active pane
-      const activeIdx = get(activePaneIndex);
-      copy[activeIdx] = pty.id;
-      return copy;
+      return {
+        ...state,
+        paneAssignments,
+        activePaneIndex: nextActivePaneIndex,
+      };
     });
 
     return pty.id;
@@ -311,14 +440,20 @@ export function writeToSession(id: number, data: string) {
 }
 
 export function setSessionExecuting(id: number, executing: boolean) {
-  sessions.update((s) =>
-    s.map((x) => (x.id === id ? { ...x, isExecuting: executing } : x))
-  );
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => (x.id === id ? { ...x, isExecuting: executing } : x)),
+  }));
 }
 
 export function markSessionAgentPreset(id: number, agentPreset: string | null) {
-  sessions.update((s) =>
-    s.map((x) => {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => {
       if (x.id !== id) return x;
       if (!agentPreset) {
         // Clear agent: also remove the auto-assigned 'Agent' role if nothing custom was set
@@ -326,8 +461,8 @@ export function markSessionAgentPreset(id: number, agentPreset: string | null) {
       }
       // Auto-assign 'Agent' role if the pane doesn't already have a custom role
       return { ...x, agentPreset, role: x.role ?? 'Agent' };
-    })
-  );
+    }),
+  }));
 }
 
 /**
@@ -345,15 +480,21 @@ export function getSessionLabel(session: TerminalSessionInfo, allSessions: Termi
 }
 
 export function setSessionRole(id: number, role: string | null) {
-  sessions.update((s) =>
-    s.map((x) => (x.id === id ? { ...x, role } : x))
-  );
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => (x.id === id ? { ...x, role } : x)),
+  }));
 }
 
 export function setSessionCwd(id: number, cwd: string | null) {
-  sessions.update((s) =>
-    s.map((x) => (x.id === id ? { ...x, cwd } : x))
-  );
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => (x.id === id ? { ...x, cwd } : x)),
+  }));
 }
 
 export function summarizeTerminalTask(text: string): string {
@@ -461,9 +602,12 @@ export function summarizeAgentResponse(output: string, command?: string, agentPr
 }
 
 export function setSessionTaskSummary(id: number, taskSummary: string | null) {
-  sessions.update((s) =>
-    s.map((x) => (x.id === id ? { ...x, taskSummary } : x))
-  );
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => (x.id === id ? { ...x, taskSummary } : x)),
+  }));
 }
 
 // ── Command Output Blocks ──────────────────────────────────────────────────
@@ -596,6 +740,7 @@ export async function killAllSessions() {
 }
 
 export async function killSession(id: number) {
+  const projectId = terminalSessionProjects.get(id);
   const pty = ptyInstances.get(id);
   if (pty) {
     await pty.close().catch((err) => console.error('Failed to close terminal:', err));
@@ -606,15 +751,30 @@ export async function killSession(id: number) {
   sessionOutputBuffers.delete(id);
   sessionOutputDecoders.delete(id);
   sessionInputBuffers.delete(id);
-  sessions.update((s) => s.filter((x) => x.id !== id));
+  terminalSessionProjects.delete(id);
 
-  // Remove from pane assignments
-  paneAssignments.update((panes) => panes.map((p) => (p === id ? null : p)));
-
-  // Update active session
-  activeSessionId.update((active) => {
-    if (active !== id) return active;
-    const $sessions = get(sessions);
-    return $sessions.length > 0 ? $sessions[$sessions.length - 1].id : null;
-  });
+  if (projectId) {
+    updateProjectState(projectId, (state) => {
+      const sessions = state.sessions.filter((x) => x.id !== id);
+      const paneAssignments = state.paneAssignments.map((p) => (p === id ? null : p));
+      const activeSessionId = state.activeSessionId === id
+        ? (sessions.length > 0 ? sessions[sessions.length - 1].id : null)
+        : state.activeSessionId;
+      return {
+        ...state,
+        sessions,
+        paneAssignments,
+        activeSessionId,
+      };
+    });
+  } else {
+    sessions.update((s) => s.filter((x) => x.id !== id));
+    paneAssignments.update((panes) => panes.map((p) => (p === id ? null : p)));
+    activeSessionId.update((active) => {
+      if (active !== id) return active;
+      const $sessions = get(sessions);
+      return $sessions.length > 0 ? $sessions[$sessions.length - 1].id : null;
+    });
+  }
 }
+

@@ -96,6 +96,52 @@ export async function loadRootDirectory(path: string) {
   await refreshProjectTree(path);
 }
 
+function updateTreeNode(nodes: FileNode[], targetPath: string, mutate: (node: FileNode) => FileNode): FileNode[] | null {
+  let changed = false;
+
+  const next = nodes.map((node) => {
+    if (node.entry.path === targetPath) {
+      changed = true;
+      return mutate({
+        ...node,
+        children: node.children ? [...node.children] : node.children,
+      });
+    }
+
+    if (node.children) {
+      const updatedChildren = updateTreeNode(node.children, targetPath, mutate);
+      if (updatedChildren) {
+        changed = true;
+        return { ...node, children: updatedChildren };
+      }
+    }
+
+    return node;
+  });
+
+  return changed ? next : null;
+}
+
+function updateProjectTreeNode(path: string, mutate: (node: FileNode) => FileNode) {
+  const projectRoot = findProjectRootForPath(path);
+  if (!projectRoot) return;
+
+  projectRootNodes.update((map) => {
+    const current = map.get(projectRoot) ?? [];
+    const updated = updateTreeNode(current, path, mutate);
+    if (!updated) return map;
+
+    const next = new Map(map);
+    next.set(projectRoot, updated);
+
+    if (get(activeProject)?.root_path === projectRoot) {
+      rootNodes.set(updated);
+    }
+
+    return next;
+  });
+}
+
 export async function refreshProjectTree(path: string) {
   const activeRoot = get(activeProject)?.root_path;
   if (path === activeRoot) {
@@ -140,32 +186,53 @@ export async function toggleNode(node: FileNode) {
   }
 
   if (node.expanded) {
-    node.expanded = false;
     expandedPaths.update((s) => { s.delete(node.entry.path); return s; });
-    rootNodes.update((n) => [...n]); // trigger reactivity
-    projectRootNodes.update((map) => new Map(map));
+    updateProjectTreeNode(node.entry.path, (current) => ({
+      ...current,
+      expanded: false,
+      loading: false,
+    }));
     return;
   }
 
-  node.expanded = true;
-  node.loading = true;
   expandedPaths.update((s) => { s.add(node.entry.path); return s; });
-  rootNodes.update((n) => [...n]);
-  projectRootNodes.update((map) => new Map(map));
+
+  // If children are already cached, show them instantly without hitting disk
+  if (node.children && node.children.length > 0) {
+    updateProjectTreeNode(node.entry.path, (current) => ({
+      ...current,
+      expanded: true,
+      loading: false,
+    }));
+    return;
+  }
+
+  updateProjectTreeNode(node.entry.path, (current) => ({
+    ...current,
+    expanded: true,
+    loading: true,
+  }));
 
   try {
     const entries = await loadDirectory(node.entry.path);
-    node.children = entries.map((entry) => ({
+    const children = entries.map((entry) => ({
       entry,
       children: entry.is_dir ? [] : null,
       expanded: false,
       loading: false,
       depth: node.depth + 1,
     }));
+    updateProjectTreeNode(node.entry.path, (current) => ({
+      ...current,
+      expanded: true,
+      loading: false,
+      children,
+    }));
   } finally {
-    node.loading = false;
-    rootNodes.update((n) => [...n]);
-    projectRootNodes.update((map) => new Map(map));
+    updateProjectTreeNode(node.entry.path, (current) => ({
+      ...current,
+      loading: false,
+    }));
   }
 }
 
@@ -230,20 +297,21 @@ async function refreshParent(path: string) {
   if (parentPath && $expandedPaths.has(parentPath)) {
     const rootMap = get(projectRootNodes);
     const projectNodes = rootMap.get(projectRoot) ?? [];
-    const entry = findNodeByPath(projectNodes, parentPath);
+      const entry = findNodeByPath(projectNodes, parentPath);
     if (entry) {
       const entries = await loadDirectory(parentPath);
-      entry.children = entries.map((e) => ({
+      const children = entries.map((e) => ({
         entry: e,
         children: e.is_dir ? [] : null,
         expanded: false,
         loading: false,
         depth: entry.depth + 1,
         }));
-      projectRootNodes.update((map) => new Map(map));
-      if (get(activeProject)?.root_path === projectRoot) {
-        rootNodes.update((n) => [...n]);
-      }
+      updateProjectTreeNode(parentPath, (current) => ({
+        ...current,
+        children,
+        loading: false,
+      }));
     }
   }
 }
