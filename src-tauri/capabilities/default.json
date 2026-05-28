@@ -57,11 +57,12 @@
     },
     {
       "identifier": "fs:allow-copy-file",
-      "allow": [{ "path": "$APPDATA/soryq/**" }
+      "allow": [{ "path": "$APPDATA/soryq/**" }]
     },
     "dialog:default",
     "dialog:allow-open",
     "updater:allow-check",
-    "updater:allow-download-and-install"
+    "updater:allow-download-and-install",
+    "process:allow-relaunch"
   ]
 }
