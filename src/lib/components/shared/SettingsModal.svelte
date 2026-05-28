@@ -26,12 +26,14 @@
   import { showToast } from '$lib/stores/notification';
   import { clearAllApplicationState } from '$lib/stores/workspace';
   import { checkForUpdate, pendingUpdate } from '$lib/stores/updater';
+  import { getVersion } from '@tauri-apps/api/app';
 
   type Tab = 'general' | 'terminal' | 'shortcuts' | 'themes' | 'about';
   let activeTab = $state<Tab>('general');
 
   let updateStatus = $state<'idle' | 'checking' | 'latest' | 'available' | 'error'>('idle');
   let updateMessage = $state('');
+  let appVersion = $state('...');
 
   async function handleCheckForUpdates() {
     if (updateStatus === 'checking') return;
@@ -75,6 +77,7 @@
 
   onMount(async () => {
     availableShells = await getAvailableShells();
+    appVersion = await getVersion().catch(() => '0.1.0');
   });
 
   let recordingId = $state<string | null>(null);
@@ -1066,7 +1069,7 @@
 
         <div class="about-rows">
           {#each [
-            ['Version', '0.1.4'],
+            ['Version', appVersion],
             ['Built with', 'Tauri 2 · Svelte 5 · Rust'],
             ['Runtime', 'WebView2 (Windows)'],
             ['License', 'MIT'],
@@ -1110,7 +1113,7 @@
                 </svg>
                 <div class="updater-text">
                   <span class="status-title">Up to date</span>
-                  <span class="status-desc">Soryq v0.1.4 is the latest version.</span>
+                  <span class="status-desc">Soryq v{appVersion} is the latest version.</span>
                 </div>
               </div>
               <button class="updater-btn-subtle" onclick={handleCheckForUpdates}>
