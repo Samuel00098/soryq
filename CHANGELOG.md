@@ -2,6 +2,14 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.2] - 2026-05-28
+
+### Bug Fixes
+
+- **Auto-updater restart** — after installing an update the app now correctly relaunches. The wrong process capability (`allow-restart` instead of `allow-relaunch`) was causing the restart to silently fail, leaving users on the old version until they manually quit and reopened.
+
+---
+
 ## [0.1.1] - 2026-05-28
 
 ### Bug Fixes
