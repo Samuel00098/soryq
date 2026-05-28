@@ -24,6 +24,7 @@
   import { requestNotificationPermission } from '$lib/stores/notification';
   import { getAvailableShells, type ShellInfo } from '$lib/services/pty-bridge';
   import { showToast } from '$lib/stores/notification';
+  import { clearAllApplicationState } from '$lib/stores/workspace';
 
   type Tab = 'general' | 'terminal' | 'shortcuts' | 'themes' | 'about';
   let activeTab = $state<Tab>('general');
@@ -365,6 +366,14 @@
 
   function handleBackdrop(e: MouseEvent) {
     if (e.target === e.currentTarget) onclose();
+  }
+
+  let resetConfirming = $state(false);
+  function handleResetApp() {
+    if (!resetConfirming) { resetConfirming = true; return; }
+    resetConfirming = false;
+    clearAllApplicationState();
+    onclose();
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -1052,7 +1061,7 @@
 
         <div class="about-rows">
           {#each [
-            ['Version', '0.1.0'],
+            ['Version', '0.1.3'],
             ['Built with', 'Tauri 2 · Svelte 5 · Rust'],
             ['Runtime', 'WebView2 (Windows)'],
             ['License', 'MIT'],
@@ -1062,6 +1071,17 @@
               <span class="about-value">{value}</span>
             </div>
           {/each}
+        </div>
+
+        <div class="reset-section">
+          <button
+            class="reset-btn"
+            class:confirming={resetConfirming}
+            onclick={handleResetApp}
+            onblur={() => resetConfirming = false}
+          >
+            {resetConfirming ? 'Click again to confirm — this cannot be undone' : 'Reset App Data'}
+          </button>
         </div>
 
         <div class="updater-section">
@@ -1085,7 +1105,7 @@
                 </svg>
                 <div class="updater-text">
                   <span class="status-title">Up to date</span>
-                  <span class="status-desc">Soryq v0.1.0 is the latest version.</span>
+                  <span class="status-desc">Soryq v0.1.3 is the latest version.</span>
                 </div>
               </div>
               <button class="updater-btn-subtle" onclick={handleCheckForUpdates}>
@@ -1987,6 +2007,39 @@
     font-size: 12px;
     color: var(--text-secondary);
     font-weight: 500;
+  }
+
+  /* ── Reset Section ─────────────────────── */
+  .reset-section {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .reset-btn {
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--error);
+    border: 1px solid var(--error);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .reset-btn:hover {
+    background: var(--error);
+    color: #fff;
+  }
+
+  .reset-btn.confirming {
+    background: var(--error);
+    color: #fff;
+    max-width: 360px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.4;
   }
 
   /* ── Updater Section ───────────────────── */

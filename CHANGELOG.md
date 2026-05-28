@@ -2,6 +2,15 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.3] - 2026-05-28
+
+### Changes
+
+- **Workspace navigation fixed** — clicking the home button now returns to the welcome screen without clearing project state. Previously it wiped all open project data, which was unintended.
+- **Reset App moved to Settings** — a dedicated "Reset App Data" button is now in Settings → About. It requires two clicks (first click asks for confirmation) to prevent accidental resets. Removing a workspace from the welcome screen no longer resets the entire app.
+
+---
+
 ## [0.1.2] - 2026-05-28
 
 ### Bug Fixes

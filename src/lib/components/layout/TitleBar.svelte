@@ -133,10 +133,8 @@
     }
   }
 
-  // Go home: return to welcome screen by clearing active workspace
   function goHome() {
     activeWorkspaceId.set(null);
-    clearAllStores();
   }
 
   function goBack() { window.history.back(); }
