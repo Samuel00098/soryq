@@ -5,6 +5,14 @@ import { fileURLToPath } from 'url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version;
 
+// Check CHANGELOG.md has an entry for this version
+const changelog = readFileSync(resolve(root, 'CHANGELOG.md'), 'utf8');
+if (!changelog.includes(`[${version}]`)) {
+  console.error(`\n  ✗ CHANGELOG.md has no entry for v${version}`);
+  console.error(`  Add a [${version}] section to CHANGELOG.md before releasing.\n`);
+  process.exit(1);
+}
+
 // tauri.conf.json
 const tauriConf = resolve(root, 'src-tauri/tauri.conf.json');
 const conf = JSON.parse(readFileSync(tauriConf, 'utf8'));
