@@ -90,6 +90,9 @@ interface ProjectWorkspaceState {
     editorSplitPreview: boolean;
     auxPanelWidth: number;
     auxEditorHeight: number;
+    sidebarVisible: boolean;
+    sidebarWidth: number;
+    sidebarTab: string;
   };
 }
 
@@ -108,6 +111,19 @@ interface PersistedProjectState {
   expandedPaths: string[];
   terminalLayout?: string;
   terminalPanes?: PersistedTerminalPane[];
+  layout?: {
+    activeView: string;
+    editorVisible: boolean;
+    previewVisible: boolean;
+    reviewVisible: boolean;
+    httpVisible: boolean;
+    editorSplitPreview: boolean;
+    auxPanelWidth: number;
+    auxEditorHeight: number;
+    sidebarVisible: boolean;
+    sidebarWidth: number;
+    sidebarTab: string;
+  };
 }
 
 function projectStorageKey(projectId: string) {
@@ -122,12 +138,26 @@ function saveProjectStateToStorage(projectId: string) {
     const session = currentSessions.find((s) => s.id === sessionId);
     return { role: session?.role ?? null, cwd: session?.cwd ?? null };
   });
+  const currentLayout = get(layout);
   const state: PersistedProjectState = {
     openFiles: get(openFiles).slice(0, 100),
     activeFile: get(activeFile),
     expandedPaths: Array.from(get(expandedPaths)).slice(0, 500),
     terminalLayout: get(gridLayout),
     terminalPanes,
+    layout: {
+      activeView: currentLayout.activeView,
+      editorVisible: currentLayout.editorVisible,
+      previewVisible: currentLayout.previewVisible,
+      reviewVisible: currentLayout.reviewVisible,
+      httpVisible: currentLayout.httpVisible,
+      editorSplitPreview: currentLayout.editorSplitPreview,
+      auxPanelWidth: currentLayout.auxPanelWidth,
+      auxEditorHeight: currentLayout.auxEditorHeight,
+      sidebarVisible: currentLayout.sidebarVisible,
+      sidebarWidth: currentLayout.sidebarWidth,
+      sidebarTab: currentLayout.sidebarTab,
+    },
   };
   try { localStorage.setItem(projectStorageKey(projectId), JSON.stringify(state)); } catch {
     // localStorage quota exceeded — persist a minimal state instead
@@ -184,6 +214,9 @@ export function saveProjectState(projectId: string) {
       editorSplitPreview: get(layout).editorSplitPreview,
       auxPanelWidth: get(layout).auxPanelWidth,
       auxEditorHeight: get(layout).auxEditorHeight,
+      sidebarVisible: get(layout).sidebarVisible,
+      sidebarWidth: get(layout).sidebarWidth,
+      sidebarTab: get(layout).sidebarTab,
     },
   });
   // Also persist to localStorage so state survives app close
@@ -242,6 +275,9 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       editorSplitPreview: cached.layout.editorSplitPreview,
       auxPanelWidth: cached.layout.auxPanelWidth,
       auxEditorHeight: cached.layout.auxEditorHeight,
+      sidebarVisible: cached.layout.sidebarVisible,
+      sidebarWidth: cached.layout.sidebarWidth,
+      sidebarTab: cached.layout.sidebarTab as any,
     }));
 
     // Sync preview target with the backend. A local URL in the address bar wins over stale cached ports.
@@ -269,6 +305,24 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       // Restore editor tabs from disk (silently, without switching view)
       await restoreEditorFiles(persisted.openFiles, persisted.activeFile);
       expandedPaths.set(new Set(persisted.expandedPaths));
+    }
+
+    // Restore per-project layout state (panel visibility, sizes, sidebar)
+    if (persisted?.layout) {
+      layout.update((l) => ({
+        ...l,
+        activeView: (persisted.layout!.activeView as any) ?? 'terminal',
+        editorVisible: persisted.layout!.editorVisible ?? false,
+        previewVisible: persisted.layout!.previewVisible ?? false,
+        reviewVisible: persisted.layout!.reviewVisible ?? false,
+        httpVisible: persisted.layout!.httpVisible ?? false,
+        editorSplitPreview: persisted.layout!.editorSplitPreview ?? false,
+        auxPanelWidth: persisted.layout!.auxPanelWidth ?? 400,
+        auxEditorHeight: persisted.layout!.auxEditorHeight ?? 50,
+        sidebarVisible: persisted.layout!.sidebarVisible ?? true,
+        sidebarWidth: persisted.layout!.sidebarWidth ?? 260,
+        sidebarTab: (persisted.layout!.sidebarTab as any) ?? 'files',
+      }));
     }
 
     // Restore terminal layout if saved, otherwise spawn a single fresh session
@@ -329,6 +383,7 @@ export function clearAllStores() {
     editorSplitPreview: false,
     auxPanelWidth: 400,
     auxEditorHeight: 50,
+    sidebarTab: 'files',
   }));
 }
 
