@@ -1,6 +1,6 @@
-# Building DevDock from Source
+# Building Soryq from Source
 
-This guide covers everything you need to build, run, and understand the DevDock codebase.
+This guide covers everything you need to build, run, and understand the Soryq codebase.
 
 ---
 
@@ -78,8 +78,8 @@ sudo dnf install -y \
 ## 2. Clone and Install
 
 ```bash
-git clone https://github.com/your-org/devdock.git
-cd devdock
+git clone https://github.com/Samuel00098/soryq.git
+cd soryq
 npm install
 ```
 
@@ -147,7 +147,7 @@ Cross-compiling between platforms is not currently supported by this project's s
 ## 5. Project Structure
 
 ```
-devdock/
+soryq/
 ├── src-tauri/                  # Rust backend
 │   ├── Cargo.toml              # Rust dependencies
 │   ├── Cargo.lock

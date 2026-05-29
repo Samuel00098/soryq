@@ -1,6 +1,6 @@
-# DevDock Security Model
+# Soryq Security Model
 
-This document explains what DevDock can and cannot do on your system, how it isolates operations, what data it stores locally, and how the preview proxy is protected against abuse.
+This document explains what Soryq can and cannot do on your system, how it isolates operations, what data it stores locally, and how the preview proxy is protected against abuse.
 
 ---
 
@@ -19,7 +19,7 @@ This document explains what DevDock can and cannot do on your system, how it iso
 
 ## 1. Capability Model
 
-DevDock is built on **Tauri 2**, which uses a capability-based permission system. All communication between the Svelte frontend (running in a sandboxed WebView) and the Rust backend goes through Tauri's IPC channel. The frontend cannot call arbitrary OS APIs directly.
+Soryq is built on **Tauri 2**, which uses a capability-based permission system. All communication between the Svelte frontend (running in a sandboxed WebView) and the Rust backend goes through Tauri's IPC channel. The frontend cannot call arbitrary OS APIs directly.
 
 The plugins loaded at runtime are:
 
@@ -92,11 +92,11 @@ This prevents local directory structure from leaking through error messages disp
 
 ### Full Shell Access — by Design
 
-The terminal provides a genuine PTY session running your configured shell (`bash`, `zsh`, `pwsh`, `cmd.exe`, etc.). **This is intentional** — DevDock is a developer tool, and the terminal is its most important surface. The shell process runs with the same permissions as the user who launched DevDock.
+The terminal provides a genuine PTY session running your configured shell (`bash`, `zsh`, `pwsh`, `cmd.exe`, etc.). **This is intentional** — Soryq is a developer tool, and the terminal is its most important surface. The shell process runs with the same permissions as the user who launched Soryq.
 
 **What this means in practice:**
 - The user can run any command the OS permits, including `sudo`, `rm -rf`, network tools, etc.
-- DevDock does not attempt to sandbox or filter shell commands
+- Soryq does not attempt to sandbox or filter shell commands
 - No command history or output is sent to any remote server
 
 ### Shell Selection
@@ -111,7 +111,7 @@ This prevents the frontend from passing arbitrary executable paths to the PTY sp
 
 ### PTY Cleanup
 
-When a terminal session is closed or when the app window is closing, all PTY child processes are killed via `ChildKiller::kill()`. This prevents orphaned processes from persisting after DevDock exits. The `Drop` implementation on `PtySession` ensures cleanup even in error paths.
+When a terminal session is closed or when the app window is closing, all PTY child processes are killed via `ChildKiller::kill()`. This prevents orphaned processes from persisting after Soryq exits. The `Drop` implementation on `PtySession` ensures cleanup even in error paths.
 
 ### Working Directory
 
@@ -170,7 +170,7 @@ Access to private/internal resources is not allowed
 
 ### CSP and Frame-Header Stripping
 
-When proxying **external** URLs, the proxy strips the following response headers to allow the page to render in the DevDock iframe:
+When proxying **external** URLs, the proxy strips the following response headers to allow the page to render in the Soryq iframe:
 - `X-Frame-Options`
 - `Content-Security-Policy`
 - `Content-Security-Policy-Report-Only`
@@ -199,7 +199,7 @@ The inspector script injected into HTML responses:
 - Posts messages to `window.parent` only via `parent.postMessage(...)` targeting `window.location.origin` — it cannot communicate with arbitrary origins
 - Never reads or modifies files
 - Never makes network requests of its own
-- Captures and forwards only console output and click-selection data to the DevDock UI
+- Captures and forwards only console output and click-selection data to the Soryq UI
 - Sanitizes values before JSON serialization to avoid prototype pollution
 
 The injected script is idempotent: if it detects it has already been injected (by checking for its own marker), it does not inject again.
@@ -216,11 +216,11 @@ The reqwest client used by the proxy does **not** use `danger_accept_invalid_cer
 
 ## 5. No Telemetry
 
-DevDock collects **no telemetry, analytics, or crash reports**. No data is sent to any remote server by the application itself. The only outbound network connections made by DevDock are:
+Soryq collects **no telemetry, analytics, or crash reports**. No data is sent to any remote server by the application itself. The only outbound network connections made by Soryq are:
 
 - Connections to your own dev server (via the preview proxy)
 - Connections to external URLs you explicitly enter in the preview URL bar
-- `git fetch` / `git push` / `git pull` operations you explicitly trigger (these go directly through the system `git` binary, not through DevDock's network stack)
+- `git fetch` / `git push` / `git pull` operations you explicitly trigger (these go directly through the system `git` binary, not through Soryq's network stack)
 - `preview_open_in_browser` — this hands a URL to the OS shell opener; the actual request is made by your browser
 
 ---
@@ -233,9 +233,9 @@ App configuration is stored in the platform-standard config directory:
 
 | Platform | Path |
 |---|---|
-| Windows | `%APPDATA%\devdock\` |
-| macOS | `~/Library/Application Support/devdock/` |
-| Linux | `~/.config/devdock/` |
+| Windows | `%APPDATA%\soryq\` |
+| macOS | `~/Library/Application Support/soryq/` |
+| Linux | `~/.config/soryq/` |
 
 The config directory is created on first launch. Contents include custom theme JSON files and saved app state.
 
@@ -245,9 +245,9 @@ User settings, workspace state, and layout preferences are stored in the WebView
 
 | Platform | Path |
 |---|---|
-| Windows | `%APPDATA%\com.samue.devdock\` (WebView2 profile) |
-| macOS | `~/Library/WebKit/com.samue.devdock/` |
-| Linux | `~/.local/share/com.samue.devdock/` |
+| Windows | `%APPDATA%\com.samue.soryq\` (WebView2 profile) |
+| macOS | `~/Library/WebKit/com.samue.soryq/` |
+| Linux | `~/.local/share/com.samue.soryq/` |
 
 **What is stored in localStorage:**
 - All settings values (font, tab size, shortcuts, zoom, etc.)
@@ -266,7 +266,7 @@ None of the above data leaves your machine. There is no account system, no sync 
 
 ## 7. Network Access
 
-Beyond the preview proxy (described above), DevDock makes the following network calls:
+Beyond the preview proxy (described above), Soryq makes the following network calls:
 
 | What | When | Protocol |
 |---|---|---|

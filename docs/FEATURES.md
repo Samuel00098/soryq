@@ -1,6 +1,6 @@
-# DevDock Feature Reference
+# Soryq Feature Reference
 
-This document covers every user-facing feature in DevDock. It is organized by surface area. Settings defaults are shown in parentheses.
+This document covers every user-facing feature in Soryq. It is organized by surface area. Settings defaults are shown in parentheses.
 
 ---
 
@@ -26,11 +26,11 @@ This document covers every user-facing feature in DevDock. It is organized by su
 
 ## 1. Workspaces
 
-DevDock organizes your work around **workspaces**. A workspace is a named container that can hold one or more open project folders. Workspaces are displayed in the welcome screen and in the project switcher at the top of the sidebar.
+Soryq organizes your work around **workspaces**. A workspace is a named container that can hold one or more open project folders. Workspaces are displayed in the welcome screen and in the project switcher at the top of the sidebar.
 
 ### Welcome Screen
 
-When no workspace is active, DevDock shows the welcome screen. From here you can:
+When no workspace is active, Soryq shows the welcome screen. From here you can:
 
 - **Open a folder** — opens a system folder picker and creates a new workspace for that folder
 - **New workspace** (`Ctrl+N`) — creates an empty workspace ready for you to add projects
@@ -135,7 +135,7 @@ All editor settings are accessible via **Settings > General**.
 
 ### Font Auto-Detection
 
-When the app starts, DevDock probes a list of preferred monospace fonts using the Canvas API's `measureText`. The first font detected as installed becomes the default. The full candidate list, in priority order:
+When the app starts, Soryq probes a list of preferred monospace fonts using the Canvas API's `measureText`. The first font detected as installed becomes the default. The full candidate list, in priority order:
 
 JetBrains Mono, Fira Code, Cascadia Code, Cascadia Mono, Victor Mono, IBM Plex Mono, Source Code Pro, Consolas, Monaco, Menlo, DejaVu Sans Mono, Liberation Mono, Courier New.
 
@@ -155,7 +155,7 @@ Press `Alt+Shift+F` (or open the command palette and choose **Format Document**)
 
 ## 4. Terminal
 
-The terminal is the primary surface in DevDock — it occupies the left/main section of the workspace and is always visible.
+The terminal is the primary surface in Soryq — it occupies the left/main section of the workspace and is always visible.
 
 ### PTY Sessions
 
@@ -163,7 +163,7 @@ Each terminal tab is backed by a native PTY session created with the `portable-p
 
 ### Shell Detection
 
-DevDock automatically detects the best available shell for your platform:
+Soryq automatically detects the best available shell for your platform:
 
 **Windows (in priority order):**
 1. PowerShell 7 (`pwsh`) — launched with `-NoLogo -NoProfile`
@@ -236,7 +236,7 @@ Each pane can be tagged with a role label (Server, Tests, Agent, or a custom str
 
 ### Command Blocks
 
-When you run commands via the Floating Prompt Bar, DevDock tracks the command and its output in collapsible "command blocks" displayed above the terminal. Blocks auto-collapse when the command finishes, keeping the interface tidy. Up to 10 blocks are kept per session; output is capped at 4000 characters.
+When you run commands via the Floating Prompt Bar, Soryq tracks the command and its output in collapsible "command blocks" displayed above the terminal. Blocks auto-collapse when the command finishes, keeping the interface tidy. Up to 10 blocks are kept per session; output is capped at 4000 characters.
 
 ### Working Directory Tracking
 
@@ -268,11 +268,11 @@ Press `Enter` to send the current text to the selected terminal session. The tex
 
 ## 6. Preview Panel
 
-The preview panel loads your running dev server inside a sandboxed iframe, proxied through DevDock's built-in HTTP server. Open it with `Ctrl+Shift+V` or click the globe icon in the sidebar view tabs.
+The preview panel loads your running dev server inside a sandboxed iframe, proxied through Soryq's built-in HTTP server. Open it with `Ctrl+Shift+V` or click the globe icon in the sidebar view tabs.
 
 ### Proxy System
 
-When you start the proxy (`Ctrl+Alt+P` or the Start button in the panel), DevDock:
+When you start the proxy (`Ctrl+Alt+P` or the Start button in the panel), Soryq:
 
 1. Binds an Axum HTTP server on a random free port (the "proxy port")
 2. Forwards all HTTP requests to your dev server at the configured "target port" (default: 5173)
@@ -283,7 +283,7 @@ The proxy automatically tries both `127.0.0.1` and `localhost` as the upstream h
 
 ### Port Auto-Detection
 
-When you open a project, DevDock reads `package.json` scripts and `vite.config.ts` / `vite.config.js` to determine the most likely dev server port:
+When you open a project, Soryq reads `package.json` scripts and `vite.config.ts` / `vite.config.js` to determine the most likely dev server port:
 
 | Source | Detected port |
 |---|---|
@@ -320,7 +320,7 @@ In tablet and mobile modes, the iframe is displayed inside a device-shaped chrom
 Activate the inspector by clicking the crosshair icon in the preview toolbar. While active:
 - The cursor changes to a crosshair
 - Hovering over any element shows a blue highlight overlay with a label
-- Clicking an element sends its full details to the DevDock inspector pane
+- Clicking an element sends its full details to the Soryq inspector pane
 
 The inspector reports:
 - CSS selector path
@@ -338,7 +338,7 @@ The inspector works via a small script injected into every proxied HTML response
 
 ### Preview Console
 
-Click the console button in the preview toolbar to open the in-panel console log. The injected script intercepts `console.log`, `console.info`, `console.warn`, `console.error`, and `console.debug` in the previewed page and forwards each message (with level, text, URL, and timestamp) to the DevDock console pane. Uncaught errors and unhandled promise rejections are also captured.
+Click the console button in the preview toolbar to open the in-panel console log. The injected script intercepts `console.log`, `console.info`, `console.warn`, `console.error`, and `console.debug` in the previewed page and forwards each message (with level, text, URL, and timestamp) to the Soryq console pane. Uncaught errors and unhandled promise rejections are also captured.
 
 ### Screenshot
 
@@ -354,13 +354,13 @@ Click the external-link icon to open the current preview URL in your default sys
 
 ### External URL Proxy
 
-You can enter any `http://` or `https://` URL in the URL bar to proxy an external site through DevDock. This strips `X-Frame-Options` and `Content-Security-Policy` headers so the page can load in the iframe. External URLs that point to private IP ranges (RFC 1918, loopback, link-local) are blocked.
+You can enter any `http://` or `https://` URL in the URL bar to proxy an external site through Soryq. This strips `X-Frame-Options` and `Content-Security-Policy` headers so the page can load in the iframe. External URLs that point to private IP ranges (RFC 1918, loopback, link-local) are blocked.
 
 ---
 
 ## 7. Git Integration
 
-Git operations use the system `git` binary. DevDock requires `git` to be installed and available in `PATH`.
+Git operations use the system `git` binary. Soryq requires `git` to be installed and available in `PATH`.
 
 ### Source Control Sidebar Tab
 
@@ -389,7 +389,7 @@ Click any file in the changed list to open its diff in the diff viewer. Untracke
 1. Type a commit message in the text area at the bottom of the Source Control panel
 2. Press `Ctrl+Enter` or click **Commit**
 
-DevDock stages all changes (`git add -A`) then runs `git commit -m "..."`. Commit messages have a maximum length of 10,000 characters.
+Soryq stages all changes (`git add -A`) then runs `git commit -m "..."`. Commit messages have a maximum length of 10,000 characters.
 
 ### Pushing
 
@@ -419,7 +419,7 @@ Click the **History** tab in the Source Control panel to see the last 50 commits
 
 ### Built-in Preset Themes
 
-DevDock ships with several built-in themes selectable from **Settings > Themes**:
+Soryq ships with several built-in themes selectable from **Settings > Themes**:
 
 | Theme | Style |
 |---|---|
@@ -452,7 +452,7 @@ The theme JSON file is a flat object mapping CSS variable names to color values.
 
 ### Theme Persistence
 
-Themes are stored in the platform config directory under `devdock/themes/`. The active theme name is persisted in app state. Custom themes are saved as JSON files in the same directory.
+Themes are stored in the platform config directory under `soryq/themes/`. The active theme name is persisted in app state. Custom themes are saved as JSON files in the same directory.
 
 ---
 
@@ -504,7 +504,7 @@ You can also add entirely new bindings for the same action by clicking the + but
 The search box in the title bar doubles as the codebase search:
 
 1. Click the search box (or press `Ctrl+Shift+P`)
-2. Start typing — DevDock searches all text files in the active project with a 200 ms debounce
+2. Start typing — Soryq searches all text files in the active project with a 200 ms debounce
 3. Results appear in a dropdown showing the relative file path, line number, and a snippet of the matching line
 4. Click a result (or press `Enter` for the first one) to jump directly to that file and line in the editor
 
@@ -560,13 +560,13 @@ Shows preset theme swatches and the custom theme color editor. See [Themes](#8-t
 
 ### About Tab
 
-Shows the DevDock version (0.1.0) and a button to check for updates.
+Shows the Soryq version (0.1.0) and a button to check for updates.
 
 ---
 
 ## 12. UI Zoom and Scaling
 
-DevDock supports global UI scaling via the CSS `zoom` property applied to the main content wrapper.
+Soryq supports global UI scaling via the CSS `zoom` property applied to the main content wrapper.
 
 | Action | Shortcut | Description |
 |---|---|---|
@@ -584,7 +584,7 @@ The current zoom level is stored in `localStorage` and restored on next launch.
 
 ## 13. State Persistence
 
-DevDock persists a significant amount of state across sessions using `localStorage`. All keys are prefixed with `forge_setting_` (settings) or `forge_ws_` (workspace state) or `devdock_layout` (layout).
+Soryq persists a significant amount of state across sessions using `localStorage`. All keys are prefixed with `forge_setting_` (settings) or `forge_ws_` (workspace state) or `soryq_layout` (layout).
 
 ### Persisted Settings
 
@@ -592,7 +592,7 @@ All values in the Settings modal (font, tab size, vim mode, shortcuts, theme sel
 
 ### Persisted Layout
 
-The full layout state (`devdock_layout`) includes:
+The full layout state (`soryq_layout`) includes:
 - Sidebar visibility and width
 - Active view (terminal / editor / preview / review)
 - Editor/preview split mode
@@ -607,7 +607,7 @@ Per-workspace state is stored under `forge_ws_<key>`:
 
 ### Per-Project State
 
-When you switch away from a project, DevDock snapshots and restores:
+When you switch away from a project, Soryq snapshots and restores:
 - Open files and active file in the editor
 - Active line and column position
 - Terminal session count, grid layout, and pane assignments
@@ -652,7 +652,7 @@ Snapshots capture the current workspace state (open files, terminal layout, prev
 
 ## 15. Notifications
 
-DevDock shows two kinds of notifications:
+Soryq shows two kinds of notifications:
 
 ### In-App Toasts
 
@@ -675,4 +675,4 @@ Some events (terminal exit, agent completion) also trigger OS-level desktop noti
 1. The **Notifications** setting is enabled (default: on)
 2. The browser/WebView has been granted notification permission
 
-DevDock requests notification permission on startup.
+Soryq requests notification permission on startup.

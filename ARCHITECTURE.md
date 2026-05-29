@@ -1,4 +1,4 @@
-# Devdock Architecture Document
+# Soryq Architecture Document
 
 ## Application Overview
 
