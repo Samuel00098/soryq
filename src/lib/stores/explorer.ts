@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { FileEntry, FileNode, ContextMenuState } from '$lib/types/explorer';
 import { showHidden } from './settings';
 import { activeProject } from './workspace';
+import { showToast } from './notification';
 
 export const rootNodes = writable<FileNode[]>([]);
 export const projectRootNodes = writable<Map<string, FileNode[]>>(new Map());
@@ -17,6 +18,46 @@ export const contextMenu = writable<ContextMenuState>({
   path: '',
   isDir: false,
 });
+
+// ── Inline rename state ───────────────────────────────────────────────────
+export const renamingPath = writable<string | null>(null);
+export const renamingValue = writable('');
+
+export function startRename(path: string) {
+  renamingPath.set(path);
+  renamingValue.set(path.split(/[\\\/]/).pop() || '');
+}
+
+export function cancelRename() {
+  renamingPath.set(null);
+  renamingValue.set('');
+}
+
+export async function confirmRename() {
+  const oldPath = get(renamingPath);
+  if (!oldPath) return;
+  const val = get(renamingValue).trim();
+  cancelRename();
+  if (!val) return;
+
+  // Reject path separators and null bytes — a filename must be a single segment
+  if (/[/\\\0]/.test(val)) {
+    showToast('File name cannot contain slashes or null bytes', 'error');
+    return;
+  }
+  // Cap at POSIX max filename length
+  if (val.length > 255) {
+    showToast('File name is too long (max 255 characters)', 'error');
+    return;
+  }
+
+  const parts = oldPath.split(/[\\\/]/);
+  parts.pop();
+  const newPath = parts.join('/') + '/' + val;
+  if (newPath !== oldPath) {
+    await renameFile(oldPath, newPath);
+  }
+}
 
 export function showContextMenu(e: MouseEvent, path: string, isDir: boolean) {
   e.preventDefault();
@@ -257,18 +298,24 @@ export async function createDir(path: string) {
 export async function renameFile(from: string, to: string) {
   try {
     await invoke('fs_rename', { from, to });
+    const { onFileRenamed } = await import('./editor');
+    onFileRenamed(from, to);
     await refreshParent(to);
-  } catch (err) {
-    console.error('Failed to rename:', err);
+    showToast(`Renamed to "${to.split(/[\\\/]/).pop()}"`, 'success');
+  } catch (err: any) {
+    showToast(`Rename failed: ${err?.message ?? String(err)}`, 'error');
   }
 }
 
 export async function deleteFile(path: string) {
   try {
     await invoke('fs_delete', { path });
+    const { onFileDeleted } = await import('./editor');
+    onFileDeleted(path);
     await refreshParent(path);
-  } catch (err) {
-    console.error('Failed to delete:', err);
+    showToast(`Deleted "${path.split(/[\\\/]/).pop()}"`, 'success');
+  } catch (err: any) {
+    showToast(`Delete failed: ${err?.message ?? String(err)}`, 'error');
   }
 }
 

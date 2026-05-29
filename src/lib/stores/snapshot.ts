@@ -10,7 +10,7 @@ import {
   setSessionRole,
   setGridLayout,
 } from '$lib/stores/terminal';
-import { layout, setActiveView, setSidebarTab } from '$lib/stores/layout';
+import { layout, sanitiseActiveView } from '$lib/stores/layout';
 import { currentUrl, targetPort, previewTabs, activePreviewTabId, restorePreviewTabsState, type PreviewTab } from '$lib/stores/preview';
 import { loadJson } from '$lib/utils/storage';
 
@@ -71,7 +71,7 @@ export function saveSnapshot(name: string): WorkspaceSnapshot {
   });
 
   const snapshot: WorkspaceSnapshot = {
-    id: Math.random().toString(36).substring(2, 11),
+    id: crypto.randomUUID(),
     name: name.trim() || `Snapshot ${new Date().toLocaleTimeString()}`,
     savedAt: Date.now(),
     gridLayout: currentLayout,
@@ -106,18 +106,38 @@ export async function restoreSnapshot(snapshot: WorkspaceSnapshot) {
     }
   }
 
-  // 4. Restore layout state
-  setActiveView(snapshot.activeView);
+  // 4. Restore layout state — bypass setActiveView's toggle logic by patching the store directly.
+  // Sanitise values from stored JSON before applying them.
+  const safeView = sanitiseActiveView(snapshot.activeView);
+  const safeSidebarWidth = Math.max(100, Math.min(600, snapshot.sidebarWidth ?? 260));
+  layout.update((l) => ({
+    ...l,
+    sidebarWidth: safeSidebarWidth,
+    activeView: safeView,
+    ...(safeView !== 'terminal' ? { lastAuxView: safeView } : {}),
+    editorVisible: safeView === 'editor',
+    previewVisible: safeView === 'preview',
+    reviewVisible: safeView === 'review',
+    httpVisible: safeView === 'http',
+    tasksVisible: safeView === 'tasks',
+    editorSplitPreview: false,
+  }));
 
   // 5. Restore preview URL and port
   if (snapshot.previewTabs?.length) {
     restorePreviewTabsState(snapshot.previewTabs, snapshot.activePreviewTabId);
   } else if (snapshot.previewUrl) {
-    currentUrl.set(snapshot.previewUrl);
+    // Only restore relative paths or localhost URLs
+    if (/^\/|^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(snapshot.previewUrl)) {
+      currentUrl.set(snapshot.previewUrl);
+    }
   }
   if (snapshot.targetPort) {
-    const { setTargetPort } = await import('$lib/stores/preview');
-    setTargetPort(snapshot.targetPort);
+    const safePort = Math.floor(snapshot.targetPort);
+    if (safePort >= 1024 && safePort <= 65535) {
+      const { setTargetPort } = await import('$lib/stores/preview');
+      setTargetPort(safePort);
+    }
   }
 }
 

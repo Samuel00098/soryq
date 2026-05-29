@@ -7,18 +7,19 @@
     createFile,
     createDir,
     deleteFile,
-    renameFile,
     loadRootDirectory,
     projectRootNodes,
-    loadingProjectRoots
+    loadingProjectRoots,
+    startRename,
+    cancelRename,
+    confirmRename,
+    renamingPath,
   } from '$lib/stores/explorer';
   import {
     activeProject,
     openProject
   } from '$lib/stores/workspace';
 
-  let renamingPath = $state<string | null>(null);
-  let renamingValue = $state('');
   let creating = $state<{ parentPath: string; type: 'file' | 'dir' } | null>(null);
   let creatingValue = $state('');
 
@@ -36,8 +37,7 @@
         creatingValue = '';
         break;
       case 'rename':
-        renamingPath = path;
-        renamingValue = path.split(/[\\\/]/).pop() || '';
+        startRename(path);
         break;
       case 'delete':
         if (confirm(`Delete ${isDir ? 'folder' : 'file'} "${path.split(/[\\\/]/).pop()}"?`)) {
@@ -91,32 +91,6 @@
     creatingValue = '';
   }
 
-  async function confirmRename() {
-    if (!renamingPath) return;
-    const val = renamingValue.trim();
-    if (!val) {
-      cancelRename();
-      return;
-    }
-    const oldPath = renamingPath;
-    const parts = oldPath.split(/[\\\/]/);
-    parts.pop();
-    const newPath = parts.join('/') + '/' + val;
-    cancelRename();
-    try {
-      if (newPath !== oldPath) {
-        await renameFile(oldPath, newPath);
-      }
-    } catch (err) {
-      console.error('Failed to rename:', err);
-    }
-  }
-
-  function cancelRename() {
-    renamingPath = null;
-    renamingValue = '';
-  }
-
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       cancelCreate();
@@ -125,7 +99,7 @@
     }
     if (e.key === 'Enter') {
       if (creating) confirmCreate();
-      if (renamingPath) confirmRename();
+      if ($renamingPath) confirmRename();
     }
   }
 

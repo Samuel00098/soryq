@@ -5,7 +5,7 @@ import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
 import { expandedPaths, selectedPath } from './explorer';
 import { resetSettingsToDefault } from './settings';
-import { resetLayoutToDefault, layout } from './layout';
+import { resetLayoutToDefault, layout, sanitiseActiveView, sanitiseSidebarTab } from './layout';
 
 function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
   if (typeof window === 'undefined') {
@@ -224,11 +224,66 @@ function saveProjectStateToStorage(projectId: string) {
   }
 }
 
+function isSafePath(v: unknown): v is string {
+  return typeof v === 'string' && v.length > 0 && v.length < 4096 && !/[\0\x01-\x1f]/.test(v);
+}
+
+function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+
+  const openFiles = Array.isArray(r.openFiles)
+    ? (r.openFiles as unknown[]).filter(isSafePath)
+    : [];
+
+  const activeFile = isSafePath(r.activeFile) ? r.activeFile : null;
+
+  const expandedPaths = Array.isArray(r.expandedPaths)
+    ? (r.expandedPaths as unknown[]).filter(isSafePath)
+    : [];
+
+  // cwd: must be a safe path; role: alphanumeric + common separators only, no control chars
+  const rawPanes = Array.isArray(r.terminalPanes) ? r.terminalPanes : [];
+  const terminalPanes: PersistedTerminalPane[] = rawPanes.map((p: unknown) => {
+    if (!p || typeof p !== 'object') return { role: null, cwd: null };
+    const pane = p as Record<string, unknown>;
+    const cwd = isSafePath(pane.cwd) ? pane.cwd : null;
+    const role = typeof pane.role === 'string' && /^[\w\-. ]{0,63}$/.test(pane.role) ? pane.role : null;
+    return { role, cwd };
+  });
+
+  const terminalLayout = typeof r.terminalLayout === 'string' ? r.terminalLayout : undefined;
+
+  // Sanitise layout sub-object: clamp numerics, strip unknown view names
+  let layout: PersistedProjectState['layout'] | undefined;
+  if (r.layout && typeof r.layout === 'object') {
+    const l = r.layout as Record<string, unknown>;
+    layout = {
+      activeView: typeof l.activeView === 'string' ? l.activeView : 'terminal',
+      editorVisible: Boolean(l.editorVisible),
+      previewVisible: Boolean(l.previewVisible),
+      reviewVisible: Boolean(l.reviewVisible),
+      httpVisible: Boolean(l.httpVisible),
+      tasksVisible: Boolean(l.tasksVisible),
+      lastAuxView: typeof l.lastAuxView === 'string' ? l.lastAuxView : undefined,
+      editorSplitPreview: Boolean(l.editorSplitPreview),
+      auxPanelWidth: typeof l.auxPanelWidth === 'number' ? Math.max(700, Math.min(2000, l.auxPanelWidth)) : 700,
+      auxEditorHeight: typeof l.auxEditorHeight === 'number' ? Math.max(10, Math.min(90, l.auxEditorHeight)) : 50,
+      sidebarVisible: Boolean(l.sidebarVisible ?? true),
+      sidebarWidth: typeof l.sidebarWidth === 'number' ? Math.max(100, Math.min(600, l.sidebarWidth)) : 260,
+      sidebarTab: typeof l.sidebarTab === 'string' ? l.sidebarTab : 'files',
+    };
+  }
+
+  return { openFiles, activeFile, expandedPaths, terminalPanes, terminalLayout, layout };
+}
+
 function loadProjectStateFromStorage(projectId: string): PersistedProjectState | null {
   if (typeof window === 'undefined') return null;
   try {
     const stored = localStorage.getItem(projectStorageKey(projectId));
-    return stored ? JSON.parse(stored) : null;
+    if (!stored) return null;
+    return sanitisePersistedProjectState(JSON.parse(stored));
   } catch {
     return null;
   }
@@ -342,19 +397,19 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
 
       layout.update((l) => ({
         ...l,
-        activeView: cached.layout.activeView as any,
+        activeView: sanitiseActiveView(cached.layout.activeView, l.activeView),
         editorVisible: cached.layout.editorVisible,
         previewVisible: cached.layout.previewVisible,
         reviewVisible: cached.layout.reviewVisible,
         httpVisible: cached.layout.httpVisible,
         tasksVisible: cached.layout.tasksVisible,
-        lastAuxView: (cached.layout.lastAuxView as any) ?? l.lastAuxView,
+        lastAuxView: sanitiseActiveView(cached.layout.lastAuxView, l.lastAuxView),
         editorSplitPreview: cached.layout.editorSplitPreview,
         auxPanelWidth: cached.layout.auxPanelWidth,
         auxEditorHeight: cached.layout.auxEditorHeight,
         sidebarVisible: cached.layout.sidebarVisible,
         sidebarWidth: cached.layout.sidebarWidth,
-        sidebarTab: cached.layout.sidebarTab as any,
+        sidebarTab: sanitiseSidebarTab(cached.layout.sidebarTab, l.sidebarTab),
       }));
 
       try {
@@ -386,45 +441,53 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       if (persisted?.layout) {
         layout.update((l) => ({
           ...l,
-          activeView: (persisted.layout!.activeView as any) ?? 'terminal',
+          activeView: sanitiseActiveView(persisted.layout!.activeView, 'terminal'),
           editorVisible: persisted.layout!.editorVisible ?? false,
           previewVisible: persisted.layout!.previewVisible ?? false,
           reviewVisible: persisted.layout!.reviewVisible ?? false,
           httpVisible: persisted.layout!.httpVisible ?? false,
           tasksVisible: persisted.layout!.tasksVisible ?? false,
-          lastAuxView: (persisted.layout!.lastAuxView as any) ?? l.lastAuxView,
+          lastAuxView: sanitiseActiveView(persisted.layout!.lastAuxView, l.lastAuxView),
           editorSplitPreview: persisted.layout!.editorSplitPreview ?? false,
           auxPanelWidth: persisted.layout!.auxPanelWidth ?? 700,
           auxEditorHeight: persisted.layout!.auxEditorHeight ?? 50,
           sidebarVisible: persisted.layout!.sidebarVisible ?? true,
           sidebarWidth: persisted.layout!.sidebarWidth ?? 260,
-          sidebarTab: (persisted.layout!.sidebarTab as any) ?? 'files',
+          sidebarTab: sanitiseSidebarTab(persisted.layout!.sidebarTab, 'files'),
         }));
       }
 
-      if (persisted?.terminalPanes && persisted.terminalPanes.length > 0) {
-        const { setGridLayout, setSessionRole } = await import('./terminal');
-        if (persisted.terminalLayout) {
-          setGridLayout(persisted.terminalLayout as any);
-        }
-        const spawnedIds: number[] = [];
-        for (let i = 0; i < persisted.terminalPanes.length; i++) {
-          if (generation !== restoreProjectStateGeneration) return;
-          const pane = persisted.terminalPanes[i];
-          const id = await createTerminalSession(pane.cwd || rootPath, i);
-          if (id !== null) {
-            spawnedIds.push(id);
-            if (pane.role) setSessionRole(id, pane.role);
+      const existingTerminalState = getTerminalProjectState(projectId);
+      const hasLiveTerminalState =
+        existingTerminalState.sessions.length > 0 ||
+        existingTerminalState.activeSessionId !== null ||
+        existingTerminalState.paneAssignments.some((id) => id !== null);
+
+      if (!hasLiveTerminalState) {
+        if (persisted?.terminalPanes && persisted.terminalPanes.length > 0) {
+          const { setGridLayout, setSessionRole } = await import('./terminal');
+          if (persisted.terminalLayout) {
+            setGridLayout(persisted.terminalLayout as any);
           }
+          const spawnedIds: number[] = [];
+          for (let i = 0; i < persisted.terminalPanes.length; i++) {
+            if (generation !== restoreProjectStateGeneration) return;
+            const pane = persisted.terminalPanes[i];
+            const id = await createTerminalSession(pane.cwd || rootPath, i);
+            if (id !== null) {
+              spawnedIds.push(id);
+              if (pane.role) setSessionRole(id, pane.role);
+            }
+          }
+          const { showToast } = await import('./notification');
+          if (generation !== restoreProjectStateGeneration) return;
+          if (spawnedIds.length > 1) {
+            showToast(`Restored ${spawnedIds.length} terminal sessions`, 'info', 3000);
+          }
+        } else {
+          if (generation !== restoreProjectStateGeneration) return;
+          await createTerminalSession(rootPath);
         }
-        const { showToast } = await import('./notification');
-        if (generation !== restoreProjectStateGeneration) return;
-        if (spawnedIds.length > 1) {
-          showToast(`Restored ${spawnedIds.length} terminal sessions`, 'info', 3000);
-        }
-      } else {
-        if (generation !== restoreProjectStateGeneration) return;
-        await createTerminalSession(rootPath);
       }
     }
   } finally {
@@ -535,6 +598,9 @@ export function createNewWorkspace() {
 }
 
 export async function openWorkspace(workspaceId: string) {
+  // Save the current project's state before leaving it so it can be restored later
+  saveCurrentProjectState();
+
   // Set as active
   activeWorkspaceId.set(workspaceId);
 
@@ -813,7 +879,10 @@ export async function clearAllApplicationState() {
   }
 
   if (typeof window !== 'undefined') {
-    localStorage.clear();
+    const keysToRemove = Object.keys(localStorage).filter(
+      (k) => k.startsWith('soryq_') || k.startsWith('forge_')
+    );
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
   }
 
   resetSettingsToDefault();

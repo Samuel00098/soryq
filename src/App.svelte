@@ -5,6 +5,8 @@
   import SettingsModal from '$lib/components/shared/SettingsModal.svelte';
   import QuickCaptureModal from '$lib/components/shared/QuickCaptureModal.svelte';
   import { settingsOpen, closeSettings, quickCaptureOpen, closeQuickCapture } from '$lib/stores/layout';
+  import MicrophonePermissionDialog from '$lib/components/shared/MicrophonePermissionDialog.svelte';
+  import { pendingPermissionRequest } from '$lib/stores/permissions';
   import { onMount } from 'svelte';
   import { loadThemes } from '$lib/stores/theme';
   import { initializeWorkspaces, saveProjectState, activeProjectId, activeProject } from '$lib/stores/workspace';
@@ -133,4 +135,8 @@
 
 {#if !$onboardingCompleted}
   <OnboardingWalkthrough />
+{/if}
+
+{#if $pendingPermissionRequest}
+  <MicrophonePermissionDialog />
 {/if}

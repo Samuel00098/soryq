@@ -2,6 +2,17 @@ import { writable } from 'svelte/store';
 import type { LayoutState, ActiveView, SidebarTab } from '$lib/types/layout';
 import { loadJson } from '$lib/utils/storage';
 
+const VALID_ACTIVE_VIEWS = new Set<ActiveView>(['editor', 'terminal', 'preview', 'settings', 'review', 'http', 'tasks']);
+const VALID_SIDEBAR_TABS = new Set<SidebarTab>(['files', 'git', 'runs', 'snapshots', 'history']);
+
+export function sanitiseActiveView(v: unknown, fallback: ActiveView = 'terminal'): ActiveView {
+  return VALID_ACTIVE_VIEWS.has(v as ActiveView) ? (v as ActiveView) : fallback;
+}
+
+export function sanitiseSidebarTab(v: unknown, fallback: SidebarTab = 'files'): SidebarTab {
+  return VALID_SIDEBAR_TABS.has(v as SidebarTab) ? (v as SidebarTab) : fallback;
+}
+
 const LAYOUT_KEY = 'soryq_layout';
 
 const defaultLayout: LayoutState = {

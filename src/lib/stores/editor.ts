@@ -148,6 +148,28 @@ export function closeFile(path: string) {
   }
 }
 
+export function onFileRenamed(oldPath: string, newPath: string) {
+  openFiles.update((files) => files.map((f) => (f === oldPath ? newPath : f)));
+  activeFile.update((a) => (a === oldPath ? newPath : a));
+  fileCache.update((cache) => {
+    const existing = cache.get(oldPath);
+    if (!existing) return cache;
+    const next = new Map(cache);
+    next.delete(oldPath);
+    next.set(newPath, { ...existing, path: newPath });
+    return next;
+  });
+}
+
+export function onFileDeleted(path: string) {
+  // Close exact file match
+  closeFile(path);
+  // Close any open files that lived inside a deleted directory
+  const dirPrefix = path.endsWith('/') ? path : `${path}/`;
+  const children = get(openFiles).filter((f) => f.startsWith(dirPrefix));
+  children.forEach(closeFile);
+}
+
 export function updateContent(path: string, newContent: string) {
   fileCache.update((cache) => {
     const next = new Map(cache);

@@ -168,6 +168,26 @@ async function verifyMicrophoneAccess(): Promise<string | null> {
     return 'This runtime cannot access the microphone.';
   }
 
+  // Check permission state before prompting so we can show our own dialog
+  // instead of the browser bar when the user hasn't decided yet.
+  if (navigator.permissions) {
+    try {
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (status.state === 'denied') {
+        return 'Microphone access denied. Enable microphone permissions and try again.';
+      }
+      if (status.state === 'prompt') {
+        const { requestPermission } = await import('$lib/stores/permissions');
+        const granted = await requestPermission('microphone');
+        if (!granted) {
+          return 'Microphone access was not allowed.';
+        }
+      }
+    } catch {
+      // Permissions API unavailable — fall through to getUserMedia which handles it natively
+    }
+  }
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach((track) => track.stop());

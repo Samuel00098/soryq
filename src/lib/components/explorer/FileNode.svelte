@@ -2,7 +2,7 @@
   import FileIcon from './FileIcon.svelte';
   import FileNode from './FileNode.svelte';
   import type { FileNode as FileNodeType } from '$lib/types/explorer';
-  import { toggleNode, selectedPath, showContextMenu } from '$lib/stores/explorer';
+  import { toggleNode, selectedPath, showContextMenu, renamingPath, renamingValue, confirmRename, cancelRename } from '$lib/stores/explorer';
 
   export let node: FileNodeType;
   const DRAG_THRESHOLD = 6;
@@ -129,7 +129,20 @@
       <polyline points="9,18 15,12 9,6"/>
     </svg>
     <FileIcon name={node.entry.name} isDir={true} />
-    <span class="node-name">{node.entry.name}</span>
+    {#if $renamingPath === node.entry.path}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="rename-input"
+        type="text"
+        bind:value={$renamingValue}
+        autofocus
+        onclick={(e) => e.stopPropagation()}
+        onblur={confirmRename}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmRename(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(); } }}
+      />
+    {:else}
+      <span class="node-name">{node.entry.name}</span>
+    {/if}
     {#if node.loading}
       <span class="loading-spinner"></span>
     {/if}
@@ -155,7 +168,20 @@
   >
     <span class="chevron-placeholder"></span>
     <FileIcon name={node.entry.name} isDir={false} />
-    <span class="node-name">{node.entry.name}</span>
+    {#if $renamingPath === node.entry.path}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="rename-input"
+        type="text"
+        bind:value={$renamingValue}
+        autofocus
+        onclick={(e) => e.stopPropagation()}
+        onblur={confirmRename}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmRename(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(); } }}
+      />
+    {:else}
+      <span class="node-name">{node.entry.name}</span>
+    {/if}
   </div>
 {/if}
 
@@ -202,6 +228,20 @@
   .node-name {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--input-bg, rgba(255,255,255,0.06));
+    border: 1px solid var(--accent, #06b6d4);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    padding: 0 4px;
+    height: 18px;
+    outline: none;
   }
 
   .loading-spinner {
