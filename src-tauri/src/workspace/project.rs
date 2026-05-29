@@ -32,7 +32,15 @@ impl Project {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        let id = Uuid::new_v4().to_string();
+        // Derive a deterministic, path-stable id so that per-project persisted
+        // state (terminal sessions, layout, open files) is keyed consistently
+        // across app restarts and workspace switches. Opening the same folder
+        // must always yield the same id, otherwise saved state can never be
+        // matched back to the project. Canonicalize so equivalent paths (e.g.
+        // with/without trailing slash or symlinks) map to the same id.
+        let canonical = std::fs::canonicalize(&root_path).unwrap_or_else(|_| root_path.clone());
+        let id = Uuid::new_v5(&Uuid::NAMESPACE_OID, canonical.to_string_lossy().as_bytes())
+            .to_string();
 
         Project {
             id: id.clone(),

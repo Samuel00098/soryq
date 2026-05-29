@@ -143,6 +143,10 @@
   }
 
   function goHome() {
+    // Persist the active project before leaving the workspace so its state
+    // (terminals, layout, open files) is restored when the user comes back.
+    const pid = get(activeProjectId);
+    if (pid) saveProjectState(pid);
     activeWorkspaceId.set(null);
   }
 
