@@ -304,13 +304,25 @@ function detectAgentPresetFromCommand(command: string): string | null {
   return null;
 }
 
-function processSessionInputForAgentDetection(id: number, data: string) {
+// Processes raw input sent to a session (manual keystrokes and programmatic
+// writes alike) to (a) auto-detect when an AI agent CLI is launched and
+// (b) flag the session as "executing" the moment a non-empty command is
+// submitted. The executing flag is cleared by TerminalPane once the command's
+// output goes idle, giving us a live "in use" signal for manually-typed
+// commands — not just prompt-bar/agent runs.
+function processSessionInput(id: number, data: string) {
   let buffer = sessionInputBuffers.get(id) ?? '';
   for (const ch of data) {
     if (ch === '\r' || ch === '\n') {
-      const preset = detectAgentPresetFromCommand(buffer);
-      if (preset) {
-        markSessionAgentPreset(id, preset);
+      const command = buffer.trim();
+      if (command) {
+        const preset = detectAgentPresetFromCommand(buffer);
+        if (preset) {
+          markSessionAgentPreset(id, preset);
+        }
+        // A real command was just submitted — mark the shell busy so agent
+        // runs won't target a terminal that's actively running something.
+        setSessionExecuting(id, true);
       }
       buffer = '';
       continue;
@@ -439,7 +451,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
 export function writeToSession(id: number, data: string) {
   const pty = ptyInstances.get(id);
   if (pty) {
-    processSessionInputForAgentDetection(id, data);
+    processSessionInput(id, data);
     pty.write(data).catch((err) => console.error('Failed to write to terminal:', err));
   }
 }
