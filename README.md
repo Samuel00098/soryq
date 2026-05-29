@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/Samuel00098/soryq/releases"><img src="https://img.shields.io/github/v/release/Samuel00098/soryq?color=06b6d4&label=release" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-lightgrey" alt="License"></a>
   <img src="https://img.shields.io/badge/Tauri-2-blue?logo=tauri" alt="Tauri">
   <img src="https://img.shields.io/badge/Rust-2021-orange?logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/Svelte-5-red?logo=svelte" alt="Svelte">
@@ -114,4 +114,4 @@ npm run tauri dev
 
 ## 📄 License
 
-Soryq is open-source software licensed under the [MIT License](LICENSE).
+Soryq is open-source software licensed under the [Apache License 2.0](LICENSE).

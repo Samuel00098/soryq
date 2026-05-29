@@ -1250,7 +1250,7 @@
             ['Version', appVersion],
             ['Built with', 'Tauri 2 · Svelte 5 · Rust'],
             ['Runtime', 'WebView2 (Windows)'],
-            ['License', 'MIT'],
+            ['License', 'Apache 2.0'],
           ] as [label, value]}
             <div class="about-row">
               <span class="about-label">{label}</span>
