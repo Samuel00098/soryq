@@ -704,31 +704,52 @@ export function toggleCommandBlockCollapse(sessionId: number, blockId: string) {
   });
 }
 
+/**
+ * Picks a terminal pane to launch an agent into. Prefers panes that are NOT
+ * the active/focused one and that are NOT in use — a pane is "in use" when its
+ * session is already running an agent or is busy executing a command. An idle
+ * shell (alive, not an agent, not executing) or an empty pane is fair game.
+ *
+ * Returns `{ paneIdx, sessionId }` where `sessionId === null` means the caller
+ * should spawn a fresh session in that pane. Returns `null` when every pane is
+ * occupied/busy, signalling the caller to open a brand-new terminal instead of
+ * hijacking one that is in use.
+ */
 export function findAvailablePaneForAgentRun() {
   const panes = get(paneAssignments);
   const activeIdx = get(activePaneIndex);
   const allSessions = get(sessions);
 
+  // A pane is reusable if its session is a live, non-agent shell that is not
+  // currently executing a command (i.e. genuinely idle and not in use).
+  const isIdleShell = (sessionId: number | null): boolean => {
+    if (sessionId === null) return false;
+    const session = allSessions.find((entry) => entry.id === sessionId);
+    if (!session) return false;
+    return Boolean(session.isRunning) && !isAgentSession(session) && !session.isExecuting;
+  };
+
+  // 1. A non-active empty pane → cleanest target (fresh, dedicated terminal).
   for (let paneIdx = 0; paneIdx < panes.length; paneIdx += 1) {
     if (paneIdx === activeIdx) continue;
-    const sessionId = panes[paneIdx];
-    if (sessionId === null) return { paneIdx, sessionId: null as number | null };
-    const session = allSessions.find((entry) => entry.id === sessionId);
-    if (session?.isRunning && !isAgentSession(session)) {
-      return { paneIdx, sessionId };
-    }
+    if (panes[paneIdx] === null) return { paneIdx, sessionId: null as number | null };
   }
 
-  const activeSessionId = panes[activeIdx];
-  if (activeSessionId === null) {
+  // 2. A non-active, idle (not in use) shell → reuse it.
+  for (let paneIdx = 0; paneIdx < panes.length; paneIdx += 1) {
+    if (paneIdx === activeIdx) continue;
+    if (isIdleShell(panes[paneIdx])) return { paneIdx, sessionId: panes[paneIdx] };
+  }
+
+  // 3. Only fall back to the active pane if it is empty or idle.
+  if (panes[activeIdx] === null) {
     return { paneIdx: activeIdx, sessionId: null as number | null };
   }
-
-  const activeSession = allSessions.find((entry) => entry.id === activeSessionId);
-  if (activeSession?.isRunning && !isAgentSession(activeSession)) {
-    return { paneIdx: activeIdx, sessionId: activeSessionId };
+  if (isIdleShell(panes[activeIdx])) {
+    return { paneIdx: activeIdx, sessionId: panes[activeIdx] };
   }
 
+  // Everything is busy or already running an agent.
   return null;
 }
 

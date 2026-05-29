@@ -1,15 +1,20 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import { quickRuns, addQuickRun, deleteQuickRun, getPresetRuns } from '$lib/stores/runs';
   import { activeProject } from '$lib/stores/workspace';
   import {
     writeToSession,
     activeSessionId,
+    activePaneIndex,
+    sessions,
     createTerminalSession,
     findAvailablePaneForAgentRun,
     markSessionAgentPreset,
+    focusPane,
+    getSessionLabel,
+    getAgentDisplayName,
   } from '$lib/stores/terminal';
   import { showToast } from '$lib/stores/notification';
-  import { setActiveView } from '$lib/stores/layout';
 
   let projectId = $derived($activeProject?.id ?? '');
   let projectRuns = $derived(projectId ? [...getPresetRuns(projectId), ...$quickRuns.filter((r) => r.projectId === projectId)] : []);
@@ -31,15 +36,21 @@
 
   async function runCommand(command: string, isPreset = false) {
     if (presetAgentCommands.has(command)) {
+      const root = $activeProject?.root_path;
       const target = findAvailablePaneForAgentRun();
-      if (!target) {
-        showToast('No inactive non-agent terminal pane available', 'warning');
-        return;
-      }
 
-      let sessionId = target.sessionId;
-      if (sessionId === null) {
-        sessionId = await createTerminalSession($activeProject?.root_path, target.paneIdx);
+      let paneIdx: number;
+      let sessionId: number | null;
+
+      if (target) {
+        // Reuse the chosen idle/empty pane, creating a session if it was empty.
+        paneIdx = target.paneIdx;
+        sessionId = target.sessionId ?? (await createTerminalSession(root, target.paneIdx));
+      } else {
+        // Every pane is busy or already running an agent — give this agent its
+        // own brand-new terminal rather than hijacking one that's in use.
+        sessionId = await createTerminalSession(root);
+        paneIdx = get(activePaneIndex);
       }
 
       if (sessionId === null || sessionId === undefined) {
@@ -48,9 +59,16 @@
       }
 
       markSessionAgentPreset(sessionId, command);
-      setActiveView('terminal');
+      // Focus the target pane so the agent is visible WITHOUT toggling the
+      // right-hand auxiliary panel (the terminal is always rendered).
+      focusPane(paneIdx);
       writeToSession(sessionId, command + '\r');
-      showToast(`Running agent in pane ${target.paneIdx + 1}: ${command}`, 'info');
+
+      const allSessions = get(sessions);
+      const session = allSessions.find((s) => s.id === sessionId);
+      const label = session ? getSessionLabel(session, allSessions) : `Terminal ${paneIdx + 1}`;
+      const displayName = getAgentDisplayName(command) ?? command;
+      showToast(`Running ${displayName} in ${label}`, 'info', undefined, true);
       return;
     }
 
@@ -59,7 +77,8 @@
       showToast('No active terminal session', 'error');
       return;
     }
-    setActiveView('terminal');
+    // Run in the active terminal. No view toggling — the terminal is always
+    // visible, so the right-hand panel is left exactly as the user had it.
     writeToSession(sessionId, command + '\r');
     showToast(`Running: ${command}`, 'info');
   }
