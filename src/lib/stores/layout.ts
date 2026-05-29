@@ -8,13 +8,15 @@ const defaultLayout: LayoutState = {
   sidebarVisible: true,
   sidebarWidth: 260,
   activeView: 'terminal',
+  lastAuxView: 'preview',
   editorSplitPreview: false,
   sidebarTab: 'files',
   editorVisible: false,
   previewVisible: false,
   reviewVisible: false,
   httpVisible: false,
-  auxPanelWidth: 400,
+  tasksVisible: false,
+  auxPanelWidth: 700,
   auxEditorHeight: 50,
 };
 
@@ -30,6 +32,12 @@ function loadLayout(): LayoutState {
     }
     if ((parsed.sidebarTab as string) === 'http') {
       parsed.sidebarTab = 'files';
+    }
+    if ((parsed.sidebarTab as string) === 'tasks') {
+      parsed.sidebarTab = 'files';
+    }
+    if (parsed.auxPanelWidth < 700) {
+      parsed.auxPanelWidth = 700;
     }
     return parsed;
   } catch {
@@ -52,23 +60,50 @@ export const settingsOpen = writable(false);
 export function openSettings() { settingsOpen.set(true); }
 export function closeSettings() { settingsOpen.set(false); }
 
+// Quick capture overlay state
+export const quickCaptureOpen = writable(false);
+
+export function openQuickCapture() { quickCaptureOpen.set(true); }
+export function closeQuickCapture() { quickCaptureOpen.set(false); }
+
 export function toggleSidebar() {
   layout.update((l) => ({ ...l, sidebarVisible: !l.sidebarVisible }));
 }
 
+function restoreLastAuxView(l: LayoutState): LayoutState {
+  const view = l.lastAuxView;
+  if (view === 'editor')  return { ...l, activeView: 'editor',  editorVisible: true,  previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false };
+  if (view === 'preview') return { ...l, activeView: 'preview', previewVisible: true, editorVisible: false,  reviewVisible: false, httpVisible: false, tasksVisible: false };
+  if (view === 'review')  return { ...l, activeView: 'review',  reviewVisible: true,  editorVisible: false,  previewVisible: false, httpVisible: false, tasksVisible: false };
+  if (view === 'http')    return { ...l, activeView: 'http',    httpVisible: true,    editorVisible: false,  previewVisible: false, reviewVisible: false, tasksVisible: false };
+  if (view === 'tasks')   return { ...l, activeView: 'tasks',   tasksVisible: true,   editorVisible: false,  previewVisible: false, reviewVisible: false, httpVisible: false };
+  return { ...l, activeView: 'editor', editorVisible: true, previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false };
+}
+
 export function setActiveView(view: ActiveView) {
   layout.update((l) => {
+    if (view === 'terminal') {
+      const anyAuxVisible = l.editorVisible || l.previewVisible || l.reviewVisible || l.httpVisible || l.tasksVisible;
+      if (anyAuxVisible) {
+        return { ...l, activeView: 'terminal', editorVisible: false, previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false };
+      }
+      // Already on terminal — restore last aux panel (acts as a toggle)
+      return restoreLastAuxView(l);
+    }
     if (view === 'editor') {
-      return { ...l, activeView: 'editor', editorVisible: true, previewVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false };
+      return { ...l, activeView: 'editor', lastAuxView: 'editor', editorVisible: true, previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false };
     }
     if (view === 'preview') {
-      return { ...l, activeView: 'preview', previewVisible: true, editorVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false };
+      return { ...l, activeView: 'preview', lastAuxView: 'preview', previewVisible: true, editorVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false };
     }
     if (view === 'review') {
-      return { ...l, activeView: 'review', reviewVisible: true, editorVisible: false, previewVisible: false, httpVisible: false, editorSplitPreview: false };
+      return { ...l, activeView: 'review', lastAuxView: 'review', reviewVisible: true, editorVisible: false, previewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false };
     }
     if (view === 'http') {
-      return { ...l, activeView: 'http', httpVisible: true, editorVisible: false, previewVisible: false, reviewVisible: false, editorSplitPreview: false };
+      return { ...l, activeView: 'http', lastAuxView: 'http', httpVisible: true, editorVisible: false, previewVisible: false, reviewVisible: false, tasksVisible: false, editorSplitPreview: false };
+    }
+    if (view === 'tasks') {
+      return { ...l, activeView: 'tasks', lastAuxView: 'tasks', tasksVisible: true, editorVisible: false, previewVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false };
     }
     return { ...l, activeView: view };
   });
@@ -77,11 +112,9 @@ export function setActiveView(view: ActiveView) {
 export function toggleEditorVisible() {
   layout.update((l) => {
     if (l.editorVisible) {
-      // Same panel clicked again → close it
       return { ...l, editorVisible: false, editorSplitPreview: false, activeView: 'terminal' };
     }
-    // Switch to editor, close any other panel
-    return { ...l, editorVisible: true, previewVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false, activeView: 'editor' };
+    return { ...l, editorVisible: true, lastAuxView: 'editor', previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false, activeView: 'editor' };
   });
 }
 
@@ -90,7 +123,7 @@ export function togglePreviewVisible() {
     if (l.previewVisible) {
       return { ...l, previewVisible: false, editorSplitPreview: false, activeView: 'terminal' };
     }
-    return { ...l, previewVisible: true, editorVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false, activeView: 'preview' };
+    return { ...l, previewVisible: true, lastAuxView: 'preview', editorVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false, activeView: 'preview' };
   });
 }
 
@@ -99,7 +132,7 @@ export function toggleReviewVisible() {
     if (l.reviewVisible) {
       return { ...l, reviewVisible: false, activeView: 'terminal' };
     }
-    return { ...l, reviewVisible: true, editorVisible: false, previewVisible: false, httpVisible: false, editorSplitPreview: false, activeView: 'review' };
+    return { ...l, reviewVisible: true, lastAuxView: 'review', editorVisible: false, previewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false, activeView: 'review' };
   });
 }
 
@@ -108,26 +141,26 @@ export function toggleHttpVisible() {
     if (l.httpVisible) {
       return { ...l, httpVisible: false, activeView: 'terminal' };
     }
-    return { ...l, httpVisible: true, editorVisible: false, previewVisible: false, reviewVisible: false, editorSplitPreview: false, activeView: 'http' };
+    return { ...l, httpVisible: true, lastAuxView: 'http', editorVisible: false, previewVisible: false, reviewVisible: false, tasksVisible: false, editorSplitPreview: false, activeView: 'http' };
+  });
+}
+
+export function toggleTasksVisible() {
+  layout.update((l) => {
+    if (l.tasksVisible) {
+      return { ...l, tasksVisible: false, activeView: 'terminal' };
+    }
+    return { ...l, tasksVisible: true, lastAuxView: 'tasks', editorVisible: false, previewVisible: false, reviewVisible: false, httpVisible: false, editorSplitPreview: false, activeView: 'tasks' };
   });
 }
 
 export function toggleTerminal() {
   layout.update((l) => {
-    // If editor or preview or review or HTTP client are visible, hide them to maximize terminal
-    if (l.editorVisible || l.previewVisible || l.reviewVisible || l.httpVisible) {
-      return {
-        ...l,
-        editorVisible: false,
-        previewVisible: false,
-        reviewVisible: false,
-        httpVisible: false,
-        editorSplitPreview: false,
-        activeView: 'terminal'
-      };
+    if (l.editorVisible || l.previewVisible || l.reviewVisible || l.httpVisible || l.tasksVisible) {
+      return { ...l, editorVisible: false, previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, editorSplitPreview: false, activeView: 'terminal' };
     }
-    // Otherwise, ensure terminal is active
-    return { ...l, activeView: 'terminal' };
+    // Aux panel is closed — restore the last tab the user was on
+    return restoreLastAuxView(l);
   });
 }
 

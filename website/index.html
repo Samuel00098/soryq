@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Soryq — Terminal-first developer workspace</title>
+  <meta name="description" content="A lightweight, terminal-first developer workspace combining PTY terminal sessions, CodeMirror editor, live proxy preview, and git integration in a single keyboard-driven window. Built with Tauri and Svelte.">
+  <link rel="icon" type="image/png" href="../static/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Header / Navigation -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 36 36" fill="none">
+          <rect width="36" height="36" rx="8" fill="rgba(6, 182, 212, 0.15)"/>
+          <polyline points="10,22 14,18 10,14" fill="none" stroke="#06b6d4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="17" y="17" width="10" height="2.5" rx="1.25" fill="#f3f3f6"/>
+        </svg>
+        <span>Soryq</span>
+      </div>
+      <nav class="links">
+        <a href="#features">Features</a>
+        <a href="#demo">Interactive Demo</a>
+        <a href="#comparison">Compare</a>
+        <a href="https://github.com/Samuel00098/soryq" class="github-link" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-bg-lines"></div>
+    <div class="container hero-content">
+      <div class="badge">TAURI 2 + SVELTE 5 SHIPPED</div>
+      <h1 class="hero-title">The lightweight, terminal-first developer workspace.</h1>
+      <p class="hero-desc">Soryq merges a native PTY terminal, CodeMirror editor, live preview proxy, and git status into a keyboard-centric window. Sub-second startup. Zero background cloud trackers.</p>
+      
+      <div class="download-group">
+        <a href="https://github.com/Samuel00098/soryq/releases/latest" class="btn primary" id="download-btn">
+          Download Soryq
+        </a>
+        <div class="install-cmd-wrap">
+          <code id="install-cmd">winget install Samuel00098.Soryq</code>
+          <button class="copy-btn" onclick="copyInstallCommand()" title="Copy command">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+      </div>
+      <span class="platform-meta" id="platform-detect">Detecting your operating system...</span>
+    </div>
+  </section>
+
+  <!-- Interactive Demo Mockup -->
+  <section class="demo-section" id="demo">
+    <div class="container">
+      <div class="section-header">
+        <h2>Experience Soryq in your browser</h2>
+        <p>Click the panel tabs below to see how Soryq orchestrates your terminal, code editor, and proxy previews side-by-side.</p>
+      </div>
+
+      <!-- App Mockup Shell -->
+      <div class="app-mockup">
+        <!-- Titlebar -->
+        <div class="mock-titlebar">
+          <div class="mock-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="mock-title-search">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span>soryq_project (main)</span>
+          </div>
+        </div>
+
+        <div class="mock-body">
+          <!-- Sidebar View Tabs -->
+          <div class="mock-sidebar-tabs">
+            <button class="mock-svt-btn active" data-target="terminal-panel">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="3"/><polyline points="8,9 4,12 8,15"/><line x1="12" y1="15" x2="20" y2="15"/></svg>
+              <span>Terminal</span>
+            </button>
+            <button class="mock-svt-btn" data-target="editor-panel">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <span>Editor</span>
+            </button>
+            <button class="mock-svt-btn" data-target="preview-panel">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+              <span>Preview</span>
+            </button>
+            <button class="mock-svt-btn" data-target="git-panel">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 15V9a4 4 0 0 0-4-4H9"/><line x1="6" y1="9" x2="6" y2="15"/></svg>
+              <span>Git</span>
+            </button>
+          </div>
+
+          <!-- Active Panel Content Frame -->
+          <div class="mock-content-frame">
+            <!-- Terminal panel active by default -->
+            <div class="mock-panel-content active" id="terminal-panel">
+              <div class="terminal-header">
+                <span>bash - terminal-1</span>
+              </div>
+              <div class="terminal-body">
+                <div class="terminal-line"><span class="prompt">sam@soryq:~/dev$</span> npm run dev</div>
+                <div class="terminal-line text-muted">v1.0.0 launching dev server...</div>
+                <div class="terminal-line text-success">➜  Local:   http://localhost:5173</div>
+                <div class="terminal-line text-info">➜  Soryq proxy initialized on port 1420</div>
+                <div class="terminal-line"><span class="prompt">sam@soryq:~/dev$</span> <span class="caret">_</span></div>
+              </div>
+            </div>
+
+            <!-- Editor panel -->
+            <div class="mock-panel-content" id="editor-panel">
+              <div class="editor-header">
+                <span>App.svelte</span>
+              </div>
+              <div class="editor-body">
+                <div class="code-line"><span class="ln">1</span><span class="kw">&lt;script</span> <span class="attr">lang</span>=<span class="str">"ts"</span><span class="kw">&gt;</span></div>
+                <div class="code-line"><span class="ln">2</span>  <span class="kw">let</span> count = <span class="num">0</span>;</div>
+                <div class="code-line"><span class="ln">3</span>  <span class="kw">function</span> <span class="fun">increment</span>() {</div>
+                <div class="code-line"><span class="ln">4</span>    count += <span class="num">1</span>;</div>
+                <div class="code-line"><span class="ln">5</span>  }</div>
+                <div class="code-line"><span class="ln">6</span><span class="kw">&lt;/script&gt;</span></div>
+                <div class="code-line"><span class="ln">7</span></div>
+                <div class="code-line"><span class="ln">8</span><span class="kw">&lt;main</span> <span class="attr">class</span>=<span class="str">"container"</span><span class="kw">&gt;</span></div>
+                <div class="code-line"><span class="ln">9</span>  <span class="kw">&lt;h1&gt;</span>Hello Soryq!<span class="kw">&lt;/h1&gt;</span></div>
+                <div class="code-line"><span class="ln">10</span>  <span class="kw">&lt;button</span> <span class="attr">onclick</span>=<span class="str">&#123;increment&#125;</span><span class="kw">&gt;</span>Clicks: &#123;count&#125;<span class="kw">&lt;/button&gt;</span></div>
+                <div class="code-line"><span class="ln">11</span><span class="kw">&lt;/main&gt;</span></div>
+              </div>
+            </div>
+
+            <!-- Preview panel -->
+            <div class="mock-panel-content" id="preview-panel">
+              <div class="preview-address-bar">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2.5 12h19M12 2.5a15 15 0 0 1 4 9.5 15 15 0 0 1-4 9.5 15 15 0 0 1-4-9.5 15 15 0 0 1 4-9.5z"/></svg>
+                <span>http://localhost:1420 (Proxied)</span>
+              </div>
+              <div class="preview-iframe-mock">
+                <h1>Hello Soryq!</h1>
+                <button class="preview-count-btn" id="demo-count-btn">Clicks: 0</button>
+                <div class="preview-dom-overlay">
+                  <span>button#demo-count-btn</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Git panel -->
+            <div class="mock-panel-content" id="git-panel">
+              <div class="git-header">
+                <span>Source Control (git)</span>
+              </div>
+              <div class="git-body">
+                <div class="git-changes-label">Changes (1)</div>
+                <div class="git-file-row">
+                  <span class="file-icon">M</span>
+                  <span class="file-name">src/App.svelte</span>
+                  <span class="git-badge modified">M</span>
+                </div>
+                <div class="commit-message-section">
+                  <input type="text" placeholder="Commit message..." class="git-commit-input" value="perf: accelerate UI loading states">
+                  <button class="git-commit-btn">Commit Changes</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Grid -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-header">
+        <h2>Built for productivity</h2>
+        <p>No extensions to install, no cloud syncing accounts to manage, no lag. Soryq ships with premium defaults.</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon cyan">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="3"/><polyline points="8,9 4,12 8,15"/><line x1="12" y1="15" x2="20" y2="15"/></svg>
+          </div>
+          <h3>Multi-pane PTY Terminal</h3>
+          <p>Full PTY shell sessions using xterm.js. Split your view into up to 4 responsive shell panes. Detects your shell automatically.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon violet">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <h3>CodeMirror Code Editor</h3>
+          <p>CodeMirror 6 core featuring syntax highlighting for 15+ languages, built-in Vim mode, minimap, formatting, and formatting on save.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+          </div>
+          <h3>Live Preview Proxy</h3>
+          <p>Local dev server HTTP proxy routing that automatically injects hot-reloading scripts and the built-in DOM inspector.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon orange">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 15V9a4 4 0 0 0-4-4H9"/><line x1="6" y1="9" x2="6" y2="15"/></svg>
+          </div>
+          <h3>Git Integration</h3>
+          <p>Trace diffs, review staged/unstaged changes, and commit files in milliseconds without interrupting your workflow.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison Section -->
+  <section class="comparison-section" id="comparison">
+    <div class="container">
+      <div class="section-header">
+        <h2>How Soryq stacks up</h2>
+        <p>Speed of the native desktop shell meets the power of unified layouts.</p>
+      </div>
+
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Soryq</th>
+            <th>VS Code</th>
+            <th>Warp</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Startup Time</td>
+            <td class="yes">Sub-second (Native)</td>
+            <td class="no">3–5+ seconds</td>
+            <td class="yes">Fast</td>
+          </tr>
+          <tr>
+            <td>PTY Terminal</td>
+            <td class="yes">Built-in (Multi-pane)</td>
+            <td class="yes">Integrated Tab</td>
+            <td class="yes">Primary focus</td>
+          </tr>
+          <tr>
+            <td>Code Editor</td>
+            <td class="yes">CodeMirror 6</td>
+            <td class="yes">Monaco Editor</td>
+            <td class="no">None</td>
+          </tr>
+          <tr>
+            <td>Local Port Proxy</td>
+            <td class="yes">Included + Inspector</td>
+            <td class="no">Requires extensions</td>
+            <td class="no">None</td>
+          </tr>
+          <tr>
+            <td>Desktop Shell</td>
+            <td class="yes">Tauri 2 (Rust)</td>
+            <td class="no">Electron (Node)</td>
+            <td class="yes">Native (Rust)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-content">
+      <div class="footer-left">
+        <p>© 2026 Soryq workspace. MIT Licensed.</p>
+      </div>
+      <div class="footer-right">
+        <a href="https://github.com/Samuel00098/soryq" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/Samuel00098/soryq/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

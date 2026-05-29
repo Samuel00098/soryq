@@ -109,12 +109,22 @@
   <div class="snap-list">
     {#if $snapshots.length === 0}
       <div class="empty-state">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.3">
-          <rect x="2" y="3" width="20" height="14" rx="2"/>
-          <path d="M8 21h8M12 17v4"/>
-          <path d="M7 8h10M7 12h6"/>
+        <svg width="48" height="48" viewBox="0 0 64 64" fill="none" stroke="currentColor" class="animated-svg-floating" style="margin-bottom: 8px;">
+          <circle cx="32" cy="32" r="28" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="1" />
+          <rect x="20" y="24" width="24" height="18" rx="3" stroke="var(--text-secondary)" stroke-width="1.5" />
+          <path d="M 28,24 L 30,20 L 34,20 L 36,24" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linejoin="round" />
+          <circle cx="32" cy="33" r="5" stroke="var(--accent)" stroke-width="1.5" />
+          <circle cx="41" cy="27" r="1.5" fill="var(--text-muted)" />
+          <g class="animated-layout-box" style="animation: floating-sub 5s ease-in-out infinite;">
+            <rect x="14" y="12" width="10" height="8" rx="1.5" fill="rgba(6, 182, 212, 0.15)" stroke="var(--accent)" stroke-width="1" />
+            <line x1="19" y1="12" x2="19" y2="20" stroke="var(--accent)" stroke-width="0.8" />
+          </g>
+          <g class="animated-layout-box-2" style="animation: floating-sub 5s ease-in-out infinite 2s;">
+            <rect x="42" y="14" width="10" height="8" rx="1.5" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1" />
+          </g>
         </svg>
-        <p>No snapshots yet.<br/>Save your current layout<br/>to restore it later.</p>
+        <p style="font-weight: 550; color: var(--text-primary);">No Snapshots Yet</p>
+        <p style="color: var(--text-muted); font-size: 10.5px; line-height: 1.4;">Save your current layout configuration to restore it later.</p>
       </div>
     {:else}
       {#each $snapshots as snap (snap.id)}
@@ -464,5 +474,20 @@
   .snap-url svg {
     flex-shrink: 0;
     opacity: 0.6;
+  }
+
+  .animated-svg-floating {
+    animation: floating 4s ease-in-out infinite;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+  }
+
+  @keyframes floating {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-4px); }
+  }
+
+  @keyframes floating-sub {
+    0%, 100% { transform: translateY(0px) rotate(0deg); }
+    50% { transform: translateY(-3px) rotate(2deg); }
   }
 </style>

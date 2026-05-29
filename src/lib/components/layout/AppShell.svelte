@@ -16,8 +16,10 @@
   import FloatingNotepad from '$lib/components/workspace/FloatingNotepad.svelte';
   import UpdateBanner from '$lib/components/shared/UpdateBanner.svelte';
   import { checkForUpdate } from '$lib/stores/updater';
+  import { fly } from 'svelte/transition';
 
-  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible } from '$lib/stores/layout';
+  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, openQuickCapture } from '$lib/stores/layout';
+  import { openDailyNote } from '$lib/stores/dailyNote';
   import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace, createNewWorkspace, isProjectSwitching } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
@@ -84,15 +86,20 @@
 
   let tabsCollapsed = $derived($layout.sidebarWidth < effectiveCollapseThreshold);
 
+  const sidebarTabsList = ['files', 'git', 'runs', 'snapshots'];
+  let activeTabIdx = $derived(sidebarTabsList.indexOf($layout.sidebarTab));
+
   let visiblePanels = $derived([
     { id: 'editor', visible: $layout.editorVisible },
     { id: 'preview', visible: $layout.previewVisible },
     { id: 'review', visible: $layout.reviewVisible },
-    { id: 'http', visible: $layout.httpVisible }
+    { id: 'http', visible: $layout.httpVisible },
+    { id: 'tasks', visible: $layout.tasksVisible }
   ].filter(p => p.visible));
 
   let firstPanelId = $derived(visiblePanels[0]?.id);
   let secondPanelId = $derived(visiblePanels[1]?.id);
+  let thirdPanelId = $derived(visiblePanels[2]?.id);
 
   // Adjust sidebar width dynamically when screen size changes, and collapse if very narrow screen
   $effect(() => {
@@ -120,7 +127,7 @@
     const currentSidebarWidth = $layout.sidebarVisible ? (tabsCollapsed ? 48 : $layout.sidebarWidth) : 0;
     const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
     
-    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible) && auxPanelWidth > maxAllowedWidth) {
+    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible) && auxPanelWidth > maxAllowedWidth) {
       auxPanelWidth = Math.max(200, maxAllowedWidth);
     }
   });
@@ -250,6 +257,12 @@
           break;
         case 'toggleNotepad':
           toggleFloatingNote();
+          break;
+        case 'quickCapture':
+          openQuickCapture();
+          break;
+        case 'openDailyNote':
+          if ($activeProject) openDailyNote($activeProject, true).catch(() => {});
           break;
       }
     }
@@ -398,6 +411,19 @@
                 <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
               </svg>
             </button>
+            <button
+              class="svt-btn"
+              class:svt-active={$layout.tasksVisible}
+              onclick={toggleTasksVisible}
+              title="Tasks"
+              aria-label="Tasks"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="5" height="18" rx="1"/>
+                <rect x="10" y="3" width="5" height="12" rx="1"/>
+                <rect x="17" y="3" width="5" height="8" rx="1"/>
+              </svg>
+            </button>
           </div>
 
           <!-- Section Header (hide when very narrow) -->
@@ -440,8 +466,9 @@
               {/if}
             </div>
 
-            <div class="sidebar-header-tabs">
-              <button
+            <div class="sidebar-header-tabs" style="position: relative;">
+               <div class="active-tab-pill" style="transform: translateX(calc({activeTabIdx} * 100%));"></div>
+               <button
                 class="sidebar-tab"
                 class:active={$layout.sidebarTab === 'files'}
                 onclick={() => setSidebarTab('files')}
@@ -463,19 +490,6 @@
                   <circle cx="6" cy="18" r="3"/>
                   <path d="M18 15V9a4 4 0 0 0-4-4H9"/>
                   <line x1="6" y1="9" x2="6" y2="15"/>
-                </svg>
-              </button>
-              <button
-                class="sidebar-tab"
-                class:active={$layout.sidebarTab === 'tasks'}
-                onclick={() => setSidebarTab('tasks')}
-                title="Tasks"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="5" width="6" height="6" rx="1"/>
-                  <rect x="3" y="13" width="6" height="6" rx="1"/>
-                  <line x1="13" y1="8" x2="21" y2="8"/>
-                  <line x1="13" y1="16" x2="21" y2="16"/>
                 </svg>
               </button>
               <button
@@ -510,8 +524,6 @@
                 <FileExplorer />
               {:else if $layout.sidebarTab === 'git'}
                 <SourceControl />
-              {:else if $layout.sidebarTab === 'tasks'}
-                <TasksPanel />
               {:else if $layout.sidebarTab === 'runs'}
                 <QuickRunPanel />
               {:else if $layout.sidebarTab === 'snapshots'}
@@ -544,7 +556,7 @@
           </div>
 
         <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
-        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible}
+        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible}
           <!-- Vertical Resize Handle between Terminal and Auxiliary Panel -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
@@ -559,69 +571,185 @@
           <div 
             class="auxiliary-panel" 
             style="width: {auxPanelWidth}px; min-width: 200px;"
+            transition:fly={{ x: 150, duration: 220 }}
           >
-            {#if visiblePanels.length === 3}
-              <!-- All three panels are visible: split equally in thirds -->
-              <div class="aux-pane split-pane-third" style="height: 33.3%; min-height: 10%;">
-                <EditorPanel />
-              </div>
-              <div class="aux-separator-line"></div>
-              <div class="aux-pane split-pane-third" style="height: 33.3%; min-height: 10%;">
-                <PreviewPanel />
-              </div>
-              <div class="aux-separator-line"></div>
-              <div class="aux-pane split-pane-third" style="height: 33.4%; min-height: 10%;">
-                <ReviewPanel />
-              </div>
-            {:else if visiblePanels.length === 2}
-              <!-- Two panels are visible: resizable split layout -->
-              <div class="aux-pane split-pane-top" style="height: {auxEditorHeight}%; min-height: 10%;">
-                {#if firstPanelId === 'editor'}
-                  <EditorPanel />
-                {:else if firstPanelId === 'preview'}
-                  <PreviewPanel />
-                {:else if firstPanelId === 'review'}
-                  <ReviewPanel />
-                {:else if firstPanelId === 'http'}
-                  <HttpClientPanel />
-                {/if}
-              </div>
-              
-              <!-- Horizontal Split Resize Handle -->
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div 
-                class="aux-row-resize-handle"
-                class:resizing={auxRowResizing}
-                onmousedown={onAuxRowMouseDown}
-                role="separator"
-                aria-label="Resize panels"
-              ></div>
+            <!-- Close Panel Button -->
+            <button
+              class="aux-close-btn"
+              onclick={toggleTerminal}
+              title="Close panel"
+              aria-label="Close panel"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
 
-              <div class="aux-pane split-pane-bottom" style="height: {100 - auxEditorHeight}%; min-height: 10%;">
-                {#if secondPanelId === 'editor'}
-                  <EditorPanel />
-                {:else if secondPanelId === 'preview'}
-                  <PreviewPanel />
-                {:else if secondPanelId === 'review'}
-                  <ReviewPanel />
-                {:else if secondPanelId === 'http'}
-                  <HttpClientPanel />
-                {/if}
-              </div>
-            {:else if visiblePanels.length === 1}
-              <!-- Only one panel is visible: full height -->
-              <div class="aux-pane full-pane">
-                {#if firstPanelId === 'editor'}
-                  <EditorPanel />
-                {:else if firstPanelId === 'preview'}
-                  <PreviewPanel />
-                {:else if firstPanelId === 'review'}
-                  <ReviewPanel />
-                {:else if firstPanelId === 'http'}
-                  <HttpClientPanel />
-                {/if}
-              </div>
-            {/if}
+            <!-- Auxiliary Sidebar Tabs -->
+            <div class="aux-tabs-bar">
+              <button
+                class="aux-tab"
+                class:active={$layout.editorVisible}
+                onclick={() => setActiveView('editor')}
+                title="Editor"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 20h9"/>
+                  <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                <span>Editor</span>
+              </button>
+              <button
+                class="aux-tab"
+                class:active={$layout.previewVisible}
+                onclick={() => setActiveView('preview')}
+                title="Browser Preview"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 2a14.5 14.5 0 000 20 14.5 14.5 0 000-20"/>
+                  <path d="M2 12h20"/>
+                </svg>
+                <span>Preview</span>
+              </button>
+              <button
+                class="aux-tab"
+                class:active={$layout.reviewVisible}
+                onclick={() => setActiveView('review')}
+                title="AI Review"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
+                </svg>
+                <span>Review</span>
+              </button>
+              <button
+                class="aux-tab"
+                class:active={$layout.httpVisible}
+                onclick={() => setActiveView('http')}
+                title="HTTP Client"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+                <span>HTTP Client</span>
+              </button>
+              <button
+                class="aux-tab"
+                class:active={$layout.tasksVisible}
+                onclick={() => setActiveView('tasks')}
+                title="Tasks"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="5" height="18" rx="1"/>
+                  <rect x="10" y="3" width="5" height="12" rx="1"/>
+                  <rect x="17" y="3" width="5" height="8" rx="1"/>
+                </svg>
+                <span>Tasks</span>
+              </button>
+            </div>
+
+            <div class="aux-content-area">
+              {#if visiblePanels.length === 3}
+                <!-- Three panels: split equally in thirds -->
+                <div class="aux-pane split-pane-third" style="height: 33.3%; min-height: 10%;">
+                  {#if firstPanelId === 'editor'}
+                    <EditorPanel />
+                  {:else if firstPanelId === 'preview'}
+                    <PreviewPanel />
+                  {:else if firstPanelId === 'review'}
+                    <ReviewPanel />
+                  {:else if firstPanelId === 'http'}
+                    <HttpClientPanel />
+                  {:else if firstPanelId === 'tasks'}
+                    <TasksPanel />
+                  {/if}
+                </div>
+                <div class="aux-separator-line"></div>
+                <div class="aux-pane split-pane-third" style="height: 33.3%; min-height: 10%;">
+                  {#if secondPanelId === 'editor'}
+                    <EditorPanel />
+                  {:else if secondPanelId === 'preview'}
+                    <PreviewPanel />
+                  {:else if secondPanelId === 'review'}
+                    <ReviewPanel />
+                  {:else if secondPanelId === 'http'}
+                    <HttpClientPanel />
+                  {:else if secondPanelId === 'tasks'}
+                    <TasksPanel />
+                  {/if}
+                </div>
+                <div class="aux-separator-line"></div>
+                <div class="aux-pane split-pane-third" style="height: 33.4%; min-height: 10%;">
+                  {#if thirdPanelId === 'editor'}
+                    <EditorPanel />
+                  {:else if thirdPanelId === 'preview'}
+                    <PreviewPanel />
+                  {:else if thirdPanelId === 'review'}
+                    <ReviewPanel />
+                  {:else if thirdPanelId === 'http'}
+                    <HttpClientPanel />
+                  {:else if thirdPanelId === 'tasks'}
+                    <TasksPanel />
+                  {/if}
+                </div>
+              {:else if visiblePanels.length === 2}
+                <!-- Two panels: resizable split layout -->
+                <div class="aux-pane split-pane-top" style="height: {auxEditorHeight}%; min-height: 10%;">
+                  {#if firstPanelId === 'editor'}
+                    <EditorPanel />
+                  {:else if firstPanelId === 'preview'}
+                    <PreviewPanel />
+                  {:else if firstPanelId === 'review'}
+                    <ReviewPanel />
+                  {:else if firstPanelId === 'http'}
+                    <HttpClientPanel />
+                  {:else if firstPanelId === 'tasks'}
+                    <TasksPanel />
+                  {/if}
+                </div>
+
+                <!-- Horizontal Split Resize Handle -->
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div
+                  class="aux-row-resize-handle"
+                  class:resizing={auxRowResizing}
+                  onmousedown={onAuxRowMouseDown}
+                  role="separator"
+                  aria-label="Resize panels"
+                ></div>
+
+                <div class="aux-pane split-pane-bottom" style="height: {100 - auxEditorHeight}%; min-height: 10%;">
+                  {#if secondPanelId === 'editor'}
+                    <EditorPanel />
+                  {:else if secondPanelId === 'preview'}
+                    <PreviewPanel />
+                  {:else if secondPanelId === 'review'}
+                    <ReviewPanel />
+                  {:else if secondPanelId === 'http'}
+                    <HttpClientPanel />
+                  {:else if secondPanelId === 'tasks'}
+                    <TasksPanel />
+                  {/if}
+                </div>
+              {:else if visiblePanels.length === 1}
+                <!-- One panel: full height -->
+                <div class="aux-pane full-pane">
+                  {#if firstPanelId === 'editor'}
+                    <EditorPanel />
+                  {:else if firstPanelId === 'preview'}
+                    <PreviewPanel />
+                  {:else if firstPanelId === 'review'}
+                    <ReviewPanel />
+                  {:else if firstPanelId === 'http'}
+                    <HttpClientPanel />
+                  {:else if firstPanelId === 'tasks'}
+                    <TasksPanel />
+                  {/if}
+                </div>
+              {/if}
+            </div>
           </div>
         {/if}
 
@@ -914,19 +1042,33 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    transition: color 0.15s, background 0.15s;
+    transition: color 0.15s;
     flex-shrink: 0;
+    position: relative;
+    z-index: 1;
   }
 
   .sidebar-tab:hover {
     color: var(--text-secondary);
-    background: var(--bg-hover);
   }
 
   .sidebar-tab.active {
     color: var(--text-primary);
+    font-weight: 550;
+  }
+
+  .active-tab-pill {
+    position: absolute;
+    top: 3px;
+    left: 4px;
+    bottom: 3px;
     background: var(--bg-active);
-    font-weight: 500;
+    border-radius: 5px;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 0;
+    border: 1px solid var(--border);
+    pointer-events: none;
+    width: calc((100% - 8px) / 4);
   }
 
   .sidebar-section-label {
@@ -1053,6 +1195,30 @@
     position: relative;
   }
 
+  .aux-close-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 100;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .aux-close-btn:hover {
+    background: rgba(248, 113, 113, 0.12);
+    color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 40%, transparent);
+  }
+
   /* Panes within the auxiliary panel */
   .aux-pane {
     width: 100%;
@@ -1129,5 +1295,70 @@
       border-bottom: none;
       align-items: center;
     }
+  }
+
+  /* Auxiliary Panel Tabs Navigation Header */
+  .aux-tabs-bar {
+    display: flex;
+    align-items: center;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    height: 38px;
+    padding: 0 8px;
+    padding-right: 44px;
+    gap: 4px;
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .aux-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    height: 28px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .aux-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+
+  .aux-tab.active {
+    color: var(--text-primary);
+    background: var(--editor-bg);
+    border-color: var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .aux-tab svg {
+    opacity: 0.6;
+    transition: all 0.15s ease;
+  }
+
+  .aux-tab.active svg {
+    opacity: 1;
+    color: var(--accent);
+    transform: scale(1.05);
+  }
+
+  /* Wrap content beneath the tabs bar */
+  .aux-content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
   }
 </style>

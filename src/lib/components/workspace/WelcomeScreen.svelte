@@ -9,6 +9,9 @@
   } from '$lib/stores/workspace';
   import { derived } from 'svelte/store';
   import { search as paletteSearch } from '$lib/stores/commandpalette';
+  import { activeTheme } from '$lib/stores/theme';
+
+  let isLight = $derived($activeTheme?.type === 'light');
 
   const filteredWorkspaces = derived(
     [recentWorkspaces, paletteSearch],
@@ -144,7 +147,7 @@
               {@const hue = projectHue(w.name)}
               <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
               <div class="recent-item" onclick={() => openWorkspace(w.id)} role="button">
-                <div class="recent-avatar" style="--hue:{hue}">
+                <div class="recent-avatar" style="--hue:{hue}; background: {isLight ? 'hsl(var(--hue) 50% 92%)' : 'hsl(var(--hue) 35% 20% / 0.45)'}; border-color: {isLight ? 'hsl(var(--hue) 50% 82%)' : 'hsl(var(--hue) 35% 30% / 0.4)'}; color: {isLight ? 'hsl(var(--hue) 60% 35%)' : 'hsl(var(--hue) 60% 70%)'};">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                   </svg>
@@ -200,11 +203,16 @@
           </div>
         {:else}
           <div class="empty-state">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            <svg width="48" height="48" viewBox="0 0 64 64" fill="none" stroke="currentColor" class="animated-svg-floating" style="margin-bottom: 8px;">
+              <circle cx="32" cy="32" r="28" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="1" />
+              <rect x="20" y="20" width="10" height="10" rx="2" fill="rgba(6, 182, 212, 0.1)" stroke="var(--accent)" stroke-width="1.2" />
+              <rect x="34" y="20" width="10" height="10" rx="2" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.2" />
+              <rect x="20" y="34" width="10" height="10" rx="2" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.2" />
+              <rect x="34" y="34" width="10" height="10" rx="2" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.2" />
+              <path d="M 30,25 L 34,25 M 25,30 L 25,34 M 30,39 L 34,39" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2,2" />
             </svg>
-            <p>No recent workspaces</p>
-            <span>Create one or open an existing folder to get started.</span>
+            <p style="font-weight: 550; color: var(--text-primary); margin: 0 0 4px 0;">No Recent Workspaces</p>
+            <span style="color: var(--text-muted); font-size: 11px; max-width: 200px; line-height: 1.4; display: inline-block;">Create a new workspace or open a folder to populate your dashboard.</span>
           </div>
         {/if}
       </div>
@@ -317,7 +325,14 @@
     justify-content: center;
     overflow: hidden;
     flex-shrink: 0;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    box-shadow: var(--shadow-md);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .logo-wrap:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-lg), 0 0 12px var(--accent-glow);
+    transform: scale(1.02);
   }
 
   .logo-img {
@@ -424,9 +439,9 @@
     font-family: inherit;
     padding: 2px 6px;
     border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(255,255,255,0.1);
-    color: rgba(255,255,255,0.7);
+    border: 1px solid var(--border);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
     letter-spacing: 0.2px;
   }
 
@@ -478,36 +493,55 @@
   .recent-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     overflow-y: auto;
     flex: 1;
+    padding: 6px 4px;
+    margin: -6px -4px;
+  }
+
+  .recent-list::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .recent-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .recent-list::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.15));
+    border-radius: 3px;
+  }
+
+  .recent-list::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent) 50%, transparent);
   }
 
   .recent-item {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 9px 12px;
+    padding: 10px 12px;
     border-radius: 8px;
     border: 1px solid var(--border);
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+    backdrop-filter: blur(8px);
     cursor: pointer;
-    transition: background 0.12s, border-color 0.12s, transform 0.1s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .recent-item:hover {
     background: var(--bg-hover);
-    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-    transform: translateX(2px);
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md), 0 0 8px var(--accent-glow);
   }
 
   .recent-avatar {
     width: 28px;
     height: 28px;
     border-radius: 7px;
-    background: hsl(var(--hue) 35% 20% / 0.45);
-    border: 1px solid hsl(var(--hue) 35% 30% / 0.4);
-    color: hsl(var(--hue) 60% 70%);
+    border: 1px solid transparent;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -642,8 +676,17 @@
     gap: 12px;
     padding: 12px 14px;
     border-radius: 10px;
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+    backdrop-filter: blur(8px);
     border: 1px solid var(--border);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .tip:hover {
+    background: var(--bg-hover);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    transform: translateX(2px);
+    box-shadow: var(--shadow-sm);
   }
 
   .tip-icon {
@@ -697,9 +740,15 @@
     flex-direction: column;
     gap: 8px;
     padding: 14px 16px;
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+    backdrop-filter: blur(8px);
     border: 1px solid var(--border);
     border-radius: 10px;
+    transition: border-color 0.2s ease;
+  }
+
+  .shortcuts-row:hover {
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   }
 
   .shortcut-grid {
@@ -713,8 +762,17 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 11px;
+    font-size: 11.5px;
     color: var(--text-secondary);
+    padding: 4px 6px;
+    margin: 0 -6px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+  }
+
+  .shortcut-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .shortcut-item kbd {
@@ -722,10 +780,11 @@
     font-family: inherit;
     padding: 2px 6px;
     border-radius: 4px;
-    background: var(--bg-tertiary);
+    background: linear-gradient(to bottom, var(--bg-tertiary), var(--bg-secondary));
     border: 1px solid var(--border);
-    border-bottom: 2px solid var(--border);
+    border-bottom: 2.5px solid var(--border);
     color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
     white-space: nowrap;
   }
 
@@ -734,5 +793,15 @@
     .welcome { padding: 28px 16px 32px; gap: 24px; }
     .content { grid-template-columns: 1fr; max-width: 100%; }
     .right-col { display: none; }
+  }
+
+  .animated-svg-floating {
+    animation: floating 4s ease-in-out infinite;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+  }
+
+  @keyframes floating {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-4px); }
   }
 </style>

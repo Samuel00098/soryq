@@ -25,7 +25,7 @@
     closePreviewBrowserTab
   } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
-  import { promptBarInput } from '$lib/stores/terminal';
+  import { promptBarInput, promptBarImage } from '$lib/stores/terminal';
   import { setActiveView } from '$lib/stores/layout';
   import { activeProject } from '$lib/stores/workspace';
 
@@ -437,15 +437,131 @@
     selectedElementInfo = null;
     if (inspectMode) {
       ensureProxyRunning();
+      injectInspectorIfNeeded();
     }
     postInspectorState();
   }
 
-  function postInspectorState() {
-    if ($proxyPort === null) return;
+  // Inject the inspector script directly into the iframe when the proxy hasn't
+  // done it (e.g. external URLs or proxy not yet ready).
+  function injectInspectorIfNeeded() {
     const activeIframe = getActiveIframeElement();
     if (!activeIframe?.contentWindow) return;
-    activeIframe.contentWindow.postMessage({ type: 'forge-inspector:set', enabled: inspectMode }, `http://127.0.0.1:${$proxyPort}`);
+    try {
+      const doc = activeIframe.contentDocument || activeIframe.contentWindow.document;
+      if (!doc || doc.querySelector('script[data-forge-inspector]')) return;
+      const script = doc.createElement('script');
+      script.setAttribute('data-forge-inspector', '1');
+      script.textContent = getInspectorScript();
+      (doc.head || doc.documentElement).appendChild(script);
+    } catch {
+      // Cross-origin — proxy injection is needed; silently ignore
+    }
+  }
+
+  // Minimal inline inspector that mirrors what the Rust proxy injects,
+  // used as a direct fallback when the proxy hasn't injected it yet.
+  function getInspectorScript(): string {
+    return `(function(){
+  if (window.__forgeInspectorLoaded) return;
+  window.__forgeInspectorLoaded = true;
+  const state = { enabled: false, hovered: null, selected: null };
+  let overlay, label;
+  const buildSelector = (el) => {
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1) {
+      let sel = node.tagName.toLowerCase();
+      if (node.id) { sel += '#' + node.id; parts.unshift(sel); break; }
+      const cls = Array.from(node.classList || []).filter(c => c && !/^(ng-|v-|svelte-)/.test(c)).slice(0,2).join('.');
+      if (cls) sel += '.' + cls;
+      parts.unshift(sel);
+      node = node.parentElement;
+      if (parts.length >= 4) break;
+    }
+    return parts.join(' > ');
+  };
+  const ensureOverlay = () => {
+    if (overlay) return;
+    overlay = document.createElement('div');
+    Object.assign(overlay.style, { position:'fixed', pointerEvents:'none', zIndex:'2147483646', border:'2px solid #7c6af7', background:'rgba(124,106,247,0.12)', borderRadius:'4px', boxSizing:'border-box', display:'none' });
+    label = document.createElement('div');
+    Object.assign(label.style, { position:'fixed', zIndex:'2147483647', padding:'6px 8px', borderRadius:'999px', background:'rgba(16,16,20,0.92)', color:'#fff', font:'12px system-ui,sans-serif', pointerEvents:'none', display:'none' });
+    document.documentElement.appendChild(overlay);
+    document.documentElement.appendChild(label);
+  };
+  const hide = () => { if(overlay) overlay.style.display='none'; if(label) label.style.display='none'; };
+  const show = (el) => {
+    if (!overlay||!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width<2||r.height<2){hide();return;}
+    overlay.style.display='block'; overlay.style.left=r.left+'px'; overlay.style.top=r.top+'px'; overlay.style.width=r.width+'px'; overlay.style.height=r.height+'px';
+    label.style.display='block'; label.textContent=el.tagName.toLowerCase()+' '+buildSelector(el); label.style.left=Math.max(8,r.left)+'px'; label.style.top=Math.max(8,r.top-30)+'px';
+  };
+  const setEnabled = (v) => { state.enabled=v; document.documentElement.style.cursor=v?'crosshair':''; if(v)ensureOverlay(); else hide(); };
+  document.addEventListener('mousemove', e => { if(!state.enabled)return; show(e.target instanceof Element?e.target:null); }, true);
+  document.addEventListener('click', e => {
+    if(!state.enabled)return;
+    const el = e.target instanceof Element ? e.target : null;
+    if(!el)return;
+    e.preventDefault(); e.stopPropagation();
+    const r = el.getBoundingClientRect();
+    const computed = window.getComputedStyle(el);
+    state.selected = {
+      selector: buildSelector(el),
+      tag: el.tagName.toLowerCase(),
+      text: (el.innerText||el.textContent||'').trim().slice(0,500),
+      html: (el.outerHTML||'').slice(0,3000),
+      classes: Array.from(el.classList||[]),
+      styles: { display:computed.display, position:computed.position, color:computed.color, backgroundColor:computed.backgroundColor, width:computed.width, height:computed.height },
+      page: { url: location.href, title: document.title },
+      rect: { x:Math.round(r.x), y:Math.round(r.y), width:Math.round(r.width), height:Math.round(r.height) }
+    };
+    parent.postMessage({ type:'forge-inspector:selected', payload:state.selected }, '*');
+  }, true);
+  window.addEventListener('message', e => {
+    if(e.source!==window.parent)return;
+    if((e.data||{}).type!=='forge-inspector:set')return;
+    setEnabled(Boolean(e.data.enabled));
+  });
+  setEnabled(false);
+})();`;
+  }
+
+  function getActiveTabTargetOrigin(): string | null {
+    if (!activeTab) return null;
+    const url = activeTab.url;
+    const localDev = parseLocalDevUrl(normalizeUrl(url));
+    if (localDev) {
+      // Local dev tab — only send if proxy port is known
+      if ($proxyPort) {
+        return `http://127.0.0.1:${$proxyPort}`;
+      }
+      // Proxy not ready yet; skip sending
+      return null;
+    }
+    // External URL — inspector is never injected, skip entirely
+    if (isAbsoluteUrl(normalizeUrl(url))) {
+      return null;
+    }
+    // Relative path (served via proxy)
+    if ($proxyPort) {
+      return `http://127.0.0.1:${$proxyPort}`;
+    }
+    return window.location.origin;
+  }
+
+  function postInspectorState() {
+    const activeIframe = getActiveIframeElement();
+    if (!activeIframe?.contentWindow) return;
+    const targetOrigin = getActiveTabTargetOrigin();
+    if (!targetOrigin) return;
+    // Include parentOrigin so the iframe script can use it as the postMessage target
+    // when replying, avoiding the need for '*' in the reverse direction.
+    activeIframe.contentWindow.postMessage(
+      { type: 'forge-inspector:set', enabled: inspectMode, parentOrigin: window.location.origin },
+      targetOrigin
+    );
   }
 
   function buildIframeSrc(url: string) {
@@ -486,7 +602,10 @@
 
   function buildIframeSandbox(url: string) {
     const norm = normalizeUrl(url);
-    const base = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin';
+    const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(norm);
+    const base = isLocal
+      ? 'allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin'
+      : 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
     if (isYouTubeUrl(norm)) {
       return `${base} allow-presentation`;
     }
@@ -529,41 +648,68 @@
   }
 
   function buildElementPrompt(info: SelectedElementInfo): string {
-    const lines = [
-      'Selected web preview element context:',
-      `Page: ${info.page?.title || 'Untitled'} (${info.page?.url || $currentUrl})`,
-      `Selector: ${info.selector}`,
-      `Element: <${info.tag}> ${info.rect.width}x${info.rect.height} at ${info.rect.x},${info.rect.y}`,
-    ];
+    const tag = info.tag.toLowerCase();
+    const classStr = info.classes?.length ? `.${info.classes[0]}` : '';
+    const textPreview = info.text
+      ? ` "${info.text.slice(0, 30)}${info.text.length > 30 ? '…' : ''}"`
+      : '';
+    return `<${tag}${classStr}>${textPreview}`;
+  }
 
-    if (info.text) {
-      lines.push(`Text: ${info.text}`);
-    }
-    if (info.classes?.length) {
-      lines.push(`Classes: ${info.classes.join(' ')}`);
-    }
-    if (info.ancestorPath?.length) {
-      lines.push(`Ancestor path: ${info.ancestorPath.join(' -> ')}`);
-    }
-    if (info.styles) {
-      lines.push(`Computed styles: ${JSON.stringify(info.styles)}`);
-    }
-    if (info.html) {
-      lines.push(`HTML:\n${info.html}`);
-    }
+  // Captures a screenshot of the selected element's bounding box.
+  // Returns a data URL string, or null if capture fails.
+  async function captureElementScreenshot(info: SelectedElementInfo): Promise<string | null> {
+    try {
+      // Find the iframe that is showing the active tab
+      const activeIframe = getActiveIframeElement();
+      if (!activeIframe) return null;
 
-    lines.push('Use this selected element as the target for the next requested app change.');
-    return lines.join('\n');
+      const iframeRect = activeIframe.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+
+      // The element rect from the inspector is relative to the iframe's viewport.
+      // Offset it by the iframe's position on screen to get absolute screen coords.
+      const x = Math.round((iframeRect.left + info.rect.x) * scale) / scale;
+      const y = Math.round((iframeRect.top + info.rect.y) * scale) / scale;
+      const width = Math.max(4, Math.round(info.rect.width));
+      const height = Math.max(4, Math.round(info.rect.height));
+
+      // Clamp to the iframe's visible area so we never request out-of-bounds pixels
+      const clampedX = Math.max(iframeRect.left, x);
+      const clampedY = Math.max(iframeRect.top, y);
+      const clampedW = Math.min(width, iframeRect.right - clampedX);
+      const clampedH = Math.min(height, iframeRect.bottom - clampedY);
+      if (clampedW <= 0 || clampedH <= 0) return null;
+
+      const pngBytes = await invoke<number[]>('preview_capture_screenshot', {
+        x: Math.round(clampedX),
+        y: Math.round(clampedY),
+        width: Math.round(clampedW),
+        height: Math.round(clampedH),
+        scale,
+      });
+
+      // Convert raw PNG bytes → base64 data URL
+      const uint8 = new Uint8Array(pngBytes);
+      let binary = '';
+      for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+      const base64 = btoa(binary);
+      return `data:image/png;base64,${base64}`;
+    } catch {
+      return null;
+    }
   }
 
   function handleInspectorMessage(event: MessageEvent) {
     if (!event.data) return;
-    // Reject messages from any origin other than our proxy server
-    if ($proxyPort === null || event.origin !== `http://127.0.0.1:${$proxyPort}`) return;
-    const sourceTabId = Object.entries(iframeElements).find(([, iframe]) => iframe?.contentWindow === event.source)?.[0];
-    if (!sourceTabId) return;
 
+    // Identify which iframe sent the message
+    const sourceTabId = Object.entries(iframeElements).find(([, iframe]) => iframe?.contentWindow === event.source)?.[0];
+
+    // Console log events: only accept from our proxy origin
     if (event.data.type === 'forge-preview:console') {
+      if ($proxyPort === null || event.origin !== `http://127.0.0.1:${$proxyPort}`) return;
+      if (!sourceTabId) return;
       const payload = event.data.payload || {};
       const level = ['log', 'info', 'warn', 'error', 'debug'].includes(payload.level) ? payload.level : 'log';
       if (activeTab?.id === sourceTabId) {
@@ -584,16 +730,32 @@
       return;
     }
 
+    // Inspector selection events: only accept from our proxy origin or a local dev URL.
+    // External-URL iframes never have the inspector injected, so we reject those.
     if (event.data.type !== 'forge-inspector:selected') return;
-    selectedElementInfo = event.data.payload;
+    if (!sourceTabId) return;
+    {
+      const proxyOrigin = $proxyPort ? `http://127.0.0.1:${$proxyPort}` : null;
+      const sourceTab = ($previewTabs || []).find((t) => t.id === sourceTabId);
+      const isLocalDevTab = sourceTab ? parseLocalDevUrl(normalizeUrl(sourceTab.url)) !== null : false;
+      const isProxyOrigin = proxyOrigin !== null && event.origin === proxyOrigin;
+      if (!isProxyOrigin && !isLocalDevTab) return;
+    }
+    const info = event.data.payload;
+    selectedElementInfo = info;
     inspectMode = false;
     postInspectorState();
-    if (selectedElementInfo?.selector) {
-      const text = buildElementPrompt(selectedElementInfo).trim();
-      if (text) {
-        promptBarInput.set(text);
-        setActiveView('terminal');
-      }
+    if (info?.selector) {
+      const text = buildElementPrompt(info).trim();
+      if (text) promptBarInput.set(text);
+      selectedElementInfo = null;
+      captureElementScreenshot(info).then((dataUrl) => {
+        if (dataUrl) {
+          const tag = info.tag.toLowerCase();
+          const name = `element-${tag}-${Date.now()}.png`;
+          promptBarImage.set({ dataUrl, name });
+        }
+      });
     }
   }
 
@@ -931,6 +1093,18 @@
         <strong>{selectedElementInfo.selector}</strong>
         <span class="inspect-meta">{selectedElementInfo.tag} {selectedElementInfo.rect.width}x{selectedElementInfo.rect.height}</span>
       </div>
+      <button class="inspect-add-btn" onclick={() => {
+        const text = buildElementPrompt(selectedElementInfo!).trim();
+        if (text) {
+          promptBarInput.set(text);
+          showToast('Element added to prompt bar', 'success');
+        }
+      }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Add to prompt
+      </button>
       <button class="inspect-copy-btn" onclick={async () => {
         await navigator.clipboard.writeText(selectedElementInfo?.selector || '');
         showToast('Selector copied to clipboard', 'success');
@@ -1474,10 +1648,32 @@
     background: var(--bg-secondary);
     color: var(--text-primary);
     cursor: pointer;
+    font-size: 11.5px;
   }
 
   .inspect-copy-btn:hover {
     background: var(--bg-hover);
+  }
+
+  .inspect-add-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    border-radius: 9999px;
+    padding: 7px 12px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 11.5px;
+    font-weight: 600;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .inspect-add-btn:hover {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    border-color: var(--accent);
   }
 
   .preview-frame-stack {

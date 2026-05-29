@@ -67,7 +67,7 @@
     return body;
   }
 
-  const PRIVATE_IP_RE = /^https?:\/\/(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|localhost|0\.0\.0\.0)/i;
+  const PRIVATE_IP_RE = /^https?:\/\/(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0|localhost|\[::1\]|\[fe80:)/i;
   const SENSITIVE_HEADER_RE = /^(authorization|x-api-key|x-auth-token|cookie|proxy-authorization)$/i;
 
   let ssrfWarning = $derived(
@@ -463,7 +463,7 @@
   }
 
   .req-name-row {
-    padding: 8px 12px 4px;
+    padding: 8px 36px 4px 12px;
     border-bottom: 1px solid var(--border-subtle, var(--border));
     flex-shrink: 0;
   }

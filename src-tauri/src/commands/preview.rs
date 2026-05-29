@@ -44,20 +44,24 @@ pub fn preview_clear_proxy_target(state: State<AppState>) -> Result<(), String> 
     state.preview_manager.clear_proxy_target()
 }
 
+/// Validates that a URL is safe to open in the browser.
+/// Returns the canonical URL string if valid, or an error message.
+pub fn validate_browser_url(url: &str) -> Result<String, String> {
+    let parsed = url::Url::parse(url).map_err(|_| "Invalid URL".to_string())?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err("Only HTTP and HTTPS URLs are allowed".to_string());
+    }
+    Ok(parsed.as_str().to_string())
+}
+
 /// Open a URL in the system's default web browser.
 #[tauri::command]
 pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_shell::ShellExt;
-    // Use a proper URL parse rather than a string prefix check — ShellExecute on Windows
-    // may normalise backslash-escaped or percent-encoded components before dispatch,
-    // making a plain starts_with check bypassable in edge cases.
-    let parsed = url::Url::parse(&url).map_err(|_| "Invalid URL".to_string())?;
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err("Only HTTP and HTTPS URLs are allowed".to_string());
-    }
+    let canonical = validate_browser_url(&url)?;
     #[allow(deprecated)]
     app.shell()
-        .open(&url, None)
+        .open(&canonical, None)
         .map_err(|e| format!("Failed to open browser: {}", e))
 }
 
@@ -178,4 +182,75 @@ pub async fn preview_capture_screenshot(
 
     #[allow(unreachable_code)]
     Err("Screenshot not supported on this platform".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_browser_url_accepts_https() {
+        let result = validate_browser_url("https://example.com");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "https://example.com/");
+    }
+
+    #[test]
+    fn validate_browser_url_accepts_http() {
+        let result = validate_browser_url("http://localhost:3000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_browser_url_rejects_javascript_scheme() {
+        let result = validate_browser_url("javascript:alert(1)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_browser_url_rejects_file_scheme() {
+        let result = validate_browser_url("file:///etc/passwd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_browser_url_rejects_ms_msdt_scheme() {
+        // ms-msdt is not a valid URL per the url crate (no host) — parse fails
+        let result = validate_browser_url("ms-msdt:id PCWDiagnostic");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_browser_url_rejects_data_uri() {
+        let result = validate_browser_url("data:text/html,<script>alert(1)</script>");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_browser_url_rejects_invalid_url() {
+        let result = validate_browser_url("not a url at all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_browser_url_returns_canonical_form() {
+        // The url crate normalises paths, so path traversal segments are resolved
+        let result = validate_browser_url("https://example.com/path/../other");
+        assert!(result.is_ok());
+        // The canonical URL should resolve the traversal
+        let canonical = result.unwrap();
+        assert!(canonical.starts_with("https://example.com/"));
+    }
+
+    #[test]
+    fn validate_browser_url_accepts_https_with_path_and_query() {
+        let result = validate_browser_url("https://example.com/path?q=1&r=2");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_browser_url_accepts_http_localhost_with_port() {
+        let result = validate_browser_url("http://localhost:5173/");
+        assert!(result.is_ok());
+    }
 }

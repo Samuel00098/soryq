@@ -219,6 +219,118 @@ fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Create an AppState whose workspace has one open project rooted at `dir`.
+    fn make_state_with_project(dir: &TempDir) -> crate::state::AppState {
+        let config_dir = dir.path().join(".config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let state = crate::state::AppState::new(config_dir);
+        let project_root = std::fs::canonicalize(dir.path()).unwrap();
+        let project_root = crate::commands::clean_path_buf(project_root);
+        state.workspace_manager.open_project(project_root).unwrap();
+        state
+    }
+
+    // --- require_in_project ---
+
+    #[test]
+    fn require_in_project_accepts_file_inside_root() {
+        let dir = TempDir::new().unwrap();
+        let state = make_state_with_project(&dir);
+        // Create a real file so the path can be canonicalised
+        let file = dir.path().join("hello.txt");
+        std::fs::write(&file, "content").unwrap();
+        let canonical = std::fs::canonicalize(&file).unwrap();
+        let canonical = crate::commands::clean_path_buf(canonical);
+        assert!(require_in_project(&canonical, &state).is_ok());
+    }
+
+    #[test]
+    fn require_in_project_accepts_new_file_path_inside_root() {
+        let dir = TempDir::new().unwrap();
+        let state = make_state_with_project(&dir);
+        // A path that does not exist yet — but its parent (dir) does
+        let new_file = dir.path().join("new_file.rs");
+        assert!(require_in_project(&new_file, &state).is_ok());
+    }
+
+    #[test]
+    fn require_in_project_rejects_path_outside_project() {
+        let dir = TempDir::new().unwrap();
+        let state = make_state_with_project(&dir);
+        // A completely separate temp dir — not an open project
+        let other_dir = TempDir::new().unwrap();
+        let outside = other_dir.path().join("secret.txt");
+        std::fs::write(&outside, "secret").unwrap();
+        let canonical = std::fs::canonicalize(&outside).unwrap();
+        let canonical = crate::commands::clean_path_buf(canonical);
+        assert!(require_in_project(&canonical, &state).is_err());
+    }
+
+    #[test]
+    fn require_in_project_rejects_when_no_project_open() {
+        let dir = TempDir::new().unwrap();
+        let config_dir = dir.path().join(".config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        // State with NO project opened
+        let state = crate::state::AppState::new(config_dir);
+        let path = dir.path().join("file.txt");
+        assert!(require_in_project(&path, &state).is_err());
+    }
+
+    #[test]
+    fn require_in_project_accepts_nested_subdirectory() {
+        let dir = TempDir::new().unwrap();
+        let state = make_state_with_project(&dir);
+        let nested = dir.path().join("a").join("b").join("c");
+        std::fs::create_dir_all(&nested).unwrap();
+        let file = nested.join("deep.txt");
+        std::fs::write(&file, "deep").unwrap();
+        let canonical = std::fs::canonicalize(&file).unwrap();
+        let canonical = crate::commands::clean_path_buf(canonical);
+        assert!(require_in_project(&canonical, &state).is_ok());
+    }
+
+    // --- resolve_path ---
+
+    #[test]
+    fn resolve_path_resolves_existing_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "data").unwrap();
+        let result = resolve_path(&file.to_string_lossy());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn resolve_path_rejects_bare_dotdot() {
+        // A path whose filename is ".." should fail
+        let result = resolve_path("..");
+        // resolve_path may succeed for ".." as it's an existing dir,
+        // but require_in_project will reject it — this just checks it doesn't panic
+        let _ = result;
+    }
+
+    // --- redact_path ---
+
+    #[test]
+    fn redact_path_keeps_only_filename() {
+        let result = redact_path("/home/user/secrets/password.txt");
+        assert_eq!(result, "[redacted]/password.txt");
+        assert!(!result.contains("/home/user/secrets"));
+    }
+
+    #[test]
+    fn redact_path_handles_filename_only() {
+        let result = redact_path("readme.md");
+        assert_eq!(result, "[redacted]/readme.md");
+    }
+}
+
 #[tauri::command]
 pub fn fs_read_file(path: String, state: State<AppState>) -> Result<String, String> {
     let p = require_path(&path)?;

@@ -14,9 +14,6 @@
   } from '$lib/stores/explorer';
   import {
     activeProject,
-    activeWorkspace,
-    openProjectIds,
-    openProjectsList,
     openProject
   } from '$lib/stores/workspace';
 
@@ -65,9 +62,7 @@
   }
 
   function refreshExplorer() {
-    for (const project of $openProjectsList) {
-      loadRootDirectory(project.root_path);
-    }
+    if ($activeProject) loadRootDirectory($activeProject.root_path);
   }
 
   async function confirmCreate() {
@@ -135,10 +130,8 @@
   }
 
   $effect(() => {
-    for (const project of $openProjectsList) {
-      if (!$projectRootNodes.has(project.root_path)) {
-        loadRootDirectory(project.root_path);
-      }
+    if ($activeProject && !$projectRootNodes.has($activeProject.root_path)) {
+      loadRootDirectory($activeProject.root_path);
     }
   });
 
@@ -182,9 +175,9 @@
   </div>
 
   <div class="explorer-content">
-    {#if $openProjectsList.length > 0}
+    {#if $activeProject}
       <div class="root-list" role="tree">
-        {#each $openProjectsList as project (project.id)}
+        {#each [$activeProject] as project (project.id)}
           {@const rootChildren = $projectRootNodes.get(project.root_path) ?? []}
           {@const rootLoading = $loadingProjectRoots.has(project.root_path)}
           <section class="root-section">
@@ -221,12 +214,8 @@
           </section>
         {/each}
       </div>
-    {:else if $activeWorkspace && $openProjectIds.length === 0}
-      <EmptyWorkspace />
     {:else}
-      <div class="no-project">
-        <p>Open a folder to explore files</p>
-      </div>
+      <EmptyWorkspace />
     {/if}
   </div>
 

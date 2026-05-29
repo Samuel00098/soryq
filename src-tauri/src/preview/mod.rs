@@ -24,6 +24,8 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
     let overlay = null;
     let label = null;
     const originalConsole = {};
+    // Captured from the first forge-inspector:set handshake so replies go to the right origin.
+    let parentOrigin = '*';
 
     const serializeValue = (value) => {
         try {
@@ -43,6 +45,7 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
     };
 
     const postConsole = (level, args) => {
+        if (parentOrigin === '*') return;
         try {
             const safeUrl = (() => { try { const u = new URL(location.href); return u.origin + u.pathname; } catch { return ''; } })();
             parent.postMessage({
@@ -53,7 +56,7 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
                     url: safeUrl,
                     timestamp: new Date().toISOString()
                 }
-            }, window.location.origin);
+            }, parentOrigin);
         } catch {}
     };
 
@@ -221,13 +224,14 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
             page: { url: location.href, title: document.title },
             rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
         };
-        parent.postMessage({ type: 'forge-inspector:selected', payload: state.selected }, window.location.origin);
+        parent.postMessage({ type: 'forge-inspector:selected', payload: state.selected }, parentOrigin);
     }, true);
 
     window.addEventListener('message', (event) => {
         if (event.source !== window.parent) return;
         const data = event.data || {};
         if (data.type !== 'forge-inspector:set') return;
+        if (data.parentOrigin) parentOrigin = data.parentOrigin;
         setEnabled(Boolean(data.enabled));
     });
 

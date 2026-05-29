@@ -13,6 +13,7 @@
     summarizeTerminalTask,
     startCommandBlock,
     promptBarInput,
+    promptBarImage,
     activateSessionInPane,
     requestTerminalInput,
     getSessionLabel,
@@ -20,7 +21,8 @@
   } from '$lib/stores/terminal';
   import { layout } from '$lib/stores/layout';
   import { showToast } from '$lib/stores/notification';
-  import { createVoiceInputSession } from '$lib/services/voice-input';
+  import { createVoiceInputSession, mergeVoiceTranscript } from '$lib/services/voice-input';
+  import { refineVoicePrompt } from '$lib/services/voice-refinement';
   import { activeProject } from '$lib/stores/workspace';
   import { addRunEntry } from '$lib/stores/runHistory';
 
@@ -34,6 +36,7 @@
   let draftBeforeHistory = $state('');
   let historyOpen = $state(false);
   let isListening = $state(false);
+  let isRefining = $state(false);
   let voiceLocked = $state(false);
   let voiceHeld = $state(false);
   let voiceStopping = $state(false);
@@ -50,8 +53,9 @@
   let manualTargetId = $state<number | null>(null);
   let targetPickerOpen = $state(false);
   let voiceDraftBase = $state('');
+  let voiceDraftText = $state('');
   let isActive = $derived(
-    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag)
+    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || isRefining || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag)
   );
 
   type PastedImage = { objectUrl: string; dataUrl: string; name: string };
@@ -155,6 +159,10 @@
 
   function adjustInputHeight() {
     if (!inputEl) return;
+    if (!inputValue) {
+      inputEl.style.height = '24px';
+      return;
+    }
     inputEl.style.height = '0px';
     const nextHeight = Math.min(inputEl.scrollHeight, 100);
     inputEl.style.height = `${Math.max(nextHeight, 24)}px`;
@@ -355,36 +363,61 @@
   const voiceInput = createVoiceInputSession({
     onStart: () => {
       isListening = true;
-      voiceDraftBase = inputValue.trim();
+      isRefining = false;
+      voiceDraftBase = inputValue;
+      voiceDraftText = '';
       showToast('Listening for terminal prompt...', 'info');
     },
     onResult: (transcript) => {
-      inputValue = voiceDraftBase ? (transcript ? `${voiceDraftBase} ${transcript}` : voiceDraftBase) : transcript;
-      requestAnimationFrame(adjustInputHeight);
-      focusInput();
+      voiceDraftText = transcript;
     },
     onEnd: () => {
+      const shouldRestart = !voiceStopping && (voiceLocked || voiceHeld);
       isListening = false;
-      if (!voiceStopping && (voiceLocked || voiceHeld)) {
-        queueMicrotask(() => {
-          if (voiceLocked || voiceHeld) {
-            voiceInput.start();
+      isRefining = true;
+
+      void (async () => {
+        try {
+          const result = await refineVoicePrompt(voiceDraftText);
+          if (result.text) {
+            inputValue = mergeVoiceTranscript(voiceDraftBase, result.text);
+            requestAnimationFrame(adjustInputHeight);
+            focusInput();
+            if (result.aiRefined) {
+              showToast('Prompt refined by AI', 'success', undefined, true);
+            }
           }
-        });
-      }
-      voiceStopping = false;
+        } catch (error) {
+          console.error('Failed to refine voice prompt:', error);
+        } finally {
+          isRefining = false;
+          voiceStopping = false;
+          voiceDraftBase = '';
+          voiceDraftText = '';
+          if (shouldRestart) {
+            queueMicrotask(() => {
+              if (voiceLocked || voiceHeld) {
+                voiceInput.start();
+              }
+            });
+          }
+        }
+      })();
     },
     onError: (message) => {
       isListening = false;
+      isRefining = false;
       voiceLocked = false;
       voiceHeld = false;
       voiceStopping = false;
       voiceDraftBase = '';
+      voiceDraftText = '';
       showToast(message, 'error');
     },
   });
 
   async function toggleVoiceInput() {
+    if (isRefining) return;
     if (isListening && voiceLocked) {
       voiceLocked = false;
       voiceStopping = true;
@@ -504,7 +537,8 @@
   $effect(() => {
     const text = $promptBarInput;
     if (text) {
-      inputValue = text;
+      // Append the injected text to any existing input rather than overwriting it
+      inputValue = inputValue.trim() ? `${inputValue.trim()} ${text}` : text;
       promptBarInput.set(null);
       historyOpen = false;
       resetHistoryCursor();
@@ -514,6 +548,24 @@
         inputEl?.setSelectionRange(inputEl.value.length, inputEl.value.length);
       });
     }
+  });
+
+  // Watch for element screenshots injected from the Preview panel inspector
+  $effect(() => {
+    const img = $promptBarImage;
+    if (!img) return;
+    promptBarImage.set(null);
+    // Convert the dataUrl into an objectUrl so it renders in the chip
+    fetch(img.dataUrl)
+      .then((r) => r.blob())
+      .then((blob) => {
+        const objectUrl = URL.createObjectURL(blob);
+        pastedImages = [...pastedImages, { objectUrl, dataUrl: img.dataUrl, name: img.name }];
+        requestAnimationFrame(() => {
+          inputEl?.focus();
+        });
+      })
+      .catch(() => {/* silently ignore */});
   });
 
   $effect(() => {
@@ -554,7 +606,7 @@
   }
 
   function handleGlobalVoiceShortcut(event: KeyboardEvent) {
-    if (event.key !== 'Alt' || event.location !== KeyboardEvent.DOM_KEY_LOCATION_LEFT || event.repeat) return;
+    if (event.key !== 'Alt' || event.location !== KeyboardEvent.DOM_KEY_LOCATION_LEFT || event.repeat || isRefining) return;
     const activeElement = document.activeElement;
     if (!shellEl || !activeElement || !shellEl.contains(activeElement)) return;
     event.preventDefault();
@@ -783,15 +835,23 @@
       <button
         class="voice-toggle"
         class:listening={isListening}
+        class:refining={isRefining}
         onclick={toggleVoiceInput}
-        title={isListening ? 'Stop voice input' : 'Start voice input'}
-        aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
+        title={isRefining ? 'Refining with AI…' : isListening ? 'Stop voice input' : 'Start voice input'}
+        aria-label={isRefining ? 'Refining with AI…' : isListening ? 'Stop voice input' : 'Start voice input'}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-          <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
-          <line x1="12" x2="12" y1="19" y2="22"/>
-        </svg>
+        {#if isRefining}
+          <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+            <polyline points="21 3 21 8 16 8"/>
+          </svg>
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+            <line x1="12" x2="12" y1="19" y2="22"/>
+          </svg>
+        {/if}
       </button>
 
       <button
@@ -857,6 +917,7 @@
             {#each pastedImages as img, i (img.objectUrl)}
               <div class="image-chip">
                 <img src={img.objectUrl} alt="Pasted image" class="chip-thumb" />
+                <span class="chip-label">{img.name || 'image'}</span>
                 <button class="chip-remove" onclick={() => removeImage(i)} title="Remove image" aria-label="Remove image">
                   <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -1123,6 +1184,20 @@
     box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2);
   }
 
+  .voice-toggle.refining {
+    background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
+    color: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .spin {
+    animation: spin 0.9s linear infinite;
+  }
+
   .prompt-copy {
     min-width: 0;
     flex: 1;
@@ -1251,21 +1326,48 @@
   .image-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
+    padding: 6px 8px;
+    background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+    border-radius: 10px;
+    border: 1px solid var(--border);
   }
 
   .image-chip {
     position: relative;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-width: 64px;
   }
 
   .chip-thumb {
     display: block;
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
     object-fit: cover;
     border-radius: 8px;
-    border: 1px solid var(--border);
+    border: 1.5px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .image-chip:hover .chip-thumb {
+    transform: scale(1.04);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+
+  .chip-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    line-height: 1.2;
   }
 
   .chip-remove {

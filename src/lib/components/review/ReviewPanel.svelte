@@ -634,7 +634,7 @@
   .sc-header {
     display: flex;
     align-items: center;
-    padding: 10px 14px;
+    padding: 10px 36px 10px 14px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     user-select: none;

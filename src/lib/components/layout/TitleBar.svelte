@@ -1,7 +1,8 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { activeProject, closeProject, activeProjectId, activeWorkspaceId, activeWorkspace, clearAllStores, saveProjectState } from '$lib/stores/workspace';
-  import { openSettings, layout, toggleSidebar, setSidebarTab } from '$lib/stores/layout';
+  import { openSettings, layout, toggleSidebar, setSidebarTab, toggleEditorVisible, toggleTerminal, openQuickCapture } from '$lib/stores/layout';
+  import { openDailyNote } from '$lib/stores/dailyNote';
   import { floatingNoteOpen, toggleFloatingNote } from '$lib/stores/notes';
   import { isOpen as paletteOpen, search as paletteSearch, toggleCommandPalette } from '$lib/stores/commandpalette';
   import { get } from 'svelte/store';
@@ -22,6 +23,14 @@
       layout.update((l) => ({ ...l, sidebarVisible: false }));
     } else {
       layout.update((l) => ({ ...l, sidebarVisible: true, sidebarTab: 'git' }));
+    }
+  }
+
+  function handleToggleAuxPanel() {
+    if ($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible) {
+      toggleTerminal();
+    } else {
+      toggleEditorVisible();
     }
   }
 
@@ -308,6 +317,53 @@
         </div>
       {/if}
     </div>
+
+    <!-- Toggle Right Panel button -->
+    {#if $activeWorkspaceId}
+      <button
+        class="icon-btn"
+        class:active={$layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible}
+        onclick={handleToggleAuxPanel}
+        aria-label="Toggle Right Panel"
+        title="Toggle Right Panel"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <line x1="15" y1="3" x2="15" y2="21"/>
+        </svg>
+      </button>
+    {/if}
+
+    <!-- Daily Note button -->
+    {#if $activeProject}
+      <button
+        class="icon-btn"
+        onclick={() => openDailyNote($activeProject!, true).catch(() => {})}
+        aria-label="Open Daily Note"
+        title="Open Today's Note (Ctrl+Shift+D)"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+          <line x1="8" y1="15" x2="16" y2="15"/>
+        </svg>
+      </button>
+    {/if}
+
+    <!-- Quick Capture button -->
+    <button
+      class="icon-btn"
+      onclick={openQuickCapture}
+      aria-label="Quick Capture"
+      title="Quick Capture (Ctrl+Shift+Space)"
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+      </svg>
+    </button>
 
     <!-- Scratchpad button -->
     <button

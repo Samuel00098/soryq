@@ -1,23 +1,27 @@
 <script lang="ts">
-  import { tasks, addTask, updateTaskStatus, deleteTask, type TaskStatus } from '$lib/stores/tasks';
+  import { tasks, addTask, updateTaskStatus, deleteTask, loadProjectTasks, type TaskStatus } from '$lib/stores/tasks';
   import { activeProject } from '$lib/stores/workspace';
   import { showToast } from '$lib/stores/notification';
-  import { createVoiceInputSession } from '$lib/services/voice-input';
+  import { createVoiceInputSession, mergeVoiceTranscript } from '$lib/services/voice-input';
+  import { refineVoicePrompt } from '$lib/services/voice-refinement';
 
   let panelEl = $state<HTMLDivElement | null>(null);
+  let isNarrow = $state(false);
   let newTaskInputs = $state({ todo: '', doing: '', done: '' });
   let listeningStatus = $state<{ todo: boolean; doing: boolean; done: boolean }>({ todo: false, doing: false, done: false });
+  let refiningStatus = $state<{ todo: boolean; doing: boolean; done: boolean }>({ todo: false, doing: false, done: false });
   let voiceBaseInputs = $state<{ todo: string; doing: string; done: string }>({ todo: '', doing: '', done: '' });
+  let voiceDraftInputs = $state<{ todo: string; doing: string; done: string }>({ todo: '', doing: '', done: '' });
   let projectId = $derived($activeProject?.id ?? '');
 
   let projectTasks = $derived(
     $tasks.filter((t) => t.projectId === projectId)
   );
 
-  let columns: { id: TaskStatus; label: string; color: string }[] = [
-    { id: 'todo',  label: 'To Do',       color: 'var(--text-muted)' },
-    { id: 'doing', label: 'In Progress',  color: 'var(--warning)' },
-    { id: 'done',  label: 'Done',         color: 'var(--success)' },
+  let columns: { id: TaskStatus; label: string; color: string; borderColor: string; badgeBg: string; badgeColor: string }[] = [
+    { id: 'todo',  label: 'To Do',       color: 'var(--text-muted)',  borderColor: 'rgba(148,148,166,0.4)',  badgeBg: 'rgba(148,148,166,0.1)',  badgeColor: 'var(--text-muted)' },
+    { id: 'doing', label: 'In Progress', color: 'var(--warning)',     borderColor: 'rgba(251,191,36,0.45)', badgeBg: 'rgba(251,191,36,0.12)', badgeColor: 'var(--warning)' },
+    { id: 'done',  label: 'Done',        color: 'var(--success)',     borderColor: 'rgba(74,222,128,0.45)', badgeBg: 'rgba(74,222,128,0.12)', badgeColor: 'var(--success)' },
   ];
 
   function getColumnTasks(status: TaskStatus) {
@@ -39,60 +43,100 @@
     todo: createVoiceInputSession({
       onStart: () => {
         listeningStatus.todo = true;
-        voiceBaseInputs.todo = newTaskInputs.todo.trim();
+        refiningStatus.todo = false;
+        voiceBaseInputs.todo = newTaskInputs.todo;
+        voiceDraftInputs.todo = '';
         showToast('Listening for To Do task...', 'info');
       },
-      onResult: (transcript) => {
-        newTaskInputs.todo = voiceBaseInputs.todo ? (transcript ? `${voiceBaseInputs.todo} ${transcript}` : voiceBaseInputs.todo) : transcript;
-      },
+      onResult: (transcript) => { voiceDraftInputs.todo = transcript; },
       onEnd: () => {
         listeningStatus.todo = false;
+        refiningStatus.todo = true;
+        void (async () => {
+          try {
+            const { text: refined } = await refineVoicePrompt(voiceDraftInputs.todo);
+            newTaskInputs.todo = mergeVoiceTranscript(voiceBaseInputs.todo, refined);
+          } catch (e) {
+            console.error('Failed to refine voice input:', e);
+          } finally {
+            refiningStatus.todo = false;
+            voiceBaseInputs.todo = '';
+            voiceDraftInputs.todo = '';
+          }
+        })();
       },
       onError: (message) => {
-        listeningStatus.todo = false;
-        voiceBaseInputs.todo = '';
+        listeningStatus.todo = false; refiningStatus.todo = false;
+        voiceBaseInputs.todo = ''; voiceDraftInputs.todo = '';
         showToast(message, 'error');
       },
     }),
     doing: createVoiceInputSession({
       onStart: () => {
         listeningStatus.doing = true;
-        voiceBaseInputs.doing = newTaskInputs.doing.trim();
+        refiningStatus.doing = false;
+        voiceBaseInputs.doing = newTaskInputs.doing;
+        voiceDraftInputs.doing = '';
         showToast('Listening for In Progress task...', 'info');
       },
-      onResult: (transcript) => {
-        newTaskInputs.doing = voiceBaseInputs.doing ? (transcript ? `${voiceBaseInputs.doing} ${transcript}` : voiceBaseInputs.doing) : transcript;
-      },
+      onResult: (transcript) => { voiceDraftInputs.doing = transcript; },
       onEnd: () => {
         listeningStatus.doing = false;
+        refiningStatus.doing = true;
+        void (async () => {
+          try {
+            const { text: refined } = await refineVoicePrompt(voiceDraftInputs.doing);
+            newTaskInputs.doing = mergeVoiceTranscript(voiceBaseInputs.doing, refined);
+          } catch (e) {
+            console.error('Failed to refine voice input:', e);
+          } finally {
+            refiningStatus.doing = false;
+            voiceBaseInputs.doing = '';
+            voiceDraftInputs.doing = '';
+          }
+        })();
       },
       onError: (message) => {
-        listeningStatus.doing = false;
-        voiceBaseInputs.doing = '';
+        listeningStatus.doing = false; refiningStatus.doing = false;
+        voiceBaseInputs.doing = ''; voiceDraftInputs.doing = '';
         showToast(message, 'error');
       },
     }),
     done: createVoiceInputSession({
       onStart: () => {
         listeningStatus.done = true;
-        voiceBaseInputs.done = newTaskInputs.done.trim();
+        refiningStatus.done = false;
+        voiceBaseInputs.done = newTaskInputs.done;
+        voiceDraftInputs.done = '';
         showToast('Listening for Done task...', 'info');
       },
-      onResult: (transcript) => {
-        newTaskInputs.done = voiceBaseInputs.done ? (transcript ? `${voiceBaseInputs.done} ${transcript}` : voiceBaseInputs.done) : transcript;
-      },
+      onResult: (transcript) => { voiceDraftInputs.done = transcript; },
       onEnd: () => {
         listeningStatus.done = false;
+        refiningStatus.done = true;
+        void (async () => {
+          try {
+            const { text: refined } = await refineVoicePrompt(voiceDraftInputs.done);
+            newTaskInputs.done = mergeVoiceTranscript(voiceBaseInputs.done, refined);
+          } catch (e) {
+            console.error('Failed to refine voice input:', e);
+          } finally {
+            refiningStatus.done = false;
+            voiceBaseInputs.done = '';
+            voiceDraftInputs.done = '';
+          }
+        })();
       },
       onError: (message) => {
-        listeningStatus.done = false;
-        voiceBaseInputs.done = '';
+        listeningStatus.done = false; refiningStatus.done = false;
+        voiceBaseInputs.done = ''; voiceDraftInputs.done = '';
         showToast(message, 'error');
       },
     }),
   };
 
   async function toggleVoiceInput(status: TaskStatus) {
+    if (refiningStatus[status]) return;
     if (listeningStatus[status]) {
       voiceSessions[status].stop();
       return;
@@ -105,7 +149,7 @@
     const activeElement = document.activeElement;
     if (!panelEl || !activeElement || !panelEl.contains(activeElement)) return;
     event.preventDefault();
-    const taskInput = (activeElement as HTMLElement).closest('.add-task-row')?.querySelector('.add-task-input');
+    const taskInput = (activeElement as HTMLElement).closest('.kanban-col')?.querySelector('.add-task-input');
     const taskInputIndex = taskInput
       ? Array.from(panelEl.querySelectorAll('.add-task-input')).indexOf(taskInput as HTMLInputElement)
       : -1;
@@ -113,12 +157,27 @@
     toggleVoiceInput(preferredStatus ?? 'todo');
   }
 
+  // Load tasks from .soryq/tasks.json when project changes
+  $effect(() => {
+    const project = $activeProject;
+    if (project) void loadProjectTasks(project);
+  });
+
   $effect(() => {
     if (typeof document === 'undefined') return;
     document.addEventListener('keydown', handleGlobalVoiceShortcut);
-    return () => {
-      document.removeEventListener('keydown', handleGlobalVoiceShortcut);
-    };
+    return () => document.removeEventListener('keydown', handleGlobalVoiceShortcut);
+  });
+
+  $effect(() => {
+    if (!panelEl) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        isNarrow = entry.contentRect.width < 520;
+      }
+    });
+    ro.observe(panelEl);
+    return () => ro.disconnect();
   });
 
   const statusOrder: TaskStatus[] = ['todo', 'doing', 'done'];
@@ -131,67 +190,121 @@
 </script>
 
 <div class="tasks-panel" bind:this={panelEl}>
-  <div class="panel-header">
-    <span class="panel-title">Tasks</span>
-    <span class="task-count">{projectTasks.length} total</span>
-  </div>
-
   {#if !projectId}
-    <div class="empty-state">Open a project to use tasks</div>
+    <div class="empty-state">
+      <svg width="52" height="52" viewBox="0 0 64 64" fill="none" stroke="currentColor" class="animated-svg-floating" style="margin-bottom: 10px;">
+        <circle cx="32" cy="32" r="28" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="1" />
+        <rect x="22" y="18" width="20" height="28" rx="2" stroke="var(--text-secondary)" stroke-width="1.5" />
+        <circle cx="27" cy="24" r="2" fill="var(--accent)" />
+        <line x1="32" y1="24" x2="38" y2="24" stroke="var(--text-secondary)" stroke-width="1.2" />
+        <circle cx="27" cy="32" r="2" fill="var(--text-muted)" />
+        <line x1="32" y1="32" x2="38" y2="32" stroke="var(--text-muted)" stroke-width="1.2" />
+        <circle cx="27" cy="40" r="2" fill="var(--text-muted)" />
+        <line x1="32" y1="40" x2="36" y2="40" stroke="var(--text-muted)" stroke-width="1.2" />
+        <circle cx="44" cy="22" r="7" fill="rgba(74, 222, 128, 0.15)" stroke="var(--success)" stroke-width="1.2" />
+        <polyline points="41 22 43 24 47 20" fill="none" stroke="var(--success)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <p class="empty-title">No Active Project</p>
+      <p class="empty-desc">Open a project folder to track and organize your tasks.</p>
+    </div>
   {:else}
-    <div class="columns">
+    <div class="panel-meta">
+      <span class="meta-project">{$activeProject?.name ?? 'Project'}</span>
+      <span class="meta-count">{projectTasks.length} {projectTasks.length === 1 ? 'task' : 'tasks'}</span>
+    </div>
+
+    <div class="kanban-board" class:kanban-board--stacked={isNarrow}>
       {#each columns as col}
         {@const colTasks = getColumnTasks(col.id)}
-        <div class="column">
+        <div class="kanban-col">
           <div class="col-header">
-            <span class="col-dot" style="background: {col.color}"></span>
+            <span class="col-accent-bar" style="background: {col.color};"></span>
             <span class="col-label">{col.label}</span>
-            <span class="col-count">{colTasks.length}</span>
+            <span class="col-badge" style="background: {col.badgeBg}; color: {col.badgeColor};">{colTasks.length}</span>
           </div>
 
           <div class="task-list">
             {#each colTasks as task (task.id)}
-              <div class="task-card">
+              <div class="task-card" class:is-done={col.id === 'done'} style="border-left-color: {col.borderColor};">
                 <span class="task-title">{task.title}</span>
                 <div class="task-actions">
                   {#if col.id !== 'todo'}
-                    <button class="task-btn" onclick={() => moveTask(task.id, col.id, -1)} title="Move back">←</button>
+                    <button class="task-btn" onclick={() => moveTask(task.id, col.id, -1)} title="Move back">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"/>
+                      </svg>
+                    </button>
                   {/if}
                   {#if col.id !== 'done'}
-                    <button class="task-btn" onclick={() => moveTask(task.id, col.id, 1)} title="Move forward">→</button>
+                    <button class="task-btn" onclick={() => moveTask(task.id, col.id, 1)} title="Move forward">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 18 15 12 9 6"/>
+                      </svg>
+                    </button>
                   {/if}
-                  <button class="task-btn delete-btn" onclick={() => deleteTask(task.id)} title="Delete">×</button>
+                  <button class="task-btn delete-btn" onclick={() => deleteTask(task.id)} title="Delete">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
             {/each}
           </div>
 
           <div class="add-task-row">
-            <input
-              class="add-task-input"
-              type="text"
-              placeholder="Add task…"
-              bind:value={newTaskInputs[col.id]}
-              onkeydown={(e) => handleInputKeyDown(e, col.id)}
-            />
-            <button
-              class="voice-btn"
-              class:listening={listeningStatus[col.id]}
-              onclick={() => toggleVoiceInput(col.id)}
-              title={listeningStatus[col.id] ? 'Stop voice input' : 'Start voice input'}
-              aria-label={listeningStatus[col.id] ? 'Stop voice input' : 'Start voice input'}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-                <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
-                <line x1="12" x2="12" y1="19" y2="22"/>
-              </svg>
-            </button>
-            <button
-              class="add-btn"
-              onclick={() => submitTask(col.id)}
-              disabled={!newTaskInputs[col.id].trim()}
-            >+</button>
+            {#if refiningStatus[col.id]}
+              <div class="refining-label">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin-icon">
+                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+                </svg>
+                Refining…
+              </div>
+            {/if}
+            <div class="add-task-input-wrap">
+              <input
+                class="add-task-input"
+                type="text"
+                placeholder="New task…"
+                bind:value={newTaskInputs[col.id]}
+                onkeydown={(e) => handleInputKeyDown(e, col.id)}
+                style="--col-color: {col.color};"
+              />
+              <div class="add-task-actions">
+                <button
+                  class="voice-btn"
+                  class:listening={listeningStatus[col.id]}
+                  class:refining={refiningStatus[col.id]}
+                  onclick={() => toggleVoiceInput(col.id)}
+                  title={listeningStatus[col.id] ? 'Stop listening' : refiningStatus[col.id] ? 'Refining with AI…' : 'Voice input'}
+                  aria-label="Voice input"
+                  disabled={refiningStatus[col.id]}
+                >
+                  {#if refiningStatus[col.id]}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin-icon">
+                      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+                    </svg>
+                  {:else}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                      <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                      <line x1="12" x2="12" y1="19" y2="22"/>
+                    </svg>
+                  {/if}
+                </button>
+                <button
+                  class="add-btn"
+                  onclick={() => submitTask(col.id)}
+                  disabled={!newTaskInputs[col.id].trim()}
+                  title="Add task"
+                  aria-label="Add task"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       {/each}
@@ -205,117 +318,195 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-    background: var(--sidebar-bg);
+    background: var(--editor-bg);
   }
 
-  .panel-header {
+  /* ─── Empty state ─── */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    color: var(--text-muted);
+    user-select: none;
+  }
+
+  .empty-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 6px;
+  }
+
+  .empty-desc {
+    color: var(--text-muted);
+    font-size: 11.5px;
+    margin: 0;
+    line-height: 1.5;
+    text-align: center;
+    max-width: 220px;
+  }
+
+  .animated-svg-floating {
+    animation: floating 4s ease-in-out infinite;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.2));
+  }
+
+  @keyframes floating {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-5px); }
+  }
+
+  /* ─── Project meta bar ─── */
+  .panel-meta {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px 8px;
+    padding: 10px 16px 8px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
 
-  .panel-title {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--text-muted);
+  .meta-project {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .task-count {
-    font-size: 10px;
+  .meta-count {
+    font-size: 10.5px;
     color: var(--text-muted);
-    opacity: 0.6;
+    flex-shrink: 0;
   }
 
-  .empty-state {
+  /* ─── Kanban board ─── */
+  .kanban-board {
     flex: 1;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    color: var(--text-muted);
-    opacity: 0.6;
+    flex-direction: row;
+    min-height: 0;
+    overflow: hidden;
   }
 
-  .columns {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 10px;
-    display: flex;
+  .kanban-board--stacked {
     flex-direction: column;
-    gap: 16px;
+    overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
-  .column {
+  /* ─── Column ─── */
+  .kanban-col {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    border-right: 1px solid var(--border-subtle);
+    padding: 12px 10px 0;
   }
 
+  .kanban-col:last-child {
+    border-right: none;
+  }
+
+  .kanban-board--stacked .kanban-col {
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    min-height: 160px;
+    padding-bottom: 10px;
+  }
+
+  .kanban-board--stacked .kanban-col:last-child {
+    border-bottom: none;
+  }
+
+  /* ─── Column header ─── */
   .col-header {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 2px 0;
+    gap: 7px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
   }
 
-  .col-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
+  .col-accent-bar {
+    width: 3px;
+    height: 13px;
+    border-radius: 2px;
     flex-shrink: 0;
+    opacity: 0.85;
   }
 
   .col-label {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 650;
     color: var(--text-secondary);
     flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .col-count {
+  .col-badge {
     font-size: 10px;
-    color: var(--text-muted);
-    background: var(--bg-hover);
-    border-radius: 8px;
-    padding: 1px 6px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 10px;
+    flex-shrink: 0;
   }
 
+  /* ─── Task list ─── */
   .task-list {
+    flex: 1;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-height: 4px;
+    gap: 5px;
+    padding-bottom: 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+    min-height: 0;
   }
 
+  /* ─── Task card ─── */
   .task-card {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 8px;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 9px 9px 9px 11px;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    transition: border-color 0.15s, background 0.15s;
+    border-left-width: 3px;
+    border-radius: 7px;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    cursor: default;
   }
 
   .task-card:hover {
-    border-color: var(--accent-light);
     background: var(--bg-hover);
+    border-color: var(--border-focus);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  }
+
+  .task-card.is-done .task-title {
+    text-decoration: line-through;
+    opacity: 0.5;
   }
 
   .task-title {
     flex: 1;
     font-size: 12px;
     color: var(--text-primary);
-    line-height: 1.35;
+    line-height: 1.4;
     word-break: break-word;
+    min-width: 0;
   }
 
   .task-actions {
@@ -323,7 +514,9 @@
     gap: 2px;
     flex-shrink: 0;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity 0.12s;
+    align-self: flex-start;
+    margin-top: 1px;
   }
 
   .task-card:hover .task-actions {
@@ -334,16 +527,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     border-radius: 5px;
-    font-size: 12px;
-    line-height: 1;
     color: var(--text-muted);
     background: transparent;
     border: none;
     cursor: pointer;
     transition: background 0.12s, color 0.12s;
+    flex-shrink: 0;
   }
 
   .task-btn:hover {
@@ -356,16 +548,23 @@
     color: var(--error);
   }
 
+  /* ─── Add task row ─── */
   .add-task-row {
-    display: flex;
-    gap: 5px;
-    align-items: center;
+    flex-shrink: 0;
+    padding: 8px 0 12px;
+    border-top: 1px dashed var(--border-subtle);
+    margin-top: 2px;
+  }
+
+  .add-task-input-wrap {
+    position: relative;
+    width: 100%;
   }
 
   .add-task-input {
-    flex: 1;
+    width: 100%;
     height: 30px;
-    padding: 0 8px;
+    padding: 0 58px 0 9px;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 7px;
@@ -373,46 +572,40 @@
     font-size: 11.5px;
     outline: none;
     transition: border-color 0.15s;
+    box-sizing: border-box;
   }
 
   .add-task-input:focus {
-    border-color: var(--accent);
+    border-color: var(--col-color, var(--accent));
   }
 
   .add-task-input::placeholder {
     color: var(--text-muted);
-    opacity: 0.6;
+    opacity: 0.55;
   }
 
-  .add-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 7px;
-    background: var(--accent-light);
-    color: var(--accent);
-    font-size: 18px;
-    line-height: 1;
+  .add-task-actions {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
     display: flex;
+    gap: 2px;
     align-items: center;
-    justify-content: center;
-    border: none;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    flex-shrink: 0;
   }
 
   .voice-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 7px;
-    background: var(--bg-secondary);
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    background: transparent;
     color: var(--text-muted);
-    border: 1px solid var(--border);
+    border: none;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.15s, color 0.15s;
     flex-shrink: 0;
   }
 
@@ -422,9 +615,66 @@
   }
 
   .voice-btn.listening {
-    background: rgba(239, 68, 68, 0.14);
     color: var(--error);
-    border-color: rgba(239, 68, 68, 0.28);
+    animation: mic-pulse 1s ease-in-out infinite;
+  }
+
+  .voice-btn.refining {
+    background: rgba(139, 92, 246, 0.14);
+    color: #a78bfa;
+    cursor: default;
+    animation: refine-glow 1.4s ease-in-out infinite;
+  }
+
+  @keyframes mic-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+  }
+
+  @keyframes refine-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+    50%       { box-shadow: 0 0 5px 2px rgba(139, 92, 246, 0.2); }
+  }
+
+  .spin-icon {
+    animation: sparkle-spin 1.6s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes sparkle-spin {
+    0%   { transform: rotate(0deg) scale(1);     opacity: 1; }
+    50%  { transform: rotate(180deg) scale(1.15); opacity: 0.7; }
+    100% { transform: rotate(360deg) scale(1);   opacity: 1; }
+  }
+
+  .refining-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: #a78bfa;
+    padding: 3px 0 5px;
+    animation: refine-fade 1.2s ease-in-out infinite;
+  }
+
+  @keyframes refine-fade {
+    0%, 100% { opacity: 0.5; }
+    50%       { opacity: 1; }
+  }
+
+  .add-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    background: var(--accent-light);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
   }
 
   .add-btn:hover:not(:disabled) {
@@ -433,7 +683,7 @@
   }
 
   .add-btn:disabled {
-    opacity: 0.35;
+    opacity: 0.3;
     cursor: not-allowed;
   }
 </style>

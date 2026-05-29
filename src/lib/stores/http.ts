@@ -102,10 +102,19 @@ function isPrivateUrl(url: string): boolean {
   try {
     const { hostname } = new URL(url);
     if (hostname === 'localhost') return true;
+    // IPv6 link-local (fe80::/10) and loopback (::1)
+    if (hostname === '::1' || hostname.toLowerCase().startsWith('fe80:')) return true;
     const parts = hostname.split('.').map(Number);
     if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
       const [a, b] = parts;
-      return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 169;
+      return (
+        a === 127 ||
+        a === 10 ||
+        a === 0 ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        (a === 169 && b === 254)
+      );
     }
     return false;
   } catch {

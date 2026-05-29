@@ -119,6 +119,23 @@ export const showHidden = persistentWritable('showHidden', false);
 // Notifications
 export const notificationsEnabled = persistentWritable('notificationsEnabled', true);
 
+// Voice Refinement
+export const voiceRefinementModelOptions = [
+  { id: 'anthropic/claude-sonnet-4.5' as const, label: 'Claude Sonnet 4.5', description: 'Best overall quality for prompt rewriting.' },
+  { id: 'anthropic/claude-haiku-4.5' as const, label: 'Claude Haiku 4.5', description: 'Best cheap Claude option.' },
+  { id: 'google/gemini-2.5-flash' as const, label: 'Google Gemini 2.5 Flash', description: 'Best balance of quality and speed.' },
+  { id: 'google/gemini-2.5-flash-lite' as const, label: 'Google Gemini 2.5 Flash Lite', description: 'Cheaper and faster Google fallback.' },
+  { id: 'anthropic/claude-3.5-haiku' as const, label: 'Claude 3.5 Haiku', description: 'Fast, polished rewrites.' },
+  { id: 'qwen/qwen3-30b-a3b-instruct-2507' as const, label: 'Qwen3 30B Instruct', description: 'Very cheap, solid fallback.' },
+  { id: 'qwen/qwen-2.5-7b-instruct' as const, label: 'Qwen 2.5 7B Instruct', description: 'Ultra-cheap fallback.' },
+  { id: 'google/gemma-4-31b-it:free' as const, label: 'Google Gemma 4 31B (free)', description: 'Free Google option.' },
+  { id: 'google/gemma-4-26b-a4b-it:free' as const, label: 'Google Gemma 4 26B A4B (free)', description: 'Free Google fallback.' },
+] as const;
+
+export type VoiceRefinementModelId = (typeof voiceRefinementModelOptions)[number]['id'];
+export const voiceRefinementEnabled = persistentWritable('voiceRefinementEnabled', true);
+export const voiceRefinementModel = persistentWritable<VoiceRefinementModelId>('voiceRefinementModel', 'google/gemini-2.5-flash');
+ 
 // UI Scaling
 export const uiZoom = persistentWritable('uiZoom', 100);
 
@@ -157,6 +174,8 @@ export const shortcutActions: ShortcutAction[] = [
   { id: 'zoomOut',        label: 'Zoom Out',        category: 'Window' },
   { id: 'resetZoom',      label: 'Reset Zoom',      category: 'Window' },
   { id: 'toggleNotepad',  label: 'Toggle Scratchpad', category: 'View' },
+  { id: 'quickCapture',  label: 'Quick Capture',     category: 'Workspace' },
+  { id: 'openDailyNote', label: 'Open Daily Note',   category: 'Workspace' },
 ];
 
 export const defaultShortcuts: KeyboardShortcut[] = [
@@ -178,6 +197,8 @@ export const defaultShortcuts: KeyboardShortcut[] = [
   { id: 'zoomOut',        label: 'Zoom Out',        keys: 'Ctrl+-' },
   { id: 'resetZoom',      label: 'Reset Zoom',      keys: 'Ctrl+0' },
   { id: 'toggleNotepad',  label: 'Toggle Scratchpad', keys: 'Ctrl+Shift+N' },
+  { id: 'quickCapture',  label: 'Quick Capture',     keys: 'Ctrl+Shift+Space' },
+  { id: 'openDailyNote', label: 'Open Daily Note',   keys: 'Ctrl+Shift+D' },
 ];
 
 export const userShortcuts = persistentWritable<KeyboardShortcut[]>('userShortcuts', defaultShortcuts);
@@ -237,6 +258,9 @@ export function matchShortcut(e: KeyboardEvent, shortcutKeys: string): boolean {
 // Appearance / Theme
 export const appearance = persistentWritable<'system' | 'light' | 'dark'>('appearance', 'system');
 
+// Onboarding
+export const onboardingCompleted = persistentWritable<boolean>('onboardingCompleted', false);
+
 // Terminal
 export const terminalShell = persistentWritable<string>('terminalShell', ''); // empty = auto-detect
 export const terminalCursorStyle = persistentWritable<'bar' | 'block' | 'underline'>('terminalCursorStyle', 'bar');
@@ -253,9 +277,12 @@ export function updateSetting(key: string, value: unknown) {
     case 'minimap':          minimap.set(value as boolean); break;
     case 'vimMode':          vimMode.set(value as boolean); break;
     case 'showHidden':       showHidden.set(value as boolean); break;
+    case 'voiceRefinementEnabled': voiceRefinementEnabled.set(value as boolean); break;
+    case 'voiceRefinementModel': voiceRefinementModel.set(value as VoiceRefinementModelId); break;
     case 'uiZoom':           uiZoom.set(value as number); break;
     case 'formatOnSave':     formatOnSave.set(value as boolean); break;
     case 'appearance':       appearance.set(value as 'system' | 'light' | 'dark'); break;
+    case 'onboardingCompleted': onboardingCompleted.set(value as boolean); break;
     case 'terminalShell':    terminalShell.set(value as string); break;
     case 'terminalFontSize': terminalFontSize.set(value as number); break;
     case 'terminalRenderer': terminalRenderer.set(value as 'canvas' | 'dom'); break;
@@ -270,10 +297,13 @@ export function resetSettingsToDefault() {
   minimap.set(false);
   vimMode.set(false);
   showHidden.set(false);
+  voiceRefinementEnabled.set(true);
+  voiceRefinementModel.set('google/gemini-2.5-flash');
   uiZoom.set(100);
   formatOnSave.set(true);
   userShortcuts.set(defaultShortcuts);
   appearance.set('system');
+  onboardingCompleted.set(false);
   terminalShell.set('');
   terminalCursorStyle.set('bar');
   terminalScrollback.set(5000);

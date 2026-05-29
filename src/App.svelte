@@ -3,15 +3,18 @@
   import CommandPalette from '$lib/components/shared/CommandPalette.svelte';
   import Toasts from '$lib/components/shared/Toasts.svelte';
   import SettingsModal from '$lib/components/shared/SettingsModal.svelte';
-  import { settingsOpen, closeSettings } from '$lib/stores/layout';
+  import QuickCaptureModal from '$lib/components/shared/QuickCaptureModal.svelte';
+  import { settingsOpen, closeSettings, quickCaptureOpen, closeQuickCapture } from '$lib/stores/layout';
   import { onMount } from 'svelte';
   import { loadThemes } from '$lib/stores/theme';
-  import { initializeWorkspaces, saveProjectState, activeProjectId } from '$lib/stores/workspace';
+  import { initializeWorkspaces, saveProjectState, activeProjectId, activeProject } from '$lib/stores/workspace';
+  import { openDailyNote } from '$lib/stores/dailyNote';
   import { get } from 'svelte/store';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { initDefaultCommands } from '$lib/stores/commandpalette';
   import { requestNotificationPermission } from '$lib/stores/notification';
-  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut } from '$lib/stores/settings';
+  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted } from '$lib/stores/settings';
+  import OnboardingWalkthrough from '$lib/components/workspace/OnboardingWalkthrough.svelte';
 
   const ZOOM_LEVELS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const;
 
@@ -34,6 +37,15 @@
     initializeWorkspaces();
     initDefaultCommands();
     requestNotificationPermission();
+
+    // Auto-open today's daily note once per project per day
+    let lastDailyProjectId: string | null = null;
+    const unsubDailyNote = activeProject.subscribe((project) => {
+      if (project && project.id !== lastDailyProjectId) {
+        lastDailyProjectId = project.id;
+        openDailyNote(project).catch(() => {});
+      }
+    });
 
     // Save project state before the window closes — use Tauri's close-request hook
     // which fires reliably on all platforms (beforeunload is unreliable on macOS/Tauri).
@@ -101,6 +113,7 @@
       unsubscribeZoom();
       unlistenClose?.();
       unsubscribeShortcuts();
+      unsubDailyNote();
     };
   });
 </script>
@@ -112,4 +125,12 @@
 
 {#if $settingsOpen}
   <SettingsModal onclose={closeSettings} />
+{/if}
+
+{#if $quickCaptureOpen}
+  <QuickCaptureModal onclose={closeQuickCapture} />
+{/if}
+
+{#if !$onboardingCompleted}
+  <OnboardingWalkthrough />
 {/if}

@@ -2,10 +2,11 @@
   import { onMount, onDestroy } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import { notes, getNoteForProject, setNoteForProject, closeFloatingNote } from '$lib/stores/notes';
+  import { loadScratchNote, saveScratchNote, closeFloatingNote } from '$lib/stores/notes';
   import { activeProject } from '$lib/stores/workspace';
   import { showToast } from '$lib/stores/notification';
-  import { createVoiceInputSession } from '$lib/services/voice-input';
+  import { createVoiceInputSession, mergeVoiceTranscript } from '$lib/services/voice-input';
+  import { refineVoicePrompt } from '$lib/services/voice-refinement';
 
   let posX = $state(window.innerWidth - 420);
   let posY = $state(80);
@@ -23,10 +24,12 @@
   let panelEl = $state<HTMLDivElement | null>(null);
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
   let isListening = $state(false);
+  let isRefining = $state(false);
   let voiceLocked = $state(false);
   let voiceHeld = $state(false);
   let voiceStopping = $state(false);
   let voiceBaseContent = $state('');
+  let voiceDraftText = $state('');
   let renderedHtml = $derived(
     previewMode ? DOMPurify.sanitize(marked.parse(content) as string) : ''
   );
@@ -34,26 +37,28 @@
   function queueSave() {
     saved = false;
     if (saveTimer) clearTimeout(saveTimer);
-    if ($activeProject?.id) {
-      saveTimer = setTimeout(() => {
-        setNoteForProject($activeProject!.id, content);
+    saveTimer = setTimeout(async () => {
+      saveTimer = null;
+      const project = $activeProject;
+      if (!project) { saved = true; return; }
+      try {
+        await saveScratchNote(project, content);
         saved = true;
-      }, 400);
-    }
+      } catch {
+        // indicator stays unsaved — non-fatal
+      }
+    }, 400);
   }
 
+  // Load from .soryq/scratch.md when project changes
   $effect(() => {
-    const pid = $activeProject?.id;
-    content = pid ? getNoteForProject(pid) : '';
-    saved = true;
-  });
-
-  $effect(() => {
-    const _ = $notes;
-    const pid = $activeProject?.id;
-    if (pid) {
-      content = getNoteForProject(pid);
-    }
+    const project = $activeProject;
+    if (!project) { content = ''; saved = true; return; }
+    loadScratchNote(project).then(c => {
+      content = c;
+      saved = true;
+      if (textareaEl) textareaEl.value = c;
+    });
   });
 
   function handleInput(e: Event) {
@@ -64,36 +69,60 @@
   const voiceInput = createVoiceInputSession({
     onStart: () => {
       isListening = true;
-      voiceBaseContent = content.trim();
+      isRefining = false;
+      voiceBaseContent = content;
+      voiceDraftText = '';
       showToast('Listening for notes...', 'info');
     },
     onResult: (transcript) => {
-      content = voiceBaseContent ? (transcript ? `${voiceBaseContent} ${transcript}` : voiceBaseContent) : transcript;
-      queueSave();
-      requestAnimationFrame(() => textareaEl?.focus());
+      voiceDraftText = transcript;
     },
     onEnd: () => {
+      const shouldRestart = !voiceStopping && (voiceLocked || voiceHeld);
       isListening = false;
-      if (!voiceStopping && (voiceLocked || voiceHeld)) {
-        queueMicrotask(() => {
-          if (voiceLocked || voiceHeld) {
-            voiceInput.start();
+      isRefining = true;
+
+      void (async () => {
+        try {
+          const { text: refinedTranscript } = await refineVoicePrompt(voiceDraftText);
+          content = mergeVoiceTranscript(
+            voiceBaseContent,
+            refinedTranscript,
+            voiceBaseContent.includes('\n') ? '\n' : ' '
+          );
+          queueSave();
+          requestAnimationFrame(() => textareaEl?.focus());
+        } catch (error) {
+          console.error('Failed to refine floating note voice input:', error);
+        } finally {
+          isRefining = false;
+          voiceStopping = false;
+          voiceBaseContent = '';
+          voiceDraftText = '';
+          if (shouldRestart) {
+            queueMicrotask(() => {
+              if (voiceLocked || voiceHeld) {
+                voiceInput.start();
+              }
+            });
           }
-        });
-      }
-      voiceStopping = false;
+        }
+      })();
     },
     onError: (message) => {
       isListening = false;
+      isRefining = false;
       voiceLocked = false;
       voiceHeld = false;
       voiceStopping = false;
       voiceBaseContent = '';
+      voiceDraftText = '';
       showToast(message, 'error');
     },
   });
 
   async function toggleVoiceInput() {
+    if (isRefining) return;
     if (isListening && voiceLocked) {
       voiceLocked = false;
       voiceStopping = true;
@@ -105,7 +134,7 @@
   }
 
   function handleGlobalVoiceShortcut(event: KeyboardEvent) {
-    if (event.key !== 'Alt' || event.location !== KeyboardEvent.DOM_KEY_LOCATION_LEFT || event.repeat) return;
+    if (event.key !== 'Alt' || event.location !== KeyboardEvent.DOM_KEY_LOCATION_LEFT || event.repeat || isRefining) return;
     const activeElement = document.activeElement;
     if (!panelEl || !activeElement || !panelEl.contains(activeElement)) return;
     event.preventDefault();
@@ -186,19 +215,31 @@
       <button
         class="note-action-btn"
         class:listening={isListening}
+        class:refining={isRefining}
         onclick={toggleVoiceInput}
-        title={isListening ? 'Stop voice input' : 'Start voice input'}
-        aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
+        title={isListening ? 'Stop listening' : isRefining ? 'Refining with AI…' : 'Start voice input'}
+        aria-label={isListening ? 'Stop listening' : isRefining ? 'Refining with AI…' : 'Start voice input'}
+        disabled={isRefining}
       >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-          <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
-          <line x1="12" x2="12" y1="19" y2="22"/>
-        </svg>
+        {#if isRefining}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin-icon">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+          </svg>
+        {:else}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+            <line x1="12" x2="12" y1="19" y2="22"/>
+          </svg>
+        {/if}
       </button>
-      <span class="save-indicator" class:saved>
-        {saved ? 'Saved' : 'Saving...'}
-      </span>
+      {#if isRefining}
+        <span class="refining-label">Refining…</span>
+      {:else}
+        <span class="save-indicator" class:saved>
+          {saved ? 'Saved' : 'Saving...'}
+        </span>
+      {/if}
       <button
         class="note-action-btn"
         class:active={previewMode}
@@ -222,7 +263,7 @@
         class="note-textarea"
         value={content}
         oninput={handleInput}
-        placeholder="Write notes in markdown… (stored in browser localStorage — avoid storing passwords or secrets)"
+        placeholder="Write notes in markdown… saved to .soryq/scratch.md"
         spellcheck="false"
       ></textarea>
     {/if}
@@ -323,6 +364,41 @@
     background: rgba(239, 68, 68, 0.14);
     color: var(--error);
     border-color: rgba(239, 68, 68, 0.28);
+  }
+
+  .note-action-btn.refining {
+    background: rgba(139, 92, 246, 0.14);
+    color: #a78bfa;
+    border-color: rgba(139, 92, 246, 0.35);
+    cursor: default;
+    animation: refine-glow 1.4s ease-in-out infinite;
+  }
+
+  .spin-icon {
+    animation: sparkle-spin 1.6s linear infinite;
+  }
+
+  @keyframes sparkle-spin {
+    0%   { transform: rotate(0deg) scale(1);     opacity: 1; }
+    50%  { transform: rotate(180deg) scale(1.15); opacity: 0.7; }
+    100% { transform: rotate(360deg) scale(1);   opacity: 1; }
+  }
+
+  @keyframes refine-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+    50%       { box-shadow: 0 0 6px 2px rgba(139, 92, 246, 0.25); }
+  }
+
+  .refining-label {
+    font-size: 10px;
+    color: #a78bfa;
+    animation: refine-fade 1.2s ease-in-out infinite;
+    white-space: nowrap;
+  }
+
+  @keyframes refine-fade {
+    0%, 100% { opacity: 0.5; }
+    50%       { opacity: 1; }
   }
 
   .note-close-btn:hover {

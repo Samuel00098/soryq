@@ -191,7 +191,7 @@ export function applyThemeToCSS(theme: Theme | null) {
     themeTransitionTimeout = setTimeout(() => {
       root.classList.remove('theme-transitioning');
       themeTransitionTimeout = null;
-    }, 350);
+    }, 260);
   }
 }
 

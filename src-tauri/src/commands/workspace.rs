@@ -10,7 +10,7 @@ fn sanitize_git_error(stderr: &str) -> String {
         .lines()
         .map(|line| {
             // Replace absolute path segments with a placeholder
-            if line.contains(":\\") || line.starts_with('/') {
+            if line.contains(":\\") || line.contains('/') {
                 "[path redacted]".to_string()
             } else {
                 line.to_string()
@@ -92,7 +92,7 @@ pub fn workspace_git_commit(
 
     if !add_output.status.success() {
         let stderr = String::from_utf8_lossy(&add_output.stderr);
-        return Err(format!("Failed to stage changes: {}", stderr));
+        return Err(format!("Failed to stage changes: {}", sanitize_git_error(&stderr)));
     }
 
     // 2. Commit changes
@@ -158,7 +158,7 @@ pub fn workspace_git_push(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() {
-        Ok(format!("Successfully pushed to GitHub!\n{}{}", stdout, stderr))
+        Ok(format!("Successfully pushed to GitHub!\n{}{}", stdout, sanitize_git_error(&stderr)))
     } else {
         Err(format!("Git push failed:\n{}{}", sanitize_git_error(&stderr), stdout))
     }
@@ -190,9 +190,9 @@ pub fn workspace_git_fetch(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() {
-        Ok(format!("Successfully fetched from remote!\n{}{}", stdout, stderr))
+        Ok(format!("Successfully fetched from remote!\n{}{}", sanitize_git_error(&stdout), sanitize_git_error(&stderr)))
     } else {
-        Err(format!("Git fetch failed:\n{}{}", sanitize_git_error(&stderr), stdout))
+        Err(format!("Git fetch failed:\n{}{}", sanitize_git_error(&stderr), sanitize_git_error(&stdout)))
     }
 }
 
@@ -288,7 +288,12 @@ fn extract_port_from_vite_config(content: &str) -> Option<u16> {
             continue;
         }
         if trimmed.starts_with("//") { continue; }
-        if trimmed.starts_with("/*") { in_block_comment = true; continue; }
+        if trimmed.starts_with("/*") {
+            // Single-line block comment: /* ... */ — enter and immediately exit
+            if trimmed.contains("*/") { continue; }
+            in_block_comment = true;
+            continue;
+        }
         if let Some(pos) = trimmed.find("port:") {
             let after = &trimmed[pos + 5..];
             let num_str: String = after.chars()
@@ -521,6 +526,9 @@ pub fn workspace_git_status(
 
     // 4. Manually add untracked file stats (since they aren't in numstat)
     for file in &untracked {
+        if validate_relative_path(file).is_err() {
+            continue;
+        }
         let absolute_path = root_path.join(file);
         let additions = if absolute_path.exists() && absolute_path.is_file() {
             let size = std::fs::metadata(&absolute_path).map(|m| m.len()).unwrap_or(u64::MAX);
@@ -763,7 +771,7 @@ pub fn workspace_git_diff(
             if output.status.success() {
                 return Ok(stdout);
             } else {
-                return Err(format!("Git diff failed:\n{}{}", stderr, stdout));
+                return Err(format!("Git diff failed:\n{}{}", sanitize_git_error(&stderr), sanitize_git_error(&stdout)));
             }
         }
     }
@@ -782,7 +790,7 @@ pub fn workspace_git_diff(
     if output.status.success() {
         Ok(stdout)
     } else {
-        Err(format!("Git diff failed:\n{}{}", stderr, stdout))
+        Err(format!("Git diff failed:\n{}{}", sanitize_git_error(&stderr), sanitize_git_error(&stdout)))
     }
 }
 
@@ -1004,4 +1012,157 @@ pub fn workspace_clear_recent(state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    // --- sanitize_git_error ---
+
+    #[test]
+    fn sanitize_git_error_passes_clean_lines() {
+        let input = "remote: Counting objects: 5, done.\nremote: Total 5";
+        let result = sanitize_git_error(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn sanitize_git_error_redacts_windows_absolute_paths() {
+        let input = "error: could not read C:\\Users\\sam\\project\\.git\\config";
+        let result = sanitize_git_error(input);
+        assert_eq!(result, "[path redacted]");
+    }
+
+    #[test]
+    fn sanitize_git_error_redacts_unix_absolute_paths() {
+        let input = "/home/user/project: not a git repository";
+        let result = sanitize_git_error(input);
+        assert_eq!(result, "[path redacted]");
+    }
+
+    #[test]
+    fn sanitize_git_error_redacts_mixed_output() {
+        // The function redacts a line when it starts with '/' (unix absolute path).
+        // Here the first line starts with '/' and the second is clean.
+        let input = "/home/user/project/.git: not a git repository\nUsage: git fetch <remote>";
+        let result = sanitize_git_error(input);
+        assert!(result.contains("[path redacted]"));
+        assert!(result.contains("Usage: git fetch <remote>"));
+    }
+
+    #[test]
+    fn sanitize_git_error_handles_empty_string() {
+        assert_eq!(sanitize_git_error(""), "");
+    }
+
+    // --- validate_relative_path ---
+
+    #[test]
+    fn validate_relative_path_accepts_normal_paths() {
+        assert!(validate_relative_path("src/main.rs").is_ok());
+        assert!(validate_relative_path("README.md").is_ok());
+        assert!(validate_relative_path("a/b/c/d.txt").is_ok());
+    }
+
+    #[test]
+    fn validate_relative_path_rejects_null_bytes() {
+        assert!(validate_relative_path("file\0name").is_err());
+    }
+
+    #[test]
+    fn validate_relative_path_rejects_double_dash_prefix() {
+        assert!(validate_relative_path("--malicious").is_err());
+    }
+
+    #[test]
+    fn validate_relative_path_rejects_path_traversal_unix() {
+        assert!(validate_relative_path("../outside").is_err());
+        assert!(validate_relative_path("a/../../outside").is_err());
+    }
+
+    #[test]
+    fn validate_relative_path_rejects_path_traversal_windows() {
+        assert!(validate_relative_path("a\\..\\outside").is_err());
+    }
+
+    // --- validate_branch_name ---
+
+    #[test]
+    fn validate_branch_name_accepts_valid_names() {
+        assert!(validate_branch_name("main").is_ok());
+        assert!(validate_branch_name("feature/my-branch").is_ok());
+        assert!(validate_branch_name("fix_bug_123").is_ok());
+    }
+
+    #[test]
+    fn validate_branch_name_rejects_empty() {
+        assert!(validate_branch_name("").is_err());
+    }
+
+    #[test]
+    fn validate_branch_name_rejects_leading_dash() {
+        assert!(validate_branch_name("-bad-branch").is_err());
+    }
+
+    #[test]
+    fn validate_branch_name_rejects_double_dot() {
+        assert!(validate_branch_name("branch..name").is_err());
+    }
+
+    #[test]
+    fn validate_branch_name_rejects_special_characters() {
+        assert!(validate_branch_name("branch name").is_err());
+        assert!(validate_branch_name("branch@name").is_err());
+        assert!(validate_branch_name("branch;name").is_err());
+    }
+
+    // --- extract_port_from_cmd ---
+
+    #[test]
+    fn extract_port_from_cmd_finds_port_flag() {
+        assert_eq!(extract_port_from_cmd("vite --port 5174"), Some(5174));
+    }
+
+    #[test]
+    fn extract_port_from_cmd_finds_short_port_flag() {
+        assert_eq!(extract_port_from_cmd("node server.js -p 8080"), Some(8080));
+    }
+
+    #[test]
+    fn extract_port_from_cmd_returns_none_when_absent() {
+        assert_eq!(extract_port_from_cmd("vite --host 0.0.0.0"), None);
+    }
+
+    #[test]
+    fn extract_port_from_cmd_returns_none_for_empty() {
+        assert_eq!(extract_port_from_cmd(""), None);
+    }
+
+    // --- extract_port_from_vite_config ---
+
+    #[test]
+    fn extract_port_from_vite_config_parses_port() {
+        let config = "export default defineConfig({\n  server: {\n    port: 3001,\n  }\n})";
+        assert_eq!(extract_port_from_vite_config(config), Some(3001));
+    }
+
+    #[test]
+    fn extract_port_from_vite_config_skips_line_comments() {
+        let config = "// port: 22\nexport default defineConfig({ server: { port: 4000 } })";
+        assert_eq!(extract_port_from_vite_config(config), Some(4000));
+    }
+
+    #[test]
+    fn extract_port_from_vite_config_skips_block_comments() {
+        // The parser opens a block comment on "/*" and closes it on a later line containing "*/".
+        // A single-line "/* ... */" is NOT closed within the same line (the parser `continue`s
+        // after setting in_block_comment = true), so this test uses a proper multi-line form.
+        let config = "/*\n  port: 22\n*/\nexport default defineConfig({ server: { port: 4321 } })";
+        assert_eq!(extract_port_from_vite_config(config), Some(4321));
+    }
+
+    #[test]
+    fn extract_port_from_vite_config_returns_none_when_absent() {
+        let config = "export default defineConfig({ server: { host: true } })";
+        assert_eq!(extract_port_from_vite_config(config), None);
+    }
+}

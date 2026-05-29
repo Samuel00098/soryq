@@ -5,6 +5,8 @@
   import { showToast } from '$lib/stores/notification';
   import FileIcon from './FileIcon.svelte';
   import { branchInfo, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
+  import { voiceRefinementModel } from '$lib/stores/settings';
+  import { getOpenRouterApiKeyLocal } from '$lib/services/openrouter-keychain';
 
   interface GitLogEntry {
     graph: string;
@@ -23,6 +25,7 @@
   let isCommitting = $state(false);
   let isPushing = $state(false);
   let isFetching = $state(false);
+  let isGeneratingMsg = $state(false);
   let errorMsg = $state<string | null>(null);
 
   let changesExpanded = $state(true);
@@ -235,6 +238,42 @@
     }
   }
 
+  async function generateCommitMessage() {
+    const id = $activeProjectId;
+    if (!id) return;
+
+    isGeneratingMsg = true;
+    try {
+      const diff = await invoke<string>('workspace_git_diff', { projectId: id, filePath: null });
+      const untrackedSection = gitStatus?.untracked.length
+        ? `\n\nNew untracked files:\n${gitStatus.untracked.join('\n')}`
+        : '';
+      const context = (diff || '') + untrackedSection;
+
+      if (!context.trim()) {
+        showToast('No changes to summarize.', 'info');
+        return;
+      }
+
+      const apiKey = getOpenRouterApiKeyLocal() ?? '';
+      const message = await invoke<string>('openrouter_generate_commit_message', {
+        diff: context,
+        model: $voiceRefinementModel,
+        apiKey,
+      });
+      commitMessage = message;
+    } catch (err) {
+      const msg = String(err);
+      if (msg.includes('API key is not set')) {
+        showToast('Add your OpenRouter API key in Settings to generate commit messages.', 'warning');
+      } else {
+        showToast(msg || 'Failed to generate commit message.', 'error');
+      }
+    } finally {
+      isGeneratingMsg = false;
+    }
+  }
+
   async function createBranchSubmit() {
     if (!newBranchName.trim() || !$activeProject) return;
     try {
@@ -360,25 +399,52 @@
         <p>{errorMsg}</p>
       </div>
     {:else if (isFetchingStatus && !gitStatus) || (isFetchingHistory && !gitHistory)}
-      <div class="sc-loading">
-        <svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
-          <polyline points="21 3 21 8 16 8"/>
-        </svg>
-        <span>Loading repository status...</span>
+      <div class="sc-loading-skeleton-container">
+        <div class="skeleton-header">
+          <div class="skeleton-bar" style="width: 50%; height: 18px; margin-bottom: 8px;"></div>
+          <div class="skeleton-bar" style="width: 100%; height: 32px; margin-bottom: 12px;"></div>
+        </div>
+        <div class="skeleton-list">
+          {#each Array(3) as _}
+            <div class="skeleton-list-item">
+              <div class="skeleton-bar" style="width: 14px; height: 14px; border-radius: 4px; margin-right: 8px;"></div>
+              <div class="skeleton-bar" style="width: 60%; height: 12px;"></div>
+            </div>
+          {/each}
+        </div>
       </div>
     {:else}
       {@const totalChanges = gitStatus ? (gitStatus.modified.length + gitStatus.added.length + gitStatus.deleted.length + gitStatus.untracked.length) : 0}
 
       <!-- Commit Input and Action Buttons -->
       <div class="sc-commit-section">
-        <textarea
-          class="sc-commit-input"
-          placeholder="Commit message (Ctrl+Enter to commit)..."
-          bind:value={commitMessage}
-          onkeydown={handleInputKeyDown}
-          rows="3"
-        ></textarea>
+        <div class="sc-commit-input-wrap">
+          <textarea
+            class="sc-commit-input"
+            placeholder="Commit message (Ctrl+Enter to commit)..."
+            bind:value={commitMessage}
+            onkeydown={handleInputKeyDown}
+            rows="5"
+          ></textarea>
+          <button
+            class="ai-gen-btn"
+            onclick={generateCommitMessage}
+            disabled={isGeneratingMsg}
+            title="Generate commit message with AI"
+          >
+            {#if isGeneratingMsg}
+              <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+                <polyline points="21 3 21 8 16 8"/>
+              </svg>
+            {:else}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/>
+                <path d="M19 15l.75 2.25L22 18l-2.25.75L19 21l-.75-2.25L16 18l2.25-.75z"/>
+              </svg>
+            {/if}
+          </button>
+        </div>
 
         <button
           class="sc-action-btn commit-btn"
@@ -460,11 +526,17 @@
             </div>
           {:else}
             <div class="sc-clean">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2">
-                <polyline points="20 6 9 17 4 12"/>
+              <svg width="48" height="48" viewBox="0 0 64 64" fill="none" stroke="currentColor" class="animated-svg-floating" style="margin-bottom: 8px;">
+                <circle cx="32" cy="32" r="28" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="1" />
+                <circle cx="32" cy="32" r="20" fill="rgba(74, 222, 128, 0.08)" stroke="rgba(74, 222, 128, 0.2)" stroke-width="1.5" />
+                <path d="M22 18 L 32,28 M 32,28 L 32,46" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" />
+                <circle cx="22" cy="18" r="4" fill="var(--bg-secondary)" stroke="var(--text-muted)" stroke-width="2" />
+                <circle cx="32" cy="46" r="4" fill="var(--bg-secondary)" stroke="var(--text-muted)" stroke-width="2" />
+                <circle cx="42" cy="22" r="8" fill="var(--success)" stroke="var(--bg-secondary)" stroke-width="2" />
+                <polyline points="39 22 41 24 45 20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
-              <p>No changes detected.</p>
-              <p class="sub">Your working tree is clean.</p>
+              <p>Workspace is Clean</p>
+              <p class="sub">No modifications detected in your git working tree.</p>
             </div>
           {/if}
         {/if}
@@ -513,9 +585,32 @@
                 </div>
               {/each}
             {:else if isFetchingHistory}
-              <div class="sc-section-empty">Loading history...</div>
+              <div class="sc-loading-skeleton">
+                {#each Array(4) as _}
+                  <div class="skeleton-item">
+                    <div class="skeleton-dot"></div>
+                    <div class="skeleton-col">
+                      <div class="skeleton-bar" style="width: 30%; height: 10px; margin-bottom: 6px;"></div>
+                      <div class="skeleton-bar" style="width: 85%; height: 12px;"></div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
             {:else}
-              <div class="sc-section-empty">No commit history found.</div>
+              <div class="sc-clean">
+                <svg width="48" height="48" viewBox="0 0 64 64" fill="none" stroke="currentColor" class="animated-svg-floating" style="margin-bottom: 8px;">
+                  <circle cx="32" cy="32" r="28" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="1" />
+                  <path d="M32 14v36" stroke="var(--text-muted)" stroke-dasharray="3,3" stroke-width="2" />
+                  <circle cx="32" cy="20" r="4" fill="var(--text-muted)" />
+                  <circle cx="32" cy="32" r="4" fill="var(--text-muted)" />
+                  <circle cx="32" cy="44" r="4" fill="var(--text-muted)" />
+                  <circle cx="44" cy="32" r="7" fill="var(--warning)" stroke="var(--bg-secondary)" stroke-width="1.5" />
+                  <line x1="44" y1="29" x2="44" y2="33" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+                  <circle cx="44" cy="36" r="0.75" fill="#fff" />
+                </svg>
+                <p>No Commit History</p>
+                <p class="sub">This branch has no commits recorded yet.</p>
+              </div>
             {/if}
           </div>
         {/if}
@@ -585,7 +680,7 @@
     overscroll-behavior: none;
   }
 
-  .sc-loading, .sc-error, .sc-clean {
+  .sc-error, .sc-clean {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -838,7 +933,12 @@
     flex-shrink: 0;
   }
 
+  .sc-commit-input-wrap {
+    position: relative;
+  }
+
   .sc-commit-input {
+    width: 100%;
     background: var(--input-bg);
     border: 1px solid var(--input-border);
     border-radius: 6px;
@@ -849,11 +949,40 @@
     outline: none;
     resize: none;
     transition: border-color 0.15s, box-shadow 0.15s;
+    box-sizing: border-box;
   }
 
   .sc-commit-input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
+  }
+
+  .ai-gen-btn {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .ai-gen-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .ai-gen-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .sc-header-actions {
@@ -1079,5 +1208,77 @@
     .commit-info {
       padding-left: 6px;
     }
+  }
+
+  /* Shimmer Skeletons & Floating Animations */
+  .sc-loading-skeleton-container {
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  .skeleton-header {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+  .skeleton-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+    width: 100%;
+  }
+  .skeleton-list-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 24px;
+  }
+  .sc-loading-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    width: 100%;
+  }
+  .skeleton-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+  }
+  .skeleton-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bg-hover);
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+  .skeleton-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .skeleton-bar {
+    background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-active) 50%, var(--bg-hover) 75%);
+    background-size: 200% 100%;
+    animation: shimmer-swipe 1.5s infinite linear;
+    border-radius: 4px;
+  }
+  .animated-svg-floating {
+    animation: floating 4s ease-in-out infinite;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+  }
+  @keyframes shimmer-swipe {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @keyframes floating {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-4px); }
+    100% { transform: translateY(0px); }
   }
 </style>

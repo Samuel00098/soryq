@@ -87,6 +87,8 @@ interface ProjectWorkspaceState {
     previewVisible: boolean;
     reviewVisible: boolean;
     httpVisible: boolean;
+    tasksVisible: boolean;
+    lastAuxView: string;
     editorSplitPreview: boolean;
     auxPanelWidth: number;
     auxEditorHeight: number;
@@ -171,6 +173,8 @@ interface PersistedProjectState {
     previewVisible: boolean;
     reviewVisible: boolean;
     httpVisible: boolean;
+    tasksVisible?: boolean;
+    lastAuxView?: string;
     editorSplitPreview: boolean;
     auxPanelWidth: number;
     auxEditorHeight: number;
@@ -204,6 +208,8 @@ function saveProjectStateToStorage(projectId: string) {
       previewVisible: currentLayout.previewVisible,
       reviewVisible: currentLayout.reviewVisible,
       httpVisible: currentLayout.httpVisible,
+      tasksVisible: currentLayout.tasksVisible,
+      lastAuxView: currentLayout.lastAuxView,
       editorSplitPreview: currentLayout.editorSplitPreview,
       auxPanelWidth: currentLayout.auxPanelWidth,
       auxEditorHeight: currentLayout.auxEditorHeight,
@@ -265,6 +271,8 @@ export function saveProjectState(projectId: string) {
       previewVisible: get(layout).previewVisible,
       reviewVisible: get(layout).reviewVisible,
       httpVisible: get(layout).httpVisible,
+      tasksVisible: get(layout).tasksVisible,
+      lastAuxView: get(layout).lastAuxView,
       editorSplitPreview: get(layout).editorSplitPreview,
       auxPanelWidth: get(layout).auxPanelWidth,
       auxEditorHeight: get(layout).auxEditorHeight,
@@ -339,6 +347,8 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
         previewVisible: cached.layout.previewVisible,
         reviewVisible: cached.layout.reviewVisible,
         httpVisible: cached.layout.httpVisible,
+        tasksVisible: cached.layout.tasksVisible,
+        lastAuxView: (cached.layout.lastAuxView as any) ?? l.lastAuxView,
         editorSplitPreview: cached.layout.editorSplitPreview,
         auxPanelWidth: cached.layout.auxPanelWidth,
         auxEditorHeight: cached.layout.auxEditorHeight,
@@ -381,8 +391,10 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
           previewVisible: persisted.layout!.previewVisible ?? false,
           reviewVisible: persisted.layout!.reviewVisible ?? false,
           httpVisible: persisted.layout!.httpVisible ?? false,
+          tasksVisible: persisted.layout!.tasksVisible ?? false,
+          lastAuxView: (persisted.layout!.lastAuxView as any) ?? l.lastAuxView,
           editorSplitPreview: persisted.layout!.editorSplitPreview ?? false,
-          auxPanelWidth: persisted.layout!.auxPanelWidth ?? 400,
+          auxPanelWidth: persisted.layout!.auxPanelWidth ?? 700,
           auxEditorHeight: persisted.layout!.auxEditorHeight ?? 50,
           sidebarVisible: persisted.layout!.sidebarVisible ?? true,
           sidebarWidth: persisted.layout!.sidebarWidth ?? 260,
@@ -452,7 +464,7 @@ export function clearAllStores() {
     reviewVisible: false,
     httpVisible: false,
     editorSplitPreview: false,
-    auxPanelWidth: 400,
+    auxPanelWidth: 700,
     auxEditorHeight: 50,
     sidebarTab: 'files',
   }));

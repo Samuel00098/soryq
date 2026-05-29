@@ -1,14 +1,12 @@
 <script lang="ts">
-  import { layout, setActiveView, toggleSidebar, openSettings, toggleEditorVisible, togglePreviewVisible } from '$lib/stores/layout';
+  import { layout, setActiveView, toggleSidebar, openSettings } from '$lib/stores/layout';
   import type { ActiveView } from '$lib/types/layout';
 
   type NavItem = { id: ActiveView | 'explorer'; label: string; bottom?: boolean };
 
   const topItems: NavItem[] = [
     { id: 'explorer', label: 'Explorer' },
-    { id: 'editor',   label: 'Editor'   },
     { id: 'terminal', label: 'Terminal' },
-    { id: 'preview',  label: 'Preview'  },
   ];
 
   const bottomItems: NavItem[] = [
@@ -18,24 +16,12 @@
   function handleClick(item: NavItem) {
     if (item.id === 'explorer') { toggleSidebar(); return; }
     if (item.id === 'settings') { openSettings(); return; }
-    if (item.id === 'editor') { toggleEditorVisible(); return; }
-    if (item.id === 'preview') { togglePreviewVisible(); return; }
-    if (item.id === 'terminal') {
-      if ($layout.editorVisible || $layout.previewVisible) {
-        layout.update((l) => ({ ...l, editorVisible: false, previewVisible: false, activeView: 'terminal' }));
-      } else {
-        setActiveView('terminal');
-      }
-      return;
-    }
     setActiveView(item.id as ActiveView);
   }
 
   function isActive(item: NavItem): boolean {
     if (item.id === 'explorer') return $layout.sidebarVisible;
     if (item.id === 'settings') return false;
-    if (item.id === 'editor') return $layout.editorVisible;
-    if (item.id === 'preview') return $layout.previewVisible;
     return $layout.activeView === item.id;
   }
 </script>
@@ -57,27 +43,12 @@
             <polyline points="13,2 13,9 20,9"/>
           </svg>
 
-        <!-- Editor icon -->
-        {:else if item.id === 'editor'}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-            <path d="M12 20h9"/>
-            <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
-          </svg>
-
         <!-- Terminal icon -->
         {:else if item.id === 'terminal'}
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
             <rect x="2" y="3" width="20" height="18" rx="3"/>
             <polyline points="8,9 4,12 8,15"/>
             <line x1="12" y1="15" x2="20" y2="15"/>
-          </svg>
-
-        <!-- Preview icon -->
-        {:else if item.id === 'preview'}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
-            <path d="M2 12h20"/>
           </svg>
         {/if}
       </button>

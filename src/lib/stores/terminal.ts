@@ -49,6 +49,9 @@ export function requestTerminalInput(sessionId: number, text: string) {
 // Inject text directly into the FloatingPromptBar textarea
 export const promptBarInput = writable<string | null>(null);
 
+// Inject an image directly into the FloatingPromptBar as an image chip
+export const promptBarImage = writable<{ dataUrl: string; name: string } | null>(null);
+
 // Command history store, persisted in localStorage
 export const commandHistory = writable<string[]>(
   typeof window !== 'undefined'

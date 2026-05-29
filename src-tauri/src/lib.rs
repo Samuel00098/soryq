@@ -18,7 +18,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -28,6 +27,11 @@ pub fn run() {
             commands::theme::theme_activate,
             commands::theme::theme_get_active,
             commands::theme::theme_save,
+            commands::secrets::openrouter_api_key_exists,
+            commands::secrets::openrouter_api_key_set,
+            commands::secrets::openrouter_api_key_delete,
+            commands::secrets::openrouter_refine_prompt,
+            commands::secrets::openrouter_generate_commit_message,
             commands::workspace::workspace_open_project,
             commands::workspace::workspace_get_active,
             commands::workspace::workspace_set_active,

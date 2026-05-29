@@ -101,6 +101,8 @@
     background: var(--tab-inactive-bg);
     width: 100%;
     height: 35px;
+    padding-right: 32px;
+    box-sizing: border-box;
   }
 
   .markdown-toggle-btn {

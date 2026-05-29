@@ -20,6 +20,10 @@
     terminalRenderer,
     formatOnSave,
     notificationsEnabled,
+    voiceRefinementEnabled,
+    voiceRefinementModel,
+    voiceRefinementModelOptions,
+    onboardingCompleted,
   } from '$lib/stores/settings';
   import { requestNotificationPermission } from '$lib/stores/notification';
   import { getAvailableShells, type ShellInfo } from '$lib/services/pty-bridge';
@@ -27,6 +31,7 @@
   import { clearAllApplicationState } from '$lib/stores/workspace';
   import { checkForUpdate, pendingUpdate } from '$lib/stores/updater';
   import { getVersion } from '@tauri-apps/api/app';
+  import { clearOpenRouterApiKey, openRouterApiKeyExists, saveOpenRouterApiKey } from '$lib/services/openrouter-keychain';
 
   type Tab = 'general' | 'terminal' | 'shortcuts' | 'themes' | 'about';
   let activeTab = $state<Tab>('general');
@@ -74,10 +79,15 @@
 
   // Terminal settings
   let availableShells = $state<ShellInfo[]>([]);
+  // openRouterKeyValue is for entering a new key only — we never read the stored key back to the frontend.
+  let openRouterKeyValue = $state('');
+  let openRouterKeyStatus = $state<'loading' | 'saved' | 'idle' | 'error'>('loading');
 
   onMount(async () => {
     availableShells = await getAvailableShells();
     appVersion = await getVersion().catch(() => '0.1.0');
+    const keyExists = await openRouterApiKeyExists();
+    openRouterKeyStatus = keyExists ? 'saved' : 'idle';
   });
 
   let recordingId = $state<string | null>(null);
@@ -86,6 +96,7 @@
   let newShortcutActionId = $state('');
   let newShortcutKeys = $state('');
   let newShortcutRecording = $state(false);
+
   const contextualShortcuts = [
     {
       keys: 'Left Alt',
@@ -126,6 +137,30 @@
 
   function stopNewRecording() {
     newShortcutRecording = false;
+  }
+
+  async function saveOpenRouterKey() {
+    try {
+      await saveOpenRouterApiKey(openRouterKeyValue);
+      openRouterKeyValue = '';
+      openRouterKeyStatus = 'saved';
+      showToast('OpenRouter key saved to your OS keychain', 'success');
+    } catch (error: any) {
+      openRouterKeyStatus = 'error';
+      showToast(error?.message || 'Failed to save OpenRouter key', 'error');
+    }
+  }
+
+  async function clearOpenRouterKey() {
+    try {
+      await clearOpenRouterApiKey();
+      openRouterKeyValue = '';
+      openRouterKeyStatus = 'idle';
+      showToast('OpenRouter key cleared from your OS keychain', 'info');
+    } catch (error: any) {
+      openRouterKeyStatus = 'error';
+      showToast(error?.message || 'Failed to clear OpenRouter key', 'error');
+    }
   }
 
   function normalizeShortcutKeys(keys: string): string {
@@ -274,6 +309,26 @@
   }
 
   let iconError = $state(false);
+
+  let modelDropdownEl = $state<HTMLDivElement | null>(null);
+  let modelDropdownOpen = $state(false);
+
+  function getModelProvider(id: string): string {
+    if (id.startsWith('anthropic/')) return 'Anthropic';
+    if (id.startsWith('google/')) return 'Google';
+    return 'Other';
+  }
+
+  $effect(() => {
+    if (!modelDropdownOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (modelDropdownEl && !modelDropdownEl.contains(e.target as Node)) {
+        modelDropdownOpen = false;
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  });
 
   // Themes tab
   let showingCustomThemeEditor = $state(false);
@@ -705,6 +760,129 @@
           </div>
         </div>
 
+        <!-- Voice refinement section -->
+        <div class="setting-group">
+          <div class="group-label">Voice Refinement</div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-label">AI voice refinement</span>
+              <span class="toggle-desc">Rewrite dictated text into a stronger prompt before it reaches the floating bar. Falls back to local cleanup if OpenRouter is unavailable.</span>
+            </div>
+            <button
+              class="toggle"
+              class:on={$voiceRefinementEnabled}
+              onclick={() => $voiceRefinementEnabled = !$voiceRefinementEnabled}
+              aria-label="Toggle AI voice refinement"
+              role="switch"
+              aria-checked={$voiceRefinementEnabled}
+            >
+              <span class="toggle-thumb"></span>
+            </button>
+          </div>
+
+          <div class="slider-row">
+            <div class="toggle-info">
+              <span class="toggle-label">OpenRouter API key</span>
+              <span class="toggle-desc">Stored locally in this app. Required for voice refinement and AI commit messages.</span>
+            </div>
+            <input
+              class="text-input font-input"
+              type="password"
+              bind:value={openRouterKeyValue}
+              placeholder={openRouterKeyStatus === 'saved' ? 'Key configured.' : 'sk-or-...'}
+              spellcheck="false"
+              autocomplete="off"
+              onkeydown={(e) => { if (e.key === 'Enter' && openRouterKeyValue.trim()) saveOpenRouterKey(); }}
+            />
+          </div>
+
+          <div class="model-selector" bind:this={modelDropdownEl}>
+            <div class="toggle-info" style="padding: 0 0 10px 0;">
+              <span class="toggle-label">Preferred model</span>
+              <span class="toggle-desc">Pick the model you want first. We fall back to other cheap/fast models if it fails.</span>
+            </div>
+            <button
+              type="button"
+              class="model-trigger"
+              onclick={() => (modelDropdownOpen = !modelDropdownOpen)}
+              aria-haspopup="listbox"
+              aria-expanded={modelDropdownOpen}
+            >
+              <div class="model-trigger-left">
+                <span class="model-trigger-badge" data-provider={getModelProvider($voiceRefinementModel)}>
+                  {getModelProvider($voiceRefinementModel)}
+                </span>
+                <div>
+                  <div class="model-trigger-name">
+                    {voiceRefinementModelOptions.find(m => m.id === $voiceRefinementModel)?.label ?? $voiceRefinementModel}
+                  </div>
+                  <div class="model-trigger-desc">
+                    {voiceRefinementModelOptions.find(m => m.id === $voiceRefinementModel)?.description ?? ''}
+                  </div>
+                </div>
+              </div>
+              <svg class="model-chevron" class:open={modelDropdownOpen} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+
+            {#if modelDropdownOpen}
+              <div class="model-dropdown" role="listbox">
+                {#each voiceRefinementModelOptions as model}
+                  <button
+                    type="button"
+                    class="model-option"
+                    class:selected={$voiceRefinementModel === model.id}
+                    role="option"
+                    aria-selected={$voiceRefinementModel === model.id}
+                    onclick={() => { $voiceRefinementModel = model.id; modelDropdownOpen = false; }}
+                  >
+                    <div class="model-option-left">
+                      <span class="model-option-badge" data-provider={getModelProvider(model.id)}>
+                        {getModelProvider(model.id)}
+                      </span>
+                      <div class="model-option-body">
+                        <div class="model-option-name">{model.label}</div>
+                        <div class="model-option-desc">{model.description}</div>
+                      </div>
+                      {#if model.id.includes(':free')}
+                        <span class="model-free-badge">Free</span>
+                      {/if}
+                    </div>
+                    {#if $voiceRefinementModel === model.id}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <div class="slider-row">
+            <div class="toggle-info">
+              <span class="toggle-label">Key status</span>
+              <span class="toggle-desc">
+                {#if openRouterKeyStatus === 'saved'}
+                  Key saved. AI features are ready.
+                {:else if openRouterKeyStatus === 'loading'}
+                  Checking for saved key…
+                {:else if openRouterKeyStatus === 'error'}
+                  Could not save the key. Try again.
+                {:else}
+                  No key saved yet.
+                {/if}
+              </span>
+            </div>
+            <div class="panel-actions">
+              <button class="panel-btn-cancel" onclick={clearOpenRouterKey}>Clear</button>
+              <button class="panel-btn-save" onclick={saveOpenRouterKey} disabled={!openRouterKeyValue.trim()}>Save</button>
+            </div>
+          </div>
+        </div>
+
       {:else if activeTab === 'terminal'}
         <div class="section-heading">
           <h2>Terminal</h2>
@@ -1081,6 +1259,21 @@
           {/each}
         </div>
 
+        <div class="tour-section" style="margin: 20px 0 10px;">
+          <button
+            class="tour-btn"
+            style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 32px; border-radius: 6px; background: var(--accent-light); color: var(--accent); font-size: 11.5px; font-weight: 600; border: 1px solid var(--border-focus); cursor: pointer; transition: all 0.15s;"
+            onclick={() => { onboardingCompleted.set(false); onclose(); }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+              <polyline points="16 6 12 2 8 6"/>
+              <line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+            Restart Welcome Tour
+          </button>
+        </div>
+
         <div class="reset-section">
           <button
             class="reset-btn"
@@ -1406,6 +1599,184 @@
     right: 12px;
     color: var(--text-muted);
     pointer-events: none;
+  }
+
+  /* ── Model selector ───────────────────── */
+  .model-selector {
+    position: relative;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .model-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--bg-primary);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-primary);
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .model-trigger:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+
+  .model-trigger-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .model-trigger-badge,
+  .model-option-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .model-trigger-badge[data-provider="Anthropic"],
+  .model-option-badge[data-provider="Anthropic"] {
+    background: rgba(139, 92, 246, 0.12);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+  }
+
+  .model-trigger-badge[data-provider="Google"],
+  .model-option-badge[data-provider="Google"] {
+    background: rgba(59, 130, 246, 0.12);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+  }
+
+  .model-trigger-badge[data-provider="Other"],
+  .model-option-badge[data-provider="Other"] {
+    background: rgba(156, 163, 175, 0.12);
+    color: var(--text-muted);
+    border: 1px solid rgba(156, 163, 175, 0.2);
+  }
+
+  .model-trigger-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .model-trigger-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+  }
+
+  .model-chevron {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+  }
+
+  .model-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .model-dropdown {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    top: calc(100% - 6px);
+    z-index: 100;
+    background: var(--bg-secondary);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+    animation: modelDropdownIn 0.15s ease;
+  }
+
+  @keyframes modelDropdownIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .model-option {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-primary);
+    transition: background 0.12s;
+  }
+
+  .model-option:not(:last-child) {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .model-option:hover {
+    background: var(--bg-hover);
+  }
+
+  .model-option.selected {
+    background: var(--bg-tertiary);
+  }
+
+  .model-option-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .model-option-body {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .model-option-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .model-option-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+
+  .model-free-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    letter-spacing: 0.04em;
+    background: rgba(74, 222, 128, 0.12);
+    color: var(--success, #4ade80);
+    border: 1px solid rgba(74, 222, 128, 0.2);
   }
 
   /* ── Toggle rows ──────────────────────── */
