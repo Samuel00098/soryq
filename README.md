@@ -1,7 +1,7 @@
 # Soryq
 
 <p align="center">
-  <img src="static/favicon.png" width="80" height="80" alt="Soryq Logo"><br>
+  <img src="static/icon.png" width="80" height="80" alt="Soryq Logo"><br>
   <strong>A lightweight, terminal-first developer workspace for keyboard-centric professionals.</strong>
 </p>
 
