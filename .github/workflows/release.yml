@@ -13,9 +13,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
+          - platform: self-hosted   # runs on your Windows PC — no minutes consumed
+            os: windows
             args: ''
-          - platform: macos-latest
+          - platform: macos-latest  # GitHub hosted — swap to self-hosted when you get a MacBook
+            os: macos
             args: '--target universal-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
