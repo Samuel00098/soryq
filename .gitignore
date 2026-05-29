@@ -14,3 +14,15 @@ vite.config.ts.timestamp-*
 ~
 *.key
 *.key.pub
+
+# Private research and strategy docs
+*_elevation_analysis.md
+*_go_mainstream.md
+ai-researcher-report-*.md
+
+# Browser automation session logs
+.playwright-mcp/
+
+# Scratch screenshots
+devdock-ui-check.png
+soryq-current.png
