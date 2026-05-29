@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: self-hosted    # Your Windows PC — no Actions minutes consumed
+          - platform: windows-latest  # GitHub hosted — free for public repos
             os: windows
             args: ''
             rust-targets: ''
