@@ -2,6 +2,48 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.1] - 2026-05-29
+
+### Added
+
+- **AI commit message generation** — sparkle button in the Source Control panel generates a conventional commits message (subject line + body) from the current diff and untracked file list using OpenRouter. Uses the same model selected for voice refinement.
+- **Quick Capture** — Ctrl+Shift+Space opens a modal to rapidly capture notes into the current project without switching panels.
+- **Daily Notes** — Ctrl+Shift+D opens a per-project daily note. Notes are stored in `.soryq/` alongside other project data.
+- **Onboarding walkthrough** — first-time users see an interactive guide covering the key panels and shortcuts.
+- **Tasks panel — Kanban layout** — Tasks moved from the sidebar into a full right-panel Kanban board with three columns (To Do, In Progress, Done), colour-coded badges, and drag-and-drop support. Tasks are persisted per-project in `.soryq/tasks.json`.
+- **Voice refinement** — AI-powered cleanup of dictated voice transcripts using OpenRouter. Strips filler words, converts spoken symbols to their character equivalents (`fat arrow` → `=>`, `double equals` → `==`, etc.), preserves technical identifiers verbatim, and structures multi-step instructions into lists. Falls back to local cleanup when no API key is set.
+- **OpenRouter API key management** — new AI & Voice section in Settings for saving the OpenRouter key, picking the preferred model, and toggling voice refinement on/off.
+- **Voice refinement feedback** — mic button shows a teal spinner while the AI is processing (distinct from the red recording state). A "Prompt refined by AI" toast confirms when the AI call succeeded vs fell back to local cleanup.
+- **Preview → prompt bar image injection** — clicking the inspector's screenshot button in the Preview panel inserts the captured element image directly as an image chip in the floating prompt bar.
+
+### Changed
+
+- **Auxiliary panel architecture** — right panel now supports three concurrent views (editor, preview, tasks, HTTP client, review) with tabbed switching and animated pill-style active indicator. Default panel width increased from 400 px to 700 px.
+- **Sidebar navigation** — active tab now has an animated pill indicator.
+- **OpenRouter key storage** — moved from OS keychain (unreliable on Windows) to `localStorage`, which is sandboxed to the app and works consistently. The key migrates automatically from the old `forge_openrouter_api_key` key to `soryq_openrouter_api_key` on first launch.
+- **Voice refinement prompt** — completely rewritten for developer context: understands prompts directed at AI coding agents, terminal commands, and technical notes. Tone is direct and friendly.
+- **Commit message prompt** — generates a proper subject line + blank line + detailed body instead of a single line. Token limit raised to 512.
+- **Settings — AI & Voice** — key description updated to reflect localStorage storage. Status text updated ("Key saved. AI features are ready." / "No key saved yet."). Key input now accepts Enter to save.
+- **Source control empty states** — animated SVG illustrations for clean working tree and no commit history.
+- **Source control loading** — shimmer skeleton loaders while status and history are fetching.
+- **Floating prompt bar** — text injected programmatically is now appended to existing input rather than replacing it.
+- **Vite config port parsing** — block comments on single lines no longer confuse the port extractor.
+
+### Fixed
+
+- Floating prompt bar inflated to the wrong height on first app launch because `scrollHeight` was measured before the custom editor font loaded. Height is now pinned to the minimum when the input is empty.
+- `git add` stderr was not sanitised before reaching the frontend, leaking absolute repository paths in commit error messages.
+- OpenRouter error response bodies are now scrubbed for `sk-...` shaped strings before being shown to the user.
+- Voice prompt length check used byte count (`str.len()`) instead of character count, incorrectly handling multi-byte UTF-8 input near the 32 000 limit.
+- `TasksPanel`, `NotesPanel`, and `FloatingNotepad` were not updated when `refineVoicePrompt` return type changed from `string` to `RefinementResult`.
+
+### Security
+
+- **Path traversal protection** — new `validate_relative_path()` in the file system command module rejects `../`, null bytes, and `--` prefix patterns.
+- **Branch name validation** — `validate_branch_name()` rejects empty names, special characters, and double-dot patterns before any git subprocess is spawned.
+- **Secrets module** — dedicated Rust module for OpenRouter API key operations. Keys are never logged or returned to the frontend; error bodies are scrubbed before surfacing.
+- **`git add` stderr sanitisation** — absolute paths in staging errors are now redacted consistently with all other git error paths.
+
 ## [0.1.0] - 2026-05-28
 
 ### Initial public release
