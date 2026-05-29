@@ -9,6 +9,9 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Build artifacts — distributed via GitHub Releases, not source control
+/dist
+
 # Signing keys — never commit these
 ~/
 ~
@@ -26,3 +29,12 @@ ai-researcher-report-*.md
 # Scratch screenshots
 devdock-ui-check.png
 soryq-current.png
+
+# AI / IDE tool local configs — machine-specific, never commit
+.claude/
+.kilo/
+.antigravitycli/
+
+# Cargo dev logs
+src-tauri/cargo_check.log
+src-tauri/cargo_output*.txt
