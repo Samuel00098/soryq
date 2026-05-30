@@ -38,3 +38,6 @@ soryq-current.png
 # Cargo dev logs
 src-tauri/cargo_check.log
 src-tauri/cargo_output*.txt
+
+# Per-project local data (daily notes, tasks) written by the app at runtime
+.soryq/

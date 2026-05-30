@@ -168,13 +168,6 @@ export function toggleTasksVisible() {
   });
 }
 
-// Make the terminal the active/focused view without toggling the aux panel.
-// Used by actions like Quick Run that just need the terminal focused so the
-// command output is visible — they must not open or close the right aux panel.
-export function focusTerminal() {
-  layout.update((l) => (l.activeView === 'terminal' ? l : { ...l, activeView: 'terminal' }));
-}
-
 export function toggleTerminal() {
   layout.update((l) => {
     if (l.editorVisible || l.previewVisible || l.reviewVisible || l.httpVisible || l.tasksVisible) {
