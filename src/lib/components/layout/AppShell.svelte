@@ -3,13 +3,13 @@
   import StatusBar from './StatusBar.svelte';
   import FileExplorer from '$lib/components/explorer/FileExplorer.svelte';
   import ProjectSwitcher from '$lib/components/workspace/ProjectSwitcher.svelte';
+  import WorkspaceSwitcher from '$lib/components/workspace/WorkspaceSwitcher.svelte';
   import TerminalPanel from '$lib/components/terminal/TerminalPanel.svelte';
   import EditorPanel from '$lib/components/editor/EditorPanel.svelte';
   import PreviewPanel from '$lib/components/preview/PreviewPanel.svelte';
   import WelcomeScreen from '$lib/components/workspace/WelcomeScreen.svelte';
   import ReviewPanel from '$lib/components/review/ReviewPanel.svelte';
   import TasksPanel from '$lib/components/workspace/TasksPanel.svelte';
-  import QuickRunPanel from '$lib/components/workspace/QuickRunPanel.svelte';
   import SnapshotsPanel from '$lib/components/layout/SnapshotsPanel.svelte';
   import HttpClientPanel from '$lib/components/http/HttpClientPanel.svelte';
   import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
@@ -20,7 +20,7 @@
 
   import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, openQuickCapture } from '$lib/stores/layout';
   import { openDailyNote } from '$lib/stores/dailyNote';
-  import { activeProject, openProject, activeWorkspaceId, activeWorkspace, renameWorkspace, createNewWorkspace, isProjectSwitching } from '$lib/stores/workspace';
+  import { activeProject, openProject, activeWorkspaceId, newWorkspacePromptOpen, isProjectSwitching } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
   import { toggleCommandPalette } from '$lib/stores/commandpalette';
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
@@ -28,33 +28,6 @@
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
   import { createTerminalSession, killAllSessions } from '$lib/stores/terminal';
   import { floatingNoteOpen, toggleFloatingNote } from '$lib/stores/notes';
-
-  // Workspace renaming state
-  let editingWorkspaceName = $state(false);
-  let tempWorkspaceName = $state('');
-
-  function startSidebarRename() {
-    if ($activeWorkspace) {
-      tempWorkspaceName = $activeWorkspace.name;
-      editingWorkspaceName = true;
-    }
-  }
-
-  function saveSidebarRename() {
-    const trimmed = tempWorkspaceName.trim();
-    if (trimmed && $activeWorkspace) {
-      renameWorkspace($activeWorkspace.id, trimmed);
-    }
-    editingWorkspaceName = false;
-  }
-
-  function handleSidebarRenameKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      saveSidebarRename();
-    } else if (e.key === 'Escape') {
-      editingWorkspaceName = false;
-    }
-  }
 
   // Sidebar resize state
   let sidebarResizing = $state(false);
@@ -86,7 +59,7 @@
 
   let tabsCollapsed = $derived($layout.sidebarWidth < effectiveCollapseThreshold);
 
-  const sidebarTabsList = ['files', 'git', 'runs', 'snapshots'];
+  const sidebarTabsList = ['files', 'git', 'snapshots'];
   let activeTabIdx = $derived(sidebarTabsList.indexOf($layout.sidebarTab));
 
   let visiblePanels = $derived([
@@ -219,7 +192,7 @@
           openSettings();
           break;
         case 'newWorkspace':
-          createNewWorkspace();
+          newWorkspacePromptOpen.set(true);
           break;
         case 'goToTerminal':
           setActiveView('terminal');
@@ -429,36 +402,7 @@
           <!-- Section Header (hide when very narrow) -->
           {#if !tabsCollapsed}
             <div class="sidebar-header-wrapper">
-              <div class="sidebar-header">
-                {#if editingWorkspaceName}
-                  <!-- svelte-ignore a11y_autofocus -->
-                  <input
-                    class="sidebar-rename-input"
-                    type="text"
-                    bind:value={tempWorkspaceName}
-                    onkeydown={handleSidebarRenameKeyDown}
-                    onblur={saveSidebarRename}
-                    onclick={(e) => e.stopPropagation()}
-                    autofocus
-                  />
-                {:else}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <span 
-                    class="sidebar-section-label workspace-label-editable" 
-                    onclick={startSidebarRename}
-                    title="Click to rename workspace"
-                  >
-                    {$activeWorkspace ? $activeWorkspace.name : 'Workspace'}
-                  </span>
-                  <button class="sidebar-rename-btn" onclick={startSidebarRename} title="Rename workspace">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                      <path d="M18.5 2.5a2.122 2.122 0 1 1 3 3L12 15l-4 1 1-4z"/>
-                    </svg>
-                  </button>
-                {/if}
-              </div>
+              <WorkspaceSwitcher />
               {#if $activeProject}
                 <div class="sidebar-subheader">
                   <span class="sidebar-subheader-label">Active: {$activeProject.name}</span>
@@ -494,16 +438,6 @@
               </button>
               <button
                 class="sidebar-tab"
-                class:active={$layout.sidebarTab === 'runs'}
-                onclick={() => setSidebarTab('runs')}
-                title="Quick Run"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-              </button>
-              <button
-                class="sidebar-tab"
                 class:active={$layout.sidebarTab === 'snapshots'}
                 onclick={() => setSidebarTab('snapshots')}
                 title="Workspace Snapshots"
@@ -524,8 +458,6 @@
                 <FileExplorer />
               {:else if $layout.sidebarTab === 'git'}
                 <SourceControl />
-              {:else if $layout.sidebarTab === 'runs'}
-                <QuickRunPanel />
               {:else if $layout.sidebarTab === 'snapshots'}
                 <SnapshotsPanel />
               {/if}
@@ -940,65 +872,6 @@
     background: var(--sidebar-bg);
   }
 
-  .sidebar-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 20px;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-
-  .workspace-label-editable {
-    cursor: pointer;
-    transition: color 0.15s;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .workspace-label-editable:hover {
-    color: var(--accent);
-  }
-
-  .sidebar-rename-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 3px;
-    color: var(--text-muted);
-    opacity: 0;
-    transition: opacity 0.15s, background 0.15s, color 0.15s;
-  }
-
-  .sidebar-header:hover .sidebar-rename-btn {
-    opacity: 0.8;
-  }
-
-  .sidebar-rename-btn:hover {
-    background: var(--bg-hover);
-    color: var(--accent);
-    opacity: 1;
-  }
-
-  .sidebar-rename-input {
-    background: var(--input-bg);
-    border: 1px solid var(--accent);
-    color: var(--text-primary);
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 1px 4px;
-    border-radius: 3px;
-    outline: none;
-    width: 100%;
-    box-sizing: border-box;
-    height: 18px;
-  }
-
   .sidebar-subheader {
     font-size: 9.5px;
     color: var(--text-muted);
@@ -1068,18 +941,7 @@
     z-index: 0;
     border: 1px solid var(--border);
     pointer-events: none;
-    width: calc((100% - 8px) / 4);
-  }
-
-  .sidebar-section-label {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    width: calc((100% - 8px) / 3);
   }
 
   .sidebar-content {
@@ -1283,7 +1145,6 @@
       min-width: 48px !important;
     }
     .sidebar-header-wrapper,
-    .sidebar-header,
     .sidebar-header-tabs,
     .sidebar-content {
       display: none !important;

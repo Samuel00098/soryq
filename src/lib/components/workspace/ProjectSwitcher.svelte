@@ -1,6 +1,19 @@
 <script lang="ts">
-  import { openProjectsList, activeProjectId, switchToProject, closeProject, openProject } from '$lib/stores/workspace';
+  import { openProjectsList, activeProjectId, switchToProject, closeProject, openProject, recentWorkspaces, activeWorkspaceId, moveProjectToWorkspace } from '$lib/stores/workspace';
   import { setActiveView } from '$lib/stores/layout';
+  import type { Project } from '$lib/types/workspace';
+
+  interface ContextMenu {
+    project: Project;
+    x: number;
+    y: number;
+  }
+
+  let contextMenu = $state<ContextMenu | null>(null);
+
+  const otherWorkspaces = $derived(
+    $recentWorkspaces.filter((w) => w.id !== $activeWorkspaceId)
+  );
 
   async function handleOpen() {
     await openProject();
@@ -11,6 +24,30 @@
     e.stopPropagation();
     closeProject(projectId);
   }
+
+  function handleContextMenu(e: MouseEvent, project: Project) {
+    e.preventDefault();
+    e.stopPropagation();
+    contextMenu = { project, x: e.clientX, y: e.clientY };
+  }
+
+  function handleMove(targetWorkspaceId: string) {
+    if (contextMenu) {
+      moveProjectToWorkspace(contextMenu.project.root_path, targetWorkspaceId);
+    }
+    contextMenu = null;
+  }
+
+  $effect(() => {
+    if (!contextMenu) return;
+    function dismiss() { contextMenu = null; }
+    document.addEventListener('click', dismiss, { once: true });
+    document.addEventListener('contextmenu', dismiss, { once: true });
+    return () => {
+      document.removeEventListener('click', dismiss);
+      document.removeEventListener('contextmenu', dismiss);
+    };
+  });
 </script>
 
 {#if $openProjectsList.length > 0}
@@ -30,6 +67,7 @@
         class="project-tab"
         class:active={$activeProjectId === project.id}
         onclick={() => switchToProject(project.id)}
+        oncontextmenu={(e) => handleContextMenu(e, project)}
         role="tab"
         title={project.root_path}
       >
@@ -63,6 +101,30 @@
       </svg>
       Add folder
     </button>
+  </div>
+{/if}
+
+<!-- Context menu -->
+{#if contextMenu}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div
+    class="ctx-menu"
+    style="top: {contextMenu.y}px; left: {contextMenu.x}px;"
+    onclick={(e) => e.stopPropagation()}
+  >
+    <div class="ctx-label">Move to workspace</div>
+    {#if otherWorkspaces.length === 0}
+      <div class="ctx-empty">No other workspaces</div>
+    {:else}
+      {#each otherWorkspaces as ws (ws.id)}
+        <button class="ctx-item" onclick={() => handleMove(ws.id)}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span class="ctx-ws-name">{ws.name}</span>
+        </button>
+      {/each}
+    {/if}
   </div>
 {/if}
 
@@ -158,4 +220,69 @@
     width: 100%;
   }
   .project-add-full:hover { color: var(--text-secondary); background: var(--bg-hover); }
+
+  /* ── Context menu ── */
+  .ctx-menu {
+    position: fixed;
+    z-index: 9000;
+    min-width: 180px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+    padding: 4px;
+    animation: ctx-in 0.1s ease;
+  }
+
+  @keyframes ctx-in {
+    from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0);    }
+  }
+
+  .ctx-label {
+    padding: 6px 10px 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+
+  .ctx-empty {
+    padding: 6px 10px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.5;
+    font-style: italic;
+  }
+
+  .ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    text-align: left;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .ctx-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .ctx-item svg { flex-shrink: 0; opacity: 0.6; }
+
+  .ctx-ws-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 </style>

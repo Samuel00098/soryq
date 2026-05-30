@@ -19,7 +19,7 @@ export function toggleCommandPalette() {
   }
 }
 
-import { createNewWorkspace, openProject, openProjectByPath } from './workspace';
+import { newWorkspacePromptOpen, openProject, openProjectByPath } from './workspace';
 import { saveActiveFile, formatActiveFile } from './editor';
 import { setActiveView, toggleSidebar, toggleEditorSplitPreview } from './layout';
 import { createTerminalSession } from './terminal';
@@ -39,7 +39,7 @@ export function initDefaultCommands() {
       name: 'New Workspace',
       category: 'Workspace',
       shortcut: 'Ctrl+N',
-      action: () => createNewWorkspace(),
+      action: () => newWorkspacePromptOpen.set(true),
     },
     {
       id: 'workspace.open',

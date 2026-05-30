@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    createNewWorkspace,
+    newWorkspacePromptOpen,
     openProject,
     openWorkspace,
     recentWorkspaces,
@@ -111,7 +111,7 @@
     <div class="left-col">
       <!-- Primary actions -->
       <div class="action-group">
-        <button class="action-btn primary" onclick={createNewWorkspace}>
+        <button class="action-btn primary" onclick={() => newWorkspacePromptOpen.set(true)}>
           <span class="action-icon">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 5v14M5 12h14"/>
@@ -218,8 +218,30 @@
       </div>
     </div>
 
-    <!-- Right: getting started tips -->
+    <!-- Right: workspace concept + getting started tips -->
     <div class="right-col">
+      <!-- Workspace concept visual -->
+      <div class="concept-card">
+        <span class="concept-title">What is a workspace?</span>
+        <div class="concept-diagram">
+          <div class="concept-ws">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            <span>Workspace</span>
+          </div>
+          <svg class="concept-arrow" width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 5h13M10 1l4 4-4 4"/>
+          </svg>
+          <div class="concept-projects">
+            <div class="concept-proj">frontend/</div>
+            <div class="concept-proj">backend/</div>
+            <div class="concept-proj">docs/</div>
+          </div>
+        </div>
+        <p class="concept-desc">A workspace groups multiple project folders. Switch between <strong>projects</strong> using the tabs at the top of the editor — or switch <strong>workspaces</strong> from this screen or from within the editor.</p>
+      </div>
+
       <span class="section-label">Getting started</span>
       <div class="tips">
         <div class="tip">
@@ -659,8 +681,79 @@
   .right-col {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 14px;
     min-height: 0;
+  }
+
+  /* ── Workspace concept card ── */
+  .concept-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  }
+
+  .concept-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--accent);
+    opacity: 0.85;
+  }
+
+  .concept-diagram {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .concept-ws {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    color: var(--accent);
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .concept-arrow {
+    color: var(--text-muted);
+    opacity: 0.5;
+    flex-shrink: 0;
+  }
+
+  .concept-projects {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .concept-proj {
+    padding: 3px 7px;
+    border-radius: 5px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+    white-space: nowrap;
+  }
+
+  .concept-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0;
   }
 
   /* ── Tips ── */

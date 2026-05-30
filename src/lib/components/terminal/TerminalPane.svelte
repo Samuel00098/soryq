@@ -24,6 +24,7 @@
     createTerminalSession,
     terminalInputRequest,
     getSessionLabel,
+    getAgentDisplayName,
     activateSessionInPane,
   } from '$lib/stores/terminal';
   import {
@@ -42,27 +43,41 @@
 
   let {
     sessionId,
+    paneIndex,
     isActive,
     isMaximized = false,
     onActivate,
     onClose,
     onMaximize,
+    onPaneDragStart,
     onResizeLeft,
     onResizeRight,
     onResizeTop,
     onResizeBottom,
   }: {
     sessionId: number;
+    paneIndex: number;
     isActive: boolean;
     isMaximized?: boolean;
     onActivate: () => void;
     onClose: () => void;
     onMaximize?: () => void;
+    onPaneDragStart?: (paneIndex: number, e: MouseEvent) => void;
     onResizeLeft?: (e: MouseEvent) => void;
     onResizeRight?: (e: MouseEvent) => void;
     onResizeTop?: (e: MouseEvent) => void;
     onResizeBottom?: (e: MouseEvent) => void;
   } = $props();
+
+  // Pointer-based drag to reposition. Native HTML5 DnD is unreliable inside the
+  // Tauri webview (it fights the OS file-drop handler), so the parent panel drives
+  // the drag from a plain mousedown on the titlebar — matching the file explorer.
+  function handleTitlebarMouseDown(e: MouseEvent) {
+    if (e.button !== 0 || !onPaneDragStart) return;
+    // Let the close / maximize buttons handle their own clicks.
+    if ((e.target as HTMLElement).closest('button')) return;
+    onPaneDragStart(paneIndex, e);
+  }
 
   let container: HTMLDivElement;
   let paneEl: HTMLDivElement;
@@ -277,6 +292,7 @@
     return parts[parts.length - 1] || 'shell';
   })());
   let sessionLabel = $derived(sessionInfo ? getSessionLabel(sessionInfo, $sessions) : promptPath);
+  let agentName = $derived(getAgentDisplayName(sessionInfo?.agentPreset));
   let sessionTaskSummary = $derived(sessionInfo?.taskSummary?.trim() || '');
   let isDead = $derived(sessionInfo ? !sessionInfo.isRunning : false);
   let isLightTheme = $derived($activeTheme?.type === 'light');
@@ -650,7 +666,12 @@
   <!-- Pane title bar with role picker -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="pane-titlebar" onclick={() => { if (rolePickerOpen) rolePickerOpen = false; }}>
+  <div
+    class="pane-titlebar"
+    class:draggable={!!onPaneDragStart}
+    onmousedown={handleTitlebarMouseDown}
+    onclick={() => { if (rolePickerOpen) rolePickerOpen = false; }}
+  >
     <!-- Close button on the left -->
     <button
       class="pane-close-btn"
@@ -672,7 +693,7 @@
       <span class="pane-title-main">
         {#if sessionInfo?.role}
           <span class="role-dot" style="background: {getRoleColor(sessionInfo.role)}"></span>
-          {sessionLabel}
+          {sessionLabel}{#if agentName}<span class="pane-agent-name"> · {agentName}</span>{/if}
         {:else}
           {sessionInfo?.title ?? promptPath}
         {/if}
@@ -803,6 +824,14 @@
     border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
   }
 
+  .pane-titlebar.draggable {
+    cursor: grab;
+  }
+
+  .pane-titlebar.draggable:active {
+    cursor: grabbing;
+  }
+
   .pane-close-btn {
     display: flex;
     align-items: center;
@@ -880,6 +909,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .pane-agent-name {
+    font-weight: 400;
+    color: var(--text-muted);
+    opacity: 0.85;
   }
 
   .pane-title-summary {

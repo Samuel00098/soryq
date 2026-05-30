@@ -9,7 +9,7 @@
     markSessionAgentPreset,
   } from '$lib/stores/terminal';
   import { showToast } from '$lib/stores/notification';
-  import { setActiveView } from '$lib/stores/layout';
+  import { focusTerminal } from '$lib/stores/layout';
 
   let projectId = $derived($activeProject?.id ?? '');
   let projectRuns = $derived(projectId ? [...getPresetRuns(projectId), ...$quickRuns.filter((r) => r.projectId === projectId)] : []);
@@ -17,7 +17,7 @@
   let newName = $state('');
   let newCommand = $state('');
   let showAddForm = $state(false);
-  const presetAgentCommands = new Set(['codex', 'claude', 'gemini', 'aider', 'agy', 'opencode', 'pi', 'copilot']);
+  const presetAgentCommands = new Set(['codex', 'claude', 'aider', 'agy', 'opencode', 'pi', 'copilot']);
 
   function submitAdd() {
     const name = newName.trim();
@@ -48,7 +48,7 @@
       }
 
       markSessionAgentPreset(sessionId, command);
-      setActiveView('terminal');
+      focusTerminal();
       writeToSession(sessionId, command + '\r');
       showToast(`Running agent in pane ${target.paneIdx + 1}: ${command}`, 'info');
       return;
@@ -59,7 +59,7 @@
       showToast('No active terminal session', 'error');
       return;
     }
-    setActiveView('terminal');
+    focusTerminal();
     writeToSession(sessionId, command + '\r');
     showToast(`Running: ${command}`, 'info');
   }

@@ -19,7 +19,6 @@ export type TerminalSessionInfo = {
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
   codex: 'Codex CLI',
   claude: 'Claude Code',
-  gemini: 'Gemini CLI',
   aider: 'Aider',
   agy: 'AGY',
   opencode: 'OpenCode',
@@ -179,7 +178,6 @@ const AGENT_COMMAND_PATTERNS: Array<{ preset: string; pattern: RegExp }> = [
   { preset: 'pi', pattern: /(?:^|\s)(?:pi)(?:\s|$)/i },
   { preset: 'antigravity', pattern: /(?:^|\s)(?:antigravity)(?:\s|$)/i },
   { preset: 'aider', pattern: /(?:^|\s)(?:aider)(?:\s|$)/i },
-  { preset: 'gemini', pattern: /(?:^|\s)(?:gemini)(?:\s|$)/i },
   { preset: 'cursor', pattern: /(?:^|\s)(?:cursor|cursor-agent)(?:\s|$)/i },
   { preset: 'copilot', pattern: /(?:^|\s)(?:copilot)(?:\s|$)/i },
 ];
@@ -417,9 +415,12 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
           paneAssignments[emptyIdx] = pty.id;
           nextActivePaneIndex = emptyIdx;
         } else {
-          const activeIdx = Math.min(state.activePaneIndex, paneAssignments.length - 1);
-          paneAssignments[activeIdx] = pty.id;
-          nextActivePaneIndex = activeIdx;
+          // No empty pane: append a new slot instead of overwriting the active
+          // pane. Overwriting would orphan the session living there — it keeps
+          // running but is rendered in no pane, so it can't be viewed or closed.
+          // TerminalPanel reconciles the visual mosaic to cover the new slot.
+          paneAssignments.push(pty.id);
+          nextActivePaneIndex = paneAssignments.length - 1;
         }
       }
       return {
@@ -730,6 +731,54 @@ export function findAvailablePaneForAgentRun() {
   }
 
   return null;
+}
+
+function getNextGridLayout(current: GridLayout): GridLayout | null {
+  const count = getLayoutPaneCount(current);
+  if (count < 2) return '2h';
+  if (count < 4) return '4';
+  if (count < 9) return '9';
+  return null;
+}
+
+// ── Mosaic growth hook ──────────────────────────────────────────────────────
+// The visual mosaic (columns / widths / heights) lives in TerminalPanel.svelte.
+// It registers a grow function here so spawning agents can add exactly one
+// tiled pane at a time, instead of jumping to a fixed grid layout that would
+// leave empty filler panes. Returns the new pane index.
+let mosaicGrowFn: (() => number) | null = null;
+
+export function registerMosaicGrow(fn: (() => number) | null) {
+  mosaicGrowFn = fn;
+}
+
+export async function spawnAgentPreset(command: string, cwd?: string): Promise<number | null> {
+  let target = findAvailablePaneForAgentRun();
+
+  if (!target) {
+    if (mosaicGrowFn) {
+      // Preferred path: grow the mosaic by a single tiled pane (no filler panes).
+      const paneIdx = mosaicGrowFn();
+      target = { paneIdx, sessionId: null as number | null };
+    } else {
+      // Fallback: bump to the next fixed grid layout.
+      const next = getNextGridLayout(get(gridLayout));
+      if (!next) return null;
+      setGridLayout(next);
+      target = findAvailablePaneForAgentRun();
+      if (!target) return null;
+    }
+  }
+
+  let sessionId = target.sessionId;
+  if (sessionId === null) {
+    sessionId = await createTerminalSession(cwd, target.paneIdx);
+  }
+  if (sessionId === null || sessionId === undefined) return null;
+
+  markSessionAgentPreset(sessionId, command);
+  writeToSession(sessionId, command + '\r');
+  return sessionId;
 }
 
 export function resizeSession(id: number, rows: number, cols: number) {

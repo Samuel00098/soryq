@@ -4,7 +4,9 @@
   import Toasts from '$lib/components/shared/Toasts.svelte';
   import SettingsModal from '$lib/components/shared/SettingsModal.svelte';
   import QuickCaptureModal from '$lib/components/shared/QuickCaptureModal.svelte';
+  import WorkspaceNameModal from '$lib/components/shared/WorkspaceNameModal.svelte';
   import { settingsOpen, closeSettings, quickCaptureOpen, closeQuickCapture } from '$lib/stores/layout';
+  import { newWorkspacePromptOpen } from '$lib/stores/workspace';
   import MicrophonePermissionDialog from '$lib/components/shared/MicrophonePermissionDialog.svelte';
   import { pendingPermissionRequest } from '$lib/stores/permissions';
   import { onMount } from 'svelte';
@@ -131,6 +133,10 @@
 
 {#if $quickCaptureOpen}
   <QuickCaptureModal onclose={closeQuickCapture} />
+{/if}
+
+{#if $newWorkspacePromptOpen}
+  <WorkspaceNameModal />
 {/if}
 
 {#if !$onboardingCompleted}

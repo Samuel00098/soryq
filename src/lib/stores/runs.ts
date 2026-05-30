@@ -20,14 +20,11 @@ export const quickRuns = writable<QuickRun[]>(load());
 const AI_AGENT_PRESETS: Omit<QuickRun, 'id' | 'projectId'>[] = [
   { name: 'Codex CLI', command: 'codex', isPreset: true },
   { name: 'Claude Code', command: 'claude', isPreset: true },
-  { name: 'Gemini CLI', command: 'gemini', isPreset: true },
-  { name: 'Aider', command: 'aider', isPreset: true },
   { name: 'Antigravity', command: 'agy', isPreset: true },
   { name: 'OpenCode', command: 'opencode', isPreset: true },
   { name: 'Pi AI Agent', command: 'pi', isPreset: true },
   { name: 'Dev Server', command: 'npm run dev', isPreset: true },
   { name: 'GitHub Copilot', command: 'copilot', isPreset: true },
-  { name: 'Cursor', command: 'agent', isPreset: true },
 ];
 
 export function getPresetRuns(projectId: string): QuickRun[] {
@@ -64,7 +61,9 @@ export function deleteQuickRun(id: string) {
 
 export function updateQuickRun(id: string, name: string, command: string) {
   quickRuns.update((all) =>
-    all.map((r) => (r.id === id ? { ...r, name: name.trim(), command: command.trim() } : r))
+    all.map((r) =>
+      r.id === id ? { ...r, name: name.trim(), command: command.trim() } : r
+    )
   );
 }
 

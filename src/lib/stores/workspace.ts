@@ -48,6 +48,8 @@ export const activeProject = derived(
     $activeProjectId ? $projects.get($activeProjectId) ?? null : null
 );
 
+export const newWorkspacePromptOpen = writable(false);
+
 export const openProjectsList = derived(
   [projects, openProjectIds],
   ([$projects, $openProjectIds]) =>
@@ -103,6 +105,13 @@ let restoreProjectStateGeneration = 0;
 let projectAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let isRestoringProjectState = false;
 export const isProjectSwitching = writable(false);
+
+function cancelPendingProjectAutosave() {
+  if (projectAutosaveTimer) {
+    clearTimeout(projectAutosaveTimer);
+    projectAutosaveTimer = null;
+  }
+}
 
 function scheduleProjectAutosave() {
   if (isRestoringProjectState) return;
@@ -578,11 +587,11 @@ function getFilename(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-export function createNewWorkspace() {
+export function createNewWorkspace(name?: string) {
   const id = `ws-${Date.now()}`;
   const newWorkspace: Workspace = {
     id,
-    name: 'New Workspace',
+    name: name?.trim() || 'New Workspace',
     project_paths: [],
     active_project_path: null,
     last_opened: Date.now().toString(),
@@ -600,6 +609,10 @@ export function createNewWorkspace() {
 export async function openWorkspace(workspaceId: string) {
   // Save the current project's state before leaving it so it can be restored later
   saveCurrentProjectState();
+  // Drop any debounced autosave still queued from the outgoing project — the
+  // clearAllStores() below mutates the tracked stores, and a stale timer firing
+  // mid-switch would write transitional/cleared state under the wrong id.
+  cancelPendingProjectAutosave();
 
   // Set as active
   activeWorkspaceId.set(workspaceId);
@@ -716,15 +729,12 @@ export async function addFolderToWorkspace(path: string) {
             paths.push(path);
           }
           
+          // Only auto-name a freshly-created (placeholder) workspace after its
+          // first folder. Once a workspace has a real name, leave it untouched —
+          // adding more projects must not rewrite the user's chosen name.
           let wsName = w.name;
           if (w.name === 'New Workspace' || w.name.trim() === '' || w.name === 'Empty Workspace') {
             wsName = getFilename(path);
-          } else {
-            const currentNames = w.name.split(', ');
-            const newName = getFilename(path);
-            if (!currentNames.includes(newName)) {
-              wsName = [...currentNames, newName].join(', ');
-            }
           }
 
           return {
@@ -776,15 +786,10 @@ export function closeProject(projectId: string) {
           if (activePath === p.root_path) {
             activePath = paths.length > 0 ? paths[paths.length - 1] : null;
           }
-          
-          let newName = 'Empty Workspace';
-          if (paths.length > 0) {
-            newName = paths.map((path) => getFilename(path)).join(', ');
-          }
 
+          // Keep the user's workspace name; closing a project must not rename it.
           return {
             ...w,
-            name: newName,
             project_paths: paths,
             active_project_path: activePath,
           };
@@ -904,4 +909,44 @@ export function renameWorkspace(workspaceId: string, newName: string) {
   recentWorkspaces.update((list) =>
     list.map((w) => (w.id === workspaceId ? { ...w, name: newName } : w))
   );
+}
+
+export function moveProjectToWorkspace(projectPath: string, targetWorkspaceId: string) {
+  const currentWsId = get(activeWorkspaceId);
+  if (!currentWsId || currentWsId === targetWorkspaceId) return;
+
+  const folderName = getFilename(projectPath);
+
+  recentWorkspaces.update((list) =>
+    list.map((w) => {
+      if (w.id === currentWsId) {
+        // Source workspace keeps its name; only its project list changes.
+        const paths = w.project_paths.filter((p) => p !== projectPath);
+        return {
+          ...w,
+          project_paths: paths,
+          active_project_path: w.active_project_path === projectPath ? (paths[0] ?? null) : w.active_project_path,
+        };
+      }
+      if (w.id === targetWorkspaceId) {
+        const paths = w.project_paths.includes(projectPath) ? w.project_paths : [...w.project_paths, projectPath];
+        // Only auto-name the target if it's still an unnamed placeholder.
+        let newName = w.name;
+        if (w.name === 'New Workspace' || w.name === 'Empty Workspace' || w.name.trim() === '') {
+          newName = folderName;
+        }
+        return { ...w, name: newName, project_paths: paths };
+      }
+      return w;
+    })
+  );
+
+  // Close the project in the current workspace if it's open
+  const currentProjects = get(projects);
+  for (const [id, proj] of currentProjects) {
+    if (proj.root_path === projectPath) {
+      closeProject(id);
+      break;
+    }
+  }
 }

@@ -18,7 +18,9 @@
     requestTerminalInput,
     getSessionLabel,
     isAgentSession,
+    spawnAgentPreset,
   } from '$lib/stores/terminal';
+  import { getPresetRuns } from '$lib/stores/runs';
   import { layout } from '$lib/stores/layout';
   import { showToast } from '$lib/stores/notification';
   import { createVoiceInputSession, mergeVoiceTranscript } from '$lib/services/voice-input';
@@ -41,6 +43,9 @@
   let voiceHeld = $state(false);
   let voiceStopping = $state(false);
   let broadcastAgents = $state(false);
+  let spawnOpen = $state(false);
+  let spawnCounts = $state<Map<string, number>>(new Map());
+  let totalSpawnCount = $derived(Array.from(spawnCounts.values()).reduce((a, b) => a + b, 0));
   let shellEl = $state<HTMLDivElement | null>(null);
   let barEl = $state<HTMLDivElement | null>(null);
   let draggedExplorerPath = $state<string | null>(null);
@@ -55,7 +60,14 @@
   let voiceDraftBase = $state('');
   let voiceDraftText = $state('');
   let isActive = $derived(
-    isHovered || isFocused || historyOpen || targetPickerOpen || isListening || isRefining || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag)
+    isHovered || isFocused || historyOpen || targetPickerOpen || spawnOpen || isListening || isRefining || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag)
+  );
+
+  const AI_AGENT_COMMANDS = new Set(['codex', 'claude', 'aider', 'agy', 'opencode', 'pi', 'copilot']);
+  let spawnPresets = $derived(
+    $activeProject
+      ? getPresetRuns($activeProject.id).filter((r) => AI_AGENT_COMMANDS.has(r.command))
+      : []
   );
 
   type PastedImage = { objectUrl: string; dataUrl: string; name: string };
@@ -180,6 +192,46 @@
       return;
     }
     writeToSession(sessionId, `${text}\r`);
+  }
+
+  function incrementSpawn(command: string) {
+    const next = new Map(spawnCounts);
+    next.set(command, (next.get(command) ?? 0) + 1);
+    spawnCounts = next;
+  }
+
+  function decrementSpawn(command: string) {
+    const next = new Map(spawnCounts);
+    const count = next.get(command) ?? 0;
+    if (count <= 1) {
+      next.delete(command);
+    } else {
+      next.set(command, count - 1);
+    }
+    spawnCounts = next;
+  }
+
+  async function handleSpawnConfirm() {
+    const entries = Array.from(spawnCounts.entries()).filter(([, count]) => count > 0);
+    if (!entries.length) return;
+    spawnOpen = false;
+    spawnCounts = new Map();
+    const cwd = $activeProject?.root_path;
+    let lastId: number | null = null;
+    let total = 0;
+    for (const [cmd, count] of entries) {
+      for (let i = 0; i < count; i++) {
+        const id = await spawnAgentPreset(cmd, cwd);
+        if (id !== null) { lastId = id; total++; }
+      }
+    }
+    if (!total) {
+      showToast('No available panes to spawn agents', 'warning');
+      return;
+    }
+    if (lastId !== null) manualTargetId = lastId;
+    showToast(total === 1 ? 'Spawned agent' : `Spawned ${total} agents`, 'info', undefined, true);
+    focusInput();
   }
 
   function toggleBroadcastAgents() {
@@ -597,11 +649,13 @@
   });
 
   function handleDocumentPointerDown(event: MouseEvent) {
-    if (!historyOpen && !targetPickerOpen) return;
+    if (!historyOpen && !targetPickerOpen && !spawnOpen) return;
     const target = event.target as Node | null;
     if (shellEl && target && !shellEl.contains(target)) {
       historyOpen = false;
       targetPickerOpen = false;
+      spawnOpen = false;
+      spawnCounts = new Map();
     }
   }
 
@@ -822,6 +876,23 @@
       </button>
 
       <button
+        class="spawn-toggle"
+        class:active={spawnOpen}
+        onclick={() => { spawnOpen = !spawnOpen; if (!spawnOpen) spawnCounts = new Map(); historyOpen = false; targetPickerOpen = false; }}
+        title="Spawn agent"
+        aria-label="Spawn agent"
+        disabled={!$activeProject}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        {#if totalSpawnCount > 0}
+          <span class="spawn-toggle-badge">{totalSpawnCount}</span>
+        {/if}
+      </button>
+
+      <button
         class="attach-toggle"
         onclick={attachFiles}
         title="Attach file paths"
@@ -871,6 +942,49 @@
       </button>
 
       <div class="prompt-copy">
+        {#if spawnOpen && spawnPresets.length > 0}
+          <div class="spawn-picker">
+            <div class="spawn-header">Spawn Agents</div>
+            {#each spawnPresets as preset (preset.id)}
+              {@const count = spawnCounts.get(preset.command) ?? 0}
+              <div class="spawn-row" class:selected={count > 0}>
+                <div class="spawn-counter">
+                  <button
+                    class="counter-btn"
+                    onclick={() => decrementSpawn(preset.command)}
+                    disabled={count === 0}
+                    title="Spawn fewer"
+                    aria-label="Spawn fewer {preset.name}"
+                  >−</button>
+                  <span class="counter-value">{count}</span>
+                  <button
+                    class="counter-btn"
+                    onclick={() => incrementSpawn(preset.command)}
+                    title="Spawn more"
+                    aria-label="Spawn more {preset.name}"
+                  >+</button>
+                </div>
+                <button
+                  class="spawn-item"
+                  onclick={() => incrementSpawn(preset.command)}
+                  title="Add one"
+                >
+                  <span class="spawn-name">{preset.name}</span>
+                  <span class="spawn-cmd">{preset.command}</span>
+                </button>
+              </div>
+            {/each}
+            <div class="spawn-footer">
+              <button
+                class="spawn-confirm"
+                onclick={handleSpawnConfirm}
+                disabled={totalSpawnCount === 0}
+              >
+                Spawn{totalSpawnCount > 0 ? ` ${totalSpawnCount}` : ''}
+              </button>
+            </div>
+          </div>
+        {/if}
         <div class="prompt-meta">
           {#if broadcastAgents}
             <span class="prompt-target"
@@ -1151,6 +1265,9 @@
     background: var(--bg-primary);
     color: var(--text-secondary);
   }
+
+  /* spawn-toggle shares the same base sizing via its own rule above,
+     but needs to participate in responsive shrink alongside the others */
 
   .history-toggle:hover {
     background: var(--bg-hover);
@@ -1450,6 +1567,7 @@
 
     .history-toggle,
     .attach-toggle,
+    .spawn-toggle,
     .broadcast-toggle,
     .voice-toggle,
     .send-btn {
@@ -1458,6 +1576,7 @@
 
     .history-toggle,
     .attach-toggle,
+    .spawn-toggle,
     .broadcast-toggle,
     .voice-toggle {
       width: 34px;
@@ -1525,6 +1644,7 @@
 
     .history-toggle,
     .attach-toggle,
+    .spawn-toggle,
     .broadcast-toggle,
     .voice-toggle {
       width: 30px;
@@ -1534,6 +1654,7 @@
 
     .history-toggle :global(svg),
     .attach-toggle :global(svg),
+    .spawn-toggle :global(svg),
     .broadcast-toggle :global(svg),
     .voice-toggle :global(svg) {
       width: 12px;
@@ -1584,10 +1705,276 @@
     cursor: not-allowed;
   }
 
+  .spawn-toggle {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    border: 0;
+    transition: background 0.15s, color 0.15s;
+    position: relative;
+  }
+
+  .spawn-toggle-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 8.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    pointer-events: none;
+    box-shadow: 0 0 0 2px var(--bg-primary);
+  }
+
+  .spawn-toggle:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .spawn-toggle.active {
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg-primary));
+    color: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+  }
+
+  .spawn-toggle:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .spawn-picker {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+    backdrop-filter: blur(18px);
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+    border-radius: 14px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.26);
+    z-index: 10;
+  }
+
+  .spawn-header {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--text-muted);
+    padding: 4px 10px 6px;
+  }
+
+  .spawn-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 9px;
+    transition: background 0.12s;
+  }
+
+  .spawn-row.selected {
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+  }
+
+  .spawn-item {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.12s;
+  }
+
+  .spawn-row:not(.selected) .spawn-item:hover {
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+    color: var(--text-primary);
+  }
+
+  .spawn-row.selected .spawn-item {
+    color: var(--text-primary);
+  }
+
+  .spawn-counter {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding-left: 4px;
+  }
+
+  .counter-value {
+    min-width: 16px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .spawn-name {
+    flex: 1;
+    min-width: 0;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .spawn-cmd {
+    font-family: var(--editor-font-family, monospace);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .counter-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    background: transparent;
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.12s, opacity 0.12s;
+  }
+
+  .counter-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg-primary));
+  }
+
+  .counter-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .spawn-footer {
+    padding: 6px 4px 2px;
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid var(--border);
+    margin-top: 2px;
+  }
+
+  .spawn-confirm {
+    height: 30px;
+    padding: 0 14px;
+    border-radius: 9px;
+    border: 0;
+    background: var(--button-bg, var(--accent));
+    color: var(--button-text, #fff);
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+  }
+
+  .spawn-confirm:hover:not(:disabled) {
+    background: var(--button-hover-bg, var(--accent-hover));
+  }
+
+  .spawn-confirm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
   @media (max-width: 720px) {
     .floating-prompt-shell {
       width: calc(100% - 20px);
       bottom: 12px;
+    }
+  }
+
+  @container center-panel (max-width: 480px) {
+    .floating-prompt-shell {
+      width: calc(100% - 12px);
+      bottom: 8px;
+    }
+
+    .floating-prompt-bar {
+      gap: 4px;
+      padding: 7px 7px;
+      border-radius: 14px;
+    }
+
+    .voice-toggle,
+    .attach-toggle {
+      display: none;
+    }
+
+    .history-toggle,
+    .spawn-toggle,
+    .broadcast-toggle {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+    }
+
+    .history-toggle :global(svg),
+    .spawn-toggle :global(svg),
+    .broadcast-toggle :global(svg) {
+      width: 11px;
+      height: 11px;
+    }
+
+    .send-btn {
+      height: 28px;
+      min-width: 40px;
+      padding: 0 8px;
+      border-radius: 8px;
+      font-size: 10px;
+    }
+
+    .prompt-input {
+      font-size: 11px;
+      min-height: 20px;
+      height: 20px;
+    }
+
+    .prompt-meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+    }
+
+    .prompt-hint {
+      display: none;
+    }
+
+    .prompt-target {
+      font-size: 9px;
     }
   }
 </style>
