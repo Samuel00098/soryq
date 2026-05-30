@@ -4,18 +4,19 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import {
     activeSessionId,
+    manualPromptTargetId,
     sessions,
     commandHistory,
     addHistoryEntry,
-    writeToSession,
     setSessionExecuting,
     setSessionTaskSummary,
     summarizeTerminalTask,
     startCommandBlock,
     promptBarInput,
     promptBarImage,
+    promptBarFocusRequest,
     activateSessionInPane,
-    requestTerminalInput,
+    sendPromptToSession,
     getSessionLabel,
     isAgentSession,
     spawnAgentPreset,
@@ -54,8 +55,6 @@
   let isFocused = $state(false);
   let isDragOver = $state(false);
   let isGlobalFileDrag = $state(false);
-  // Manually-pinned target session ID — overrides auto-selection when set
-  let manualTargetId = $state<number | null>(null);
   let targetPickerOpen = $state(false);
   let voiceDraftBase = $state('');
   let voiceDraftText = $state('');
@@ -81,13 +80,18 @@
           .filter((session) => session.isRunning && isAgentSession(session))
           .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null)
   );
-  let autoTarget = $derived(preferredAgentTerminal ?? activeTerminal);
+  // The terminal in focus (last clicked / keyboard-focused) is the natural
+  // target; only fall back to auto-following an agent when there's no active one.
+  let autoTarget = $derived(activeTerminal ?? preferredAgentTerminal);
   let manualTarget = $derived(
-    manualTargetId !== null
-      ? ($sessions.find((s) => s.id === manualTargetId && s.isRunning) ?? null)
+    $manualPromptTargetId !== null
+      ? ($sessions.find((s) => s.id === $manualPromptTargetId && s.isRunning) ?? null)
       : null
   );
   let promptTarget = $derived(manualTarget ?? autoTarget);
+  // "Pinned" only when the user deliberately targets a terminal other than the
+  // active one (via the picker). Focusing a pane keeps target === active = auto.
+  let isPinned = $derived($manualPromptTargetId !== null && $manualPromptTargetId !== $activeSessionId);
   let broadcastTargets = $derived(
     $sessions
       .filter((session) => session.isRunning && isAgentSession(session))
@@ -103,7 +107,7 @@
     if (projectId === lastBarProjectId) return;
 
     if (lastBarProjectId !== null) {
-      barProjectCache.set(lastBarProjectId, { inputValue, manualTargetId });
+      barProjectCache.set(lastBarProjectId, { inputValue, manualTargetId: get(manualPromptTargetId) });
     }
 
     if (projectId !== null) {
@@ -111,10 +115,10 @@
       inputValue = cached?.inputValue ?? '';
       const sessionAlive = cached?.manualTargetId != null &&
         $sessions.some((s) => s.id === cached.manualTargetId && s.isRunning);
-      manualTargetId = sessionAlive ? (cached?.manualTargetId ?? null) : null;
+      manualPromptTargetId.set(sessionAlive ? (cached?.manualTargetId ?? null) : null);
     } else {
       inputValue = '';
-      manualTargetId = null;
+      manualPromptTargetId.set(null);
     }
 
     lastBarProjectId = projectId;
@@ -127,13 +131,13 @@
 
   // Clear manual pin if the session dies
   $effect(() => {
-    if (manualTargetId !== null && !$sessions.find((s) => s.id === manualTargetId && s.isRunning)) {
-      manualTargetId = null;
+    if ($manualPromptTargetId !== null && !$sessions.find((s) => s.id === $manualPromptTargetId && s.isRunning)) {
+      manualPromptTargetId.set(null);
     }
   });
 
   function selectTarget(id: number) {
-    manualTargetId = id;
+    manualPromptTargetId.set(id);
     targetPickerOpen = false;
     focusInput();
   }
@@ -145,18 +149,18 @@
 
   function resolvePromptTarget() {
     const allSessions = get(sessions);
-    if (manualTargetId !== null) {
-      const manual = allSessions.find((s) => s.id === manualTargetId && s.isRunning);
+    const pinnedId = get(manualPromptTargetId);
+    if (pinnedId !== null) {
+      const manual = allSessions.find((s) => s.id === pinnedId && s.isRunning);
       if (manual) return manual;
     }
     const currentActiveSessionId = get(activeSessionId);
     const currentActiveTerminal = allSessions.find((session) => session.id === currentActiveSessionId) ?? null;
-    const currentPreferredAgentTerminal = isAgentSession(currentActiveTerminal)
-      ? currentActiveTerminal
-      : (allSessions
-          .filter((session) => session.isRunning && isAgentSession(session))
-          .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null);
-    return currentPreferredAgentTerminal ?? currentActiveTerminal;
+    if (currentActiveTerminal) return currentActiveTerminal;
+    // No focused terminal — fall back to the most recently used running agent.
+    return allSessions
+      .filter((session) => session.isRunning && isAgentSession(session))
+      .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null;
   }
 
   function resolveBroadcastTargets() {
@@ -186,12 +190,7 @@
   }
 
   function sendPromptToTarget(sessionId: number, text: string, agentPreset?: string | null) {
-    if (agentPreset === 'codex') {
-      requestTerminalInput(sessionId, text);
-      setTimeout(() => writeToSession(sessionId, '\r'), 80);
-      return;
-    }
-    writeToSession(sessionId, `${text}\r`);
+    sendPromptToSession(sessionId, text, agentPreset);
   }
 
   function incrementSpawn(command: string) {
@@ -229,7 +228,7 @@
       showToast('No available panes to spawn agents', 'warning');
       return;
     }
-    if (lastId !== null) manualTargetId = lastId;
+    if (lastId !== null) manualPromptTargetId.set(lastId);
     showToast(total === 1 ? 'Spawned agent' : `Spawned ${total} agents`, 'info', undefined, true);
     focusInput();
   }
@@ -585,6 +584,15 @@
     draggedExplorerPath = null;
     lastExplorerDragPoint = null;
   }
+
+  let lastFocusRequest = 0;
+  $effect(() => {
+    const req = $promptBarFocusRequest;
+    if (req !== lastFocusRequest) {
+      lastFocusRequest = req;
+      if (req > 0) focusInput();
+    }
+  });
 
   $effect(() => {
     const text = $promptBarInput;
@@ -993,7 +1001,7 @@
           {:else}
             <button
               class="prompt-target prompt-target-btn"
-              class:pinned={manualTargetId !== null}
+              class:pinned={isPinned}
               onclick={toggleTargetPicker}
               title="Click to choose target terminal"
             >
@@ -1018,7 +1026,7 @@
                   <span class="target-dot" style="background: {s.role === 'Server' ? '#4ade80' : s.role === 'Tests' ? '#60a5fa' : s.role === 'Build' ? '#fb923c' : s.role === 'Agent' ? '#a78bfa' : s.role === 'Git' ? '#fbbf24' : '#9ca3af'}"></span>
                 {/if}
                 <span class="target-label">{getSessionLabel(s, $sessions)}</span>
-                {#if s.id === promptTarget?.id && manualTargetId === null}
+                {#if s.id === promptTarget?.id && !isPinned}
                   <span class="target-auto-badge">auto</span>
                 {/if}
               </button>

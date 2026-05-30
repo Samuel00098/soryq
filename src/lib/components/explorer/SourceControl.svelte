@@ -31,6 +31,41 @@
   let changesExpanded = $state(true);
   let commitsExpanded = $state(true);
 
+  // Per-file commit selection. Files appear checked by default; unchecking one
+  // excludes it from the next commit. `knownFiles` tracks which paths we've seen
+  // so newly-appeared changes default to selected while existing choices persist.
+  let selectedFiles = $state<Set<string>>(new Set());
+  let knownFiles = new Set<string>();
+
+  let allChangedFiles = $derived(
+    gitStatus
+      ? [...gitStatus.modified, ...gitStatus.added, ...gitStatus.deleted, ...gitStatus.untracked]
+      : []
+  );
+  let selectedCount = $derived(allChangedFiles.filter((f) => selectedFiles.has(f)).length);
+  let allSelected = $derived(allChangedFiles.length > 0 && selectedCount === allChangedFiles.length);
+
+  function toggleFile(file: string) {
+    const next = new Set(selectedFiles);
+    if (next.has(file)) next.delete(file);
+    else next.add(file);
+    selectedFiles = next;
+  }
+
+  function toggleAllFiles() {
+    selectedFiles = allSelected ? new Set() : new Set(allChangedFiles);
+  }
+
+  // `indeterminate` is a DOM property, not an attribute, so set it directly.
+  function setIndeterminate(node: HTMLInputElement, value: boolean) {
+    node.indeterminate = value;
+    return {
+      update(next: boolean) {
+        node.indeterminate = next;
+      },
+    };
+  }
+
   let branchPickerOpen = $state(false);
   let newBranchMode = $state(false);
   let newBranchName = $state('');
@@ -68,6 +103,8 @@
       deleteConfirmBranch = null;
       branchError = null;
       commitMessage = '';
+      selectedFiles = new Set();
+      knownFiles = new Set();
       refreshAll();
       refreshBranches(projectId);
     } else {
@@ -96,6 +133,21 @@
       const status = await invoke<any>('workspace_git_status', { projectId: id });
       if (generation !== refreshGeneration || requestGeneration !== statusRequestGeneration) return;
       gitStatus = status;
+
+      // Reconcile commit selection: keep choices for files we've already seen,
+      // default newly-appeared changes to selected, and drop vanished ones.
+      const files: string[] = [
+        ...status.modified,
+        ...status.added,
+        ...status.deleted,
+        ...status.untracked,
+      ];
+      const nextSelection = new Set<string>();
+      for (const f of files) {
+        if (!knownFiles.has(f) || selectedFiles.has(f)) nextSelection.add(f);
+      }
+      selectedFiles = nextSelection;
+      knownFiles = new Set(files);
 
       // Auto-generate commit message if empty
       if (!commitMessage.trim()) {
@@ -160,13 +212,22 @@
   async function triggerGitCommit() {
     const id = $activeProjectId;
     if (!id || !commitMessage.trim()) return;
+    if (allChangedFiles.length > 0 && selectedCount === 0) {
+      showToast('Select at least one file to commit.', 'warning');
+      return;
+    }
+
+    // Commit only the chosen files. When everything is selected, send null so the
+    // backend stages all changes (handles edge cases like submodules cleanly).
+    const files = allSelected ? null : allChangedFiles.filter((f) => selectedFiles.has(f));
 
     isCommitting = true;
     showToast('Committing changes...', 'info');
     try {
       const response = await invoke<string>('workspace_git_commit', {
         projectId: id,
-        message: commitMessage.trim()
+        message: commitMessage.trim(),
+        files
       });
       showToast('Successfully committed changes!', 'success');
       commitMessage = ''; // Clear message after success
@@ -449,8 +510,8 @@
         <button
           class="sc-action-btn commit-btn"
           onclick={triggerGitCommit}
-          disabled={isCommitting || !commitMessage.trim()}
-          title="Commit changes locally (Ctrl+Enter)"
+          disabled={isCommitting || !commitMessage.trim() || (totalChanges > 0 && selectedCount === 0)}
+          title={totalChanges > 0 && selectedCount === 0 ? 'Select at least one file to commit' : 'Commit changes locally (Ctrl+Enter)'}
         >
           {#if isCommitting}
             <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -481,47 +542,68 @@
         </button>
       </div>
 
+      {#snippet fileRow(file: string, kind: 'modified' | 'added' | 'deleted' | 'untracked', badge: string, openable: boolean)}
+        <div class="sc-file-item {kind}" class:unselected={!selectedFiles.has(file)}>
+          <input
+            type="checkbox"
+            class="sc-file-check"
+            checked={selectedFiles.has(file)}
+            onchange={() => toggleFile(file)}
+            title={selectedFiles.has(file) ? 'Exclude from commit' : 'Include in commit'}
+            aria-label="Include {file} in commit"
+          />
+          <button
+            class="sc-file-open"
+            onclick={() => openable && handleFileClick(file)}
+            disabled={!openable}
+            title={openable ? file : 'Deleted file cannot be opened'}
+          >
+            <FileIcon name={file.split('/').pop() || ''} isDir={false} />
+            <span class="file-path">{file}</span>
+            <span class="status-badge {kind}">{badge}</span>
+          </button>
+        </div>
+      {/snippet}
+
       <div class="sc-scrollable">
-        <button class="sc-section-header" onclick={() => changesExpanded = !changesExpanded} aria-expanded={changesExpanded}>
-          <svg class="chevron" class:expanded={changesExpanded} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-          <span class="sc-section-title">Changes ({totalChanges})</span>
-        </button>
+        <div class="sc-section-head-row">
+          <button class="sc-section-header" onclick={() => changesExpanded = !changesExpanded} aria-expanded={changesExpanded}>
+            <svg class="chevron" class:expanded={changesExpanded} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            <span class="sc-section-title">Changes ({totalChanges})</span>
+          </button>
+          {#if totalChanges > 0}
+            <label class="sc-select-all" title="Select all / none">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                use:setIndeterminate={selectedCount > 0 && !allSelected}
+                onchange={toggleAllFiles}
+                aria-label="Select all files for commit"
+              />
+              <span>{selectedCount}/{totalChanges}</span>
+            </label>
+          {/if}
+        </div>
 
         {#if changesExpanded}
           {#if gitStatus && totalChanges > 0}
             <div class="sc-files">
               {#each gitStatus.modified as file}
-                <button class="sc-file-item modified" onclick={() => handleFileClick(file)}>
-                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                  <span class="file-path" title={file}>{file}</span>
-                  <span class="status-badge modified">M</span>
-                </button>
+                {@render fileRow(file, 'modified', 'M', true)}
               {/each}
 
               {#each gitStatus.added as file}
-                <button class="sc-file-item added" onclick={() => handleFileClick(file)}>
-                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                  <span class="file-path" title={file}>{file}</span>
-                  <span class="status-badge added">A</span>
-                </button>
+                {@render fileRow(file, 'added', 'A', true)}
               {/each}
 
               {#each gitStatus.deleted as file}
-                <button class="sc-file-item deleted" disabled title="Deleted file cannot be opened">
-                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                  <span class="file-path" title={file}>{file}</span>
-                  <span class="status-badge deleted">D</span>
-                </button>
+                {@render fileRow(file, 'deleted', 'D', false)}
               {/each}
 
               {#each gitStatus.untracked as file}
-                <button class="sc-file-item untracked" onclick={() => handleFileClick(file)}>
-                  <FileIcon name={file.split('/').pop() || ''} isDir={false} />
-                  <span class="file-path" title={file}>{file}</span>
-                  <span class="status-badge untracked">U</span>
-                </button>
+                {@render fileRow(file, 'untracked', 'U', true)}
               {/each}
             </div>
           {:else}
@@ -770,24 +852,86 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 6px 12px 6px 20px;
+    padding: 0 12px 0 16px;
+    transition: background 0.1s;
+  }
+
+  .sc-file-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .sc-file-item.unselected .sc-file-open {
+    opacity: 0.5;
+  }
+
+  .sc-file-check {
+    flex-shrink: 0;
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+
+  .sc-file-open {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    padding: 6px 0;
     background: transparent;
     border: none;
     font-size: 12.5px;
     color: var(--text-secondary);
     text-align: left;
     cursor: pointer;
-    transition: background 0.1s;
   }
 
-  .sc-file-item:hover:not(:disabled) {
-    background: var(--bg-hover);
+  .sc-file-item:hover .sc-file-open:not(:disabled) {
     color: var(--text-primary);
   }
 
-  .sc-file-item:disabled {
+  .sc-file-open:disabled {
     cursor: not-allowed;
     opacity: 0.6;
+  }
+
+  .sc-section-head-row {
+    display: flex;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--sidebar-bg);
+  }
+
+  .sc-section-head-row .sc-section-header {
+    position: static;
+    flex: 1;
+  }
+
+  .sc-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    align-self: stretch;
+    cursor: pointer;
+    user-select: none;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .sc-select-all input {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent);
   }
 
   .file-path {

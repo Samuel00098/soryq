@@ -16,6 +16,7 @@
     killSession,
     activateSessionInPane,
     registerMosaicGrow,
+    swapPanes,
   } from '$lib/stores/terminal';
   import { activeProject, openProjectIds } from '$lib/stores/workspace';
   import { activeFile } from '$lib/stores/editor';
@@ -703,16 +704,6 @@
 
   // Swap the terminals living in two panes. Geometry (columns/widths/heights) is
   // keyed by pane index, so only the session assignments move — cells stay put.
-  function swapPanes(from: number, to: number) {
-    if (from === to) return;
-    paneAssignments.update((p) => {
-      const copy = [...p];
-      if (from < 0 || to < 0 || from >= copy.length || to >= copy.length) return p;
-      [copy[from], copy[to]] = [copy[to], copy[from]];
-      return copy;
-    });
-  }
-
   // Tab click: make session active AND focus its pane
   function handleTabClick(sessionId: number) {
     const panes = $paneAssignments;

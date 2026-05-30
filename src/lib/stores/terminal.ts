@@ -33,6 +33,11 @@ export type GridLayout = 'single' | '2h' | '2v' | '3h' | '3v' | '4' | '9';
 export const sessions = writable<TerminalSessionInfo[]>([]);
 export const activeSessionId = writable<number | null>(null);
 
+// Session the floating prompt bar should target. Set whenever the user focuses a
+// terminal pane (click / keyboard) so the bar follows the terminal in view, and
+// from the bar's own target picker. null = no explicit target (fall back to auto).
+export const manualPromptTargetId = writable<number | null>(null);
+
 export type TerminalInputRequest = {
   sessionId: number;
   text: string;
@@ -50,6 +55,13 @@ export const promptBarInput = writable<string | null>(null);
 
 // Inject an image directly into the FloatingPromptBar as an image chip
 export const promptBarImage = writable<{ dataUrl: string; name: string } | null>(null);
+
+// Bumped to request the FloatingPromptBar focus its textarea (e.g. when handing
+// a session off to the user for manual input).
+export const promptBarFocusRequest = writable(0);
+export function focusPromptBar() {
+  promptBarFocusRequest.update((n) => n + 1);
+}
 
 // Command history store, persisted in localStorage
 export const commandHistory = writable<string[]>(
@@ -234,6 +246,27 @@ export function assignToPane(paneIdx: number, sessionId: number | null) {
   });
 }
 
+export function swapPanes(from: number, to: number) {
+  if (from === to) return;
+  const projectId = activeTerminalProjectId;
+  if (!projectId) {
+    paneAssignments.update((p) => {
+      const copy = [...p];
+      if (from < 0 || to < 0 || from >= copy.length || to >= copy.length) return p;
+      [copy[from], copy[to]] = [copy[to], copy[from]];
+      return copy;
+    });
+    return;
+  }
+
+  updateProjectState(projectId, (state) => {
+    const copy = [...state.paneAssignments];
+    if (from < 0 || to < 0 || from >= copy.length || to >= copy.length) return state;
+    [copy[from], copy[to]] = [copy[to], copy[from]];
+    return { ...state, paneAssignments: copy };
+  });
+}
+
 export function focusPane(paneIdx: number) {
   const projectId = activeTerminalProjectId;
   if (!projectId) {
@@ -242,6 +275,8 @@ export function focusPane(paneIdx: number) {
     if (panes[paneIdx] !== null) {
       activateSessionInPane(panes[paneIdx]!);
     }
+    // Focusing a pane makes its terminal the prompt-bar target.
+    manualPromptTargetId.set(panes[paneIdx]);
     return;
   }
 
@@ -250,10 +285,14 @@ export function focusPane(paneIdx: number) {
   if (panes[paneIdx] !== null) {
     activateSessionInPane(panes[paneIdx]!);
   }
+  // Focusing a pane makes its terminal the prompt-bar target.
+  manualPromptTargetId.set(panes[paneIdx]);
 }
 
 export function setActiveSession(id: number) {
   activateSessionInPane(id);
+  // Explicitly selecting a terminal makes it the prompt-bar target.
+  manualPromptTargetId.set(id);
 }
 
 export function activateSessionInPane(id: number) {
@@ -455,6 +494,46 @@ export function writeToSession(id: number, data: string) {
     processSessionInput(id, data);
     pty.write(data).catch((err) => console.error('Failed to write to terminal:', err));
   }
+}
+
+/**
+ * Submit a standalone Enter to a session once a pending paste has been delivered
+ * to its terminal. `requestTerminalInput` hands text to the TerminalPane, which
+ * pastes it via xterm; that store value is cleared the moment a pane consumes
+ * it. We wait for that clear (with a timeout fallback) before sending the Enter,
+ * so a freshly-spawned pane that hasn't mounted yet still gets the keystroke in
+ * the right order.
+ */
+function submitAfterPaste(sessionId: number, settleMs = 140, maxWaitMs = 4000) {
+  const start = Date.now();
+  const tick = () => {
+    const req = get(terminalInputRequest);
+    // Delivered once the pending request for this session has been cleared (a
+    // mounted pane consumes it synchronously; a freshly-spawned one takes a beat).
+    const delivered = req === null || req.sessionId !== sessionId;
+    if (delivered || Date.now() - start >= maxWaitMs) {
+      setTimeout(() => writeToSession(sessionId, '\r'), settleMs);
+    } else {
+      setTimeout(tick, 60);
+    }
+  };
+  tick();
+}
+
+/**
+ * Send a prompt to a session. For agent TUIs (any agent preset) the text is
+ * bracketed-pasted first — keeping multi-line prompts intact and preventing the
+ * REPL from swallowing the Enter — then submitted with a separate carriage
+ * return. Plain shells get the command and its Enter together.
+ */
+export function sendPromptToSession(sessionId: number, text: string, agentPreset?: string | null) {
+  if (!text) return;
+  if (agentPreset) {
+    requestTerminalInput(sessionId, text);
+    submitAfterPaste(sessionId);
+    return;
+  }
+  writeToSession(sessionId, `${text}\r`);
 }
 
 export function setSessionExecuting(id: number, executing: boolean) {

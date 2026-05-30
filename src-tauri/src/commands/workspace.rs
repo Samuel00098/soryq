@@ -60,6 +60,7 @@ pub fn workspace_get_recent(state: State<AppState>) -> Vec<crate::workspace::pro
 pub fn workspace_git_commit(
     project_id: String,
     message: String,
+    files: Option<Vec<String>>,
     state: State<AppState>,
 ) -> Result<String, String> {
     let projects = state.workspace_manager.list_projects();
@@ -82,9 +83,34 @@ pub fn workspace_git_commit(
         return Err("Commit message contains invalid characters.".to_string());
     }
 
-    // 1. Stage all changes
+    // Determine whether to commit a selected subset or everything. An empty list
+    // is treated as "no files selected" rather than "commit all".
+    let selected: Option<Vec<String>> = match files {
+        Some(list) if !list.is_empty() => {
+            for path in &list {
+                if path.is_empty() || path.contains('\0') {
+                    return Err("A selected file path is invalid.".to_string());
+                }
+            }
+            Some(list)
+        }
+        Some(_) => return Err("No files selected to commit.".to_string()),
+        None => None,
+    };
+
+    // 1. Stage changes. With a selection, stage only those paths (the "--"
+    //    separator stops paths that begin with "-" from being read as flags);
+    //    otherwise stage everything. `git add -A -- <paths>` also records
+    //    deletions and newly-tracked files within the selection.
+    let mut add_args: Vec<&str> = vec!["add", "-A"];
+    if let Some(ref list) = selected {
+        add_args.push("--");
+        for path in list {
+            add_args.push(path);
+        }
+    }
     let add_output = Command::new("git")
-        .args(&["add", "-A"])
+        .args(&add_args)
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -95,9 +121,17 @@ pub fn workspace_git_commit(
         return Err(format!("Failed to stage changes: {}", sanitize_git_error(&stderr)));
     }
 
-    // 2. Commit changes
+    // 2. Commit changes. With a selection, restrict the commit to those paths so
+    //    anything else already staged is left untouched.
+    let mut commit_args: Vec<&str> = vec!["commit", "-m", &message];
+    if let Some(ref list) = selected {
+        commit_args.push("--");
+        for path in list {
+            commit_args.push(path);
+        }
+    }
     let commit_output = Command::new("git")
-        .args(&["commit", "-m", &message])
+        .args(&commit_args)
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
