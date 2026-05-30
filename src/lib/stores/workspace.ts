@@ -168,6 +168,7 @@ bindProjectAutosave();
 interface PersistedTerminalPane {
   role: string | null;
   cwd: string | null;
+  hasSession: boolean;
 }
 
 interface PersistedProjectState {
@@ -201,8 +202,8 @@ function saveProjectStateToStorage(projectId: string) {
   if (typeof window === 'undefined') return;
   const terminalState = getTerminalProjectState(projectId);
   const terminalPanes: PersistedTerminalPane[] = terminalState.paneAssignments.map((sessionId) => {
-    const session = terminalState.sessions.find((s) => s.id === sessionId);
-    return { role: session?.role ?? null, cwd: session?.cwd ?? null };
+    const session = sessionId !== null ? terminalState.sessions.find((s) => s.id === sessionId) : undefined;
+    return { role: session?.role ?? null, cwd: session?.cwd ?? null, hasSession: Boolean(session) };
   });
   const currentLayout = get(layout);
   const state: PersistedProjectState = {
@@ -254,11 +255,14 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
   // cwd: must be a safe path; role: alphanumeric + common separators only, no control chars
   const rawPanes = Array.isArray(r.terminalPanes) ? r.terminalPanes : [];
   const terminalPanes: PersistedTerminalPane[] = rawPanes.map((p: unknown) => {
-    if (!p || typeof p !== 'object') return { role: null, cwd: null };
+    if (!p || typeof p !== 'object') return { role: null, cwd: null, hasSession: false };
     const pane = p as Record<string, unknown>;
     const cwd = isSafePath(pane.cwd) ? pane.cwd : null;
     const role = typeof pane.role === 'string' && /^[\w\-. ]{0,63}$/.test(pane.role) ? pane.role : null;
-    return { role, cwd };
+    // Back-compat: entries persisted before hasSession existed are treated as
+    // occupied panes so previously-saved terminals still get recreated.
+    const hasSession = pane.hasSession === undefined ? true : Boolean(pane.hasSession);
+    return { role, cwd, hasSession };
   });
 
   const terminalLayout = typeof r.terminalLayout === 'string' ? r.terminalLayout : undefined;
@@ -473,15 +477,19 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
         existingTerminalState.paneAssignments.some((id) => id !== null);
 
       if (!hasLiveTerminalState) {
-        if (persisted?.terminalPanes && persisted.terminalPanes.length > 0) {
+        const occupiedPanes = persisted?.terminalPanes?.filter((pane) => pane.hasSession) ?? [];
+        if (persisted?.terminalPanes && occupiedPanes.length > 0) {
           const { setGridLayout, setSessionRole } = await import('./terminal');
           if (persisted.terminalLayout) {
             setGridLayout(persisted.terminalLayout as any);
           }
           const spawnedIds: number[] = [];
+          // Recreate a session only for panes that actually held one, keeping
+          // each session in its original pane slot and leaving empty panes empty.
           for (let i = 0; i < persisted.terminalPanes.length; i++) {
             if (generation !== restoreProjectStateGeneration) return;
             const pane = persisted.terminalPanes[i];
+            if (!pane.hasSession) continue;
             const id = await createTerminalSession(pane.cwd || rootPath, i);
             if (id !== null) {
               spawnedIds.push(id);
