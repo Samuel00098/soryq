@@ -276,10 +276,12 @@
   .floating-notepad {
     position: fixed;
     z-index: 9000;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
     border-radius: 10px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--glass-shadow, 0 20px 60px rgba(0, 0, 0, 0.4)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -292,7 +294,7 @@
     align-items: center;
     gap: 8px;
     padding: 8px 10px;
-    background: var(--bg-tertiary, var(--bg-secondary));
+    background: transparent;
     border-bottom: 1px solid var(--border);
     cursor: move;
     user-select: none;
@@ -356,7 +358,7 @@
 
   .note-action-btn.active {
     background: var(--accent);
-    color: #fff;
+    color: var(--button-text, #fff);
     border-color: var(--accent);
   }
 

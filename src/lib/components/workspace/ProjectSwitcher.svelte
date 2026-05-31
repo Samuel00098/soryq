@@ -226,10 +226,12 @@
     position: fixed;
     z-index: 9000;
     min-width: 180px;
-    background: var(--bg-primary);
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--glass-shadow, 0 8px 24px rgba(0, 0, 0, 0.35)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     padding: 4px;
     animation: ctx-in 0.1s ease;
   }

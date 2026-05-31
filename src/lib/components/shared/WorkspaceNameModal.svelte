@@ -90,10 +90,12 @@
   .modal {
     width: 380px;
     max-width: calc(100vw - 40px);
-    background: var(--bg-primary);
+    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
     border-radius: 12px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4), 0 8px 20px rgba(0, 0, 0, 0.25);
+    box-shadow: var(--glass-shadow, 0 24px 60px rgba(0, 0, 0, 0.4)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     overflow: hidden;
     animation: slide-in 0.14s cubic-bezier(0.16, 1, 0.3, 1);
   }

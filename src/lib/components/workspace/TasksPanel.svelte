@@ -318,7 +318,8 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-    background: var(--editor-bg);
+    /* Transparent so the frosted glass aux panel shows through (premium look) */
+    background: transparent;
   }
 
   /* ─── Empty state ─── */
@@ -481,7 +482,7 @@
     align-items: flex-start;
     gap: 7px;
     padding: 9px 9px 9px 11px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.45);
     border: 1px solid var(--border);
     border-left-width: 3px;
     border-radius: 7px;
@@ -565,7 +566,7 @@
     width: 100%;
     height: 30px;
     padding: 0 58px 0 9px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.5);
     border: 1px solid var(--border);
     border-radius: 7px;
     color: var(--text-primary);
@@ -679,7 +680,7 @@
 
   .add-btn:hover:not(:disabled) {
     background: var(--accent);
-    color: #fff;
+    color: var(--button-text, #fff);
   }
 
   .add-btn:disabled {

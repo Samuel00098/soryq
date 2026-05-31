@@ -157,6 +157,15 @@ export function applyThemeToCSS(theme: Theme | null) {
   if (!theme || typeof document === 'undefined') return;
   const root = document.documentElement;
 
+  // Add theme type class for light/dark theme CSS targeting
+  if (theme.type === 'light') {
+    root.classList.add('light-theme');
+    root.classList.remove('dark-theme');
+  } else {
+    root.classList.add('dark-theme');
+    root.classList.remove('light-theme');
+  }
+
   const isInitialLoad = !root.classList.contains('theme-initialized');
   if (!isInitialLoad) {
     root.classList.add('theme-transitioning');
@@ -171,6 +180,12 @@ export function applyThemeToCSS(theme: Theme | null) {
 
   for (const [key, value] of Object.entries(theme.colors)) {
     root.style.setProperty(`--${key}`, value);
+    if (typeof value === 'string') {
+      const rgb = hexToRgb(value);
+      if (rgb) {
+        root.style.setProperty(`--${key}-rgb`, `${rgb.r}, ${rgb.g}, ${rgb.b}`);
+      }
+    }
   }
   for (const [key, value] of Object.entries(theme.syntax)) {
     root.style.setProperty(`--syntax-${key}`, value);

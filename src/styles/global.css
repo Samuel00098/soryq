@@ -1,5 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+:root.solid-theme {
+  --frost-base: 1.000 !important;
+  --frost-chrome: 1.000 !important;
+  --frost-surface: 1.000 !important;
+}
+
+:root.solid-theme * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Improve text/icon readability when transparency is enabled (not in solid-theme) */
+:root:not(.solid-theme):not(.light-theme) {
+  --text-secondary:  #b5b5c6;
+  --text-muted:      #8a8a9d;
+}
+
+:root:not(.solid-theme):not(.light-theme) body {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+:root:not(.solid-theme).light-theme body {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+:root:not(.solid-theme) .cm-editor *,
+:root:not(.solid-theme) .xterm-rows *,
+:root:not(.solid-theme) pre *,
+:root:not(.solid-theme) code * {
+  text-shadow: none !important;
+}
+
 :root {
   /* ── Core Palette ───────────────────────── */
   --bg-primary:      #18181e;
@@ -42,6 +74,17 @@
   --radius-sm:       4px;
   --radius-md:       8px;
   --radius-lg:       12px;
+
+  /* ── Premium Glass ──────────────────────── */
+  --glass-blur:        22px;
+  --glass-saturate:    135%;
+  --glass-rim:         rgba(255, 255, 255, 0.07);
+  --glass-rim-strong:  rgba(255, 255, 255, 0.13);
+  --glass-shadow:      0 24px 60px -20px rgba(0, 0, 0, 0.65);
+  /* Frost opacity hierarchy — base < chrome < content */
+  --frost-base:        0.5;
+  --frost-chrome:      0.62;
+  --frost-surface:     0.72;
 
   /* ── TitleBar ───────────────────────────── */
   --titlebar-bg:     #121216;
@@ -118,7 +161,40 @@ html {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background-color: var(--bg-primary);
+  background-color: transparent;
+}
+
+/* Optional user background image. Painted on a fixed, full-window layer behind
+   everything (negative z-index sits behind the body's translucent dim + accent
+   blooms), so the frosted UI and the body fill act as a legibility overlay on
+   top of it. Toggled via the `has-bg-image` class + `--user-bg-image` var,
+   both managed in src/lib/stores/background.ts. */
+body::before {
+  content: '';
+  position: fixed;
+  /* Overscan by the blur radius so blurred edges never reveal a transparent
+     fringe at the window border (cover sizing scales to the larger box). */
+  inset: calc(-3 * var(--user-bg-blur, 0px));
+  z-index: -2;
+  background-image: var(--user-bg-image, none);
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  filter: blur(var(--user-bg-blur, 0px));
+  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1),
+              filter  280ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  /* Promote to a separate GPU compositor layer to prevent repaint lag */
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+
+/* `--user-bg-opacity` (0–1) dims the wallpaper independently of the interface
+   frost; both vars are managed in src/lib/stores/background.ts. */
+html.has-bg-image body::before {
+  opacity: var(--user-bg-opacity, 1);
 }
 
 body {
@@ -129,9 +205,27 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 15px;
   color: var(--text-primary);
-  background-color: var(--bg-primary);
+  background-color: transparent;
+  position: relative;
+  z-index: 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  /* Premium frosted base: a translucent fill (lets the OS acrylic/desktop
+     blur through) layered with soft accent "blooms" for Warp-style depth. */
+  background-color: rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-base, 0.5));
+  background-image:
+    radial-gradient(135% 115% at 10% -12%, color-mix(in srgb, var(--accent) 15%, transparent) 0%, transparent 46%),
+    radial-gradient(120% 100% at 100% 0%, color-mix(in srgb, var(--accent-hover, var(--accent)) 10%, transparent) 0%, transparent 44%),
+    radial-gradient(110% 130% at 50% 118%, color-mix(in srgb, var(--accent) 6%, transparent) 0%, transparent 55%);
+  pointer-events: none;
+  transition: background-color 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #app {

@@ -624,7 +624,8 @@
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background: var(--bg-primary);
+    /* Transparent so the frosted glass aux panel shows through (premium look) */
+    background: transparent;
     color: var(--text-primary);
     overflow: hidden;
     container-type: inline-size;
@@ -652,7 +653,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 12px;
-    background: var(--bg-primary);
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.35);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
@@ -667,7 +668,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.5);
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 2px 6px;
@@ -733,7 +734,7 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    background: var(--bg-primary);
+    background: transparent;
   }
 
   .files-list-container {
@@ -745,7 +746,7 @@
 
   /* File Card */
   .file-card {
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.45);
     border: 1px solid var(--border);
     border-radius: 6px;
     margin-bottom: 12px;
@@ -768,7 +769,7 @@
     align-items: center;
     width: 100%;
     padding: 6px 10px;
-    background: var(--bg-secondary);
+    background: transparent;
     border: none;
     text-align: left;
     cursor: pointer;
@@ -866,7 +867,7 @@
   /* File Card Body / Diff */
   .file-card-body {
     overflow-x: auto;
-    background: var(--bg-primary);
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.3);
     border-radius: 0 0 6px 6px;
   }
 

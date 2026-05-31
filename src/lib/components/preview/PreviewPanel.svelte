@@ -1257,14 +1257,17 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--bg-primary);
+    /* Transparent so the frosted glass aux panel shows through; the actual
+       web preview iframe paints its own opaque page background. */
+    background: transparent;
     overflow: hidden;
     container-type: inline-size;
   }
 
   .preview-tabs {
     height: 36px;
-    background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary));
+    /* Transparent chrome — the frosted aux panel behind shows through. */
+    background: transparent;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
@@ -1310,7 +1313,7 @@
   }
 
   .preview-tab.active {
-    background: var(--bg-primary);
+    background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
     border-color: var(--border);
     color: var(--text-primary);
   }
@@ -1364,7 +1367,8 @@
   /* Browser bar */
   .browser-bar {
     height: 42px;
-    background: var(--bg-secondary);
+    /* Transparent toolbar chrome — frosted aux panel shows through. */
+    background: transparent;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
@@ -1421,7 +1425,7 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    background: var(--bg-primary);
+    background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
     border: 1px solid var(--border);
     border-radius: 9999px;
     height: 30px;
@@ -1538,7 +1542,7 @@
     font-weight: 600;
     cursor: pointer;
     background: var(--accent);
-    color: white;
+    color: var(--button-text, #fff);
     border: none;
     transition: background 0.15s, transform 0.1s;
     white-space: nowrap;
@@ -1596,7 +1600,11 @@
   /* Preview area */
   .preview-content {
     flex: 1;
-    background: #ffffff;
+    /* Transparent — the actual web iframe / device screen paint their own white
+       page background. Keeping this transparent lets the frosted glass (and any
+       background image) show through on the initial placeholder + around the
+       device frame. */
+    background: transparent;
     position: relative;
     overflow: hidden;
   }
@@ -1823,7 +1831,10 @@
     height: 100%;
     padding: 40px;
     text-align: center;
-    background: var(--bg-primary);
+    /* Transparent initial page — frosted aux panel + background image show
+       through. (The .overlay variant below re-adds a frost so it can cover a
+       loading iframe.) */
+    background: transparent;
     color: var(--text-primary);
     gap: 12px;
   }
@@ -1832,6 +1843,10 @@
     position: absolute;
     inset: 0;
     z-index: 2;
+    /* Covers a not-yet-ready iframe — needs a frosted backing to stay legible. */
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-surface, 0.72));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
   }
 
   .placeholder-globe { margin-bottom: 4px; }
@@ -1865,7 +1880,7 @@
     padding: 0 20px;
     border-radius: 8px;
     background: var(--accent);
-    color: white;
+    color: var(--button-text, #fff);
     font-weight: 600;
     font-size: 13px;
     border: none;

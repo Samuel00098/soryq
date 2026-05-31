@@ -706,7 +706,8 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: var(--sidebar-bg);
+    /* Transparent so the frosted glass sidebar shows through (premium look) */
+    background: transparent;
     overflow: hidden;
     container-type: inline-size;
     container-name: sourcecontrol;

@@ -84,7 +84,7 @@
   let hasRecents = $derived($recentWorkspaces.length > 0);
 </script>
 
-<div class="welcome">
+<div class="welcome" class:light={isLight}>
   <!-- Header -->
   <header class="header">
     <div class="logo-wrap">
@@ -212,7 +212,7 @@
               <path d="M 30,25 L 34,25 M 25,30 L 25,34 M 30,39 L 34,39" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2,2" />
             </svg>
             <p style="font-weight: 550; color: var(--text-primary); margin: 0 0 4px 0;">No Recent Workspaces</p>
-            <span style="color: var(--text-muted); font-size: 11px; max-width: 200px; line-height: 1.4; display: inline-block;">Create a new workspace or open a folder to populate your dashboard.</span>
+            <span style="color: var(--text-secondary); font-size: 11px; max-width: 200px; line-height: 1.4; display: inline-block;">Create a new workspace or open a folder to populate your dashboard.</span>
           </div>
         {/if}
       </div>
@@ -318,8 +318,10 @@
     align-items: center;
     width: 100%;
     height: 100%;
-    background: var(--bg-primary);
-    background-image: radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent);
+    background: transparent;
+    background-image:
+      radial-gradient(72% 48% at 50% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+      radial-gradient(46% 40% at 100% 102%, color-mix(in srgb, var(--accent-hover, var(--accent)) 8%, transparent), transparent 58%);
     overflow-y: auto;
     padding: 48px 32px 40px;
     gap: 36px;
@@ -334,27 +336,37 @@
     text-align: center;
     width: 100%;
     max-width: 760px;
+    animation: welcome-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .logo-wrap {
+    position: relative;
     width: 80px;
     height: 80px;
     border-radius: 20px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
+    background: linear-gradient(155deg, color-mix(in srgb, var(--accent) 16%, var(--bg-secondary)), color-mix(in srgb, var(--bg-secondary) 88%, transparent));
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
     flex-shrink: 0;
-    box-shadow: var(--shadow-md);
+    box-shadow:
+      var(--shadow-md),
+      inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
+      0 0 28px color-mix(in srgb, var(--accent) 20%, transparent);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .logo-wrap:hover {
-    border-color: var(--accent);
-    box-shadow: var(--shadow-lg), 0 0 12px var(--accent-glow);
-    transform: scale(1.02);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow:
+      var(--shadow-lg),
+      inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
+      0 0 36px color-mix(in srgb, var(--accent) 32%, transparent);
+    transform: translateY(-2px) scale(1.02);
   }
 
   .logo-img {
@@ -368,10 +380,14 @@
   .header-text { display: flex; flex-direction: column; gap: 2px; align-items: center; }
 
   .app-name {
-    font-size: 34px;
+    font-size: 36px;
     font-weight: 700;
     color: var(--text-primary);
-    letter-spacing: -0.6px;
+    background: linear-gradient(180deg, var(--text-primary) 35%, color-mix(in srgb, var(--text-primary) 62%, var(--accent)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.8px;
     line-height: 1;
   }
 
@@ -398,6 +414,7 @@
     flex-direction: column;
     gap: 20px;
     min-height: 0;
+    animation: welcome-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
   }
 
   /* ── Action buttons ── */
@@ -423,21 +440,29 @@
   }
 
   .action-btn.primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent));
+    border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+    color: var(--button-text, #fff);
+    box-shadow:
+      0 6px 20px -6px color-mix(in srgb, var(--accent) 55%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
   }
 
   .action-btn.primary:hover {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 40%, transparent);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent-hover, var(--accent)) 90%, white), var(--accent-hover, var(--accent)));
+    border-color: color-mix(in srgb, var(--accent) 80%, transparent);
+    box-shadow:
+      0 10px 28px -6px color-mix(in srgb, var(--accent) 60%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
     transform: translateY(-1px);
   }
 
   .action-btn.secondary {
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     color: var(--text-primary);
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
   }
 
   .action-btn.secondary:hover {
@@ -546,8 +571,10 @@
     padding: 10px 12px;
     border-radius: 8px;
     border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
-    backdrop-filter: blur(8px);
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
@@ -683,6 +710,7 @@
     flex-direction: column;
     gap: 14px;
     min-height: 0;
+    animation: welcome-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
   }
 
   /* ── Workspace concept card ── */
@@ -692,8 +720,13 @@
     gap: 8px;
     padding: 12px 14px;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
-    border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+    background: color-mix(in srgb, var(--accent) 9%, color-mix(in srgb, var(--bg-secondary) 72%, transparent));
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07)),
+      0 0 24px color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
   .concept-title {
@@ -769,8 +802,10 @@
     gap: 12px;
     padding: 12px 14px;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
-    backdrop-filter: blur(8px);
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     border: 1px solid var(--border);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
@@ -833,8 +868,10 @@
     flex-direction: column;
     gap: 8px;
     padding: 14px 16px;
-    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
-    backdrop-filter: blur(8px);
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     border: 1px solid var(--border);
     border-radius: 10px;
     transition: border-color 0.2s ease;
@@ -881,6 +918,35 @@
     white-space: nowrap;
   }
 
+  /* ── Light-mode legibility ──
+     In light themes --text-muted is a very pale ("ash") gray that's hard to
+     read for descriptive text. Bump those to the darker --text-secondary. */
+  .welcome.light .section-label,
+  .welcome.light .recent-path,
+  .welcome.light .recent-time,
+  .welcome.light .concept-desc,
+  .welcome.light .tip-body p,
+  .welcome.light .empty-state,
+  .welcome.light .empty-state span {
+    color: var(--text-secondary);
+  }
+
+  .welcome.light .concept-desc,
+  .welcome.light .tip-body p {
+    opacity: 0.95;
+  }
+
+  .welcome.light .empty-state {
+    opacity: 0.9;
+  }
+
+  /* Keyboard hints sit on pale surfaces — give them readable text too */
+  .welcome.light .action-btn kbd,
+  .welcome.light .shortcut-item kbd,
+  .welcome.light .tip-body kbd {
+    color: var(--text-secondary);
+  }
+
   /* ── Responsive ── */
   @media (max-width: 720px) {
     .welcome { padding: 28px 16px 32px; gap: 24px; }
@@ -896,5 +962,19 @@
   @keyframes floating {
     0%, 100% { transform: translateY(0px); }
     50% { transform: translateY(-4px); }
+  }
+
+  @keyframes welcome-rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .header,
+    .left-col,
+    .right-col,
+    .animated-svg-floating {
+      animation: none;
+    }
   }
 </style>

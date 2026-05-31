@@ -59,7 +59,7 @@
   .editor-tabs {
     display: flex;
     height: 35px;
-    background: var(--tab-inactive-bg);
+    background: transparent;
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
     overflow-y: hidden;
@@ -80,7 +80,7 @@
     gap: 8px;
     height: 100%;
     padding: 0 14px;
-    background: var(--tab-inactive-bg);
+    background: transparent;
     border-right: 1px solid var(--tab-border);
     color: var(--text-secondary);
     user-select: none;
@@ -98,7 +98,9 @@
   }
 
   .editor-tab.active {
-    background: var(--tab-active-bg);
+    /* Reads continuous with the frosted editor surface below it. No own
+       backdrop-filter — the parent .editor-panel already provides the glass. */
+    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-surface, 0.72));
     color: var(--text-primary);
   }
 

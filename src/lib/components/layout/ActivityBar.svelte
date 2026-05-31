@@ -77,7 +77,9 @@
   .activitybar {
     width: 46px;
     height: 100%;
-    background: var(--activitybar-bg);
+    background: rgba(var(--activitybar-bg-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border-right: 1px solid var(--activitybar-border);
     display: flex;
     flex-direction: column;

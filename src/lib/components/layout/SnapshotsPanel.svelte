@@ -268,7 +268,7 @@
     flex: 1;
     height: 28px;
     padding: 0 8px;
-    background: var(--bg-primary);
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.4);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-primary);
@@ -286,7 +286,7 @@
     background: var(--accent);
     border: none;
     border-radius: 6px;
-    color: #fff;
+    color: var(--button-text, #fff);
     font-size: 11.5px;
     font-weight: 600;
     cursor: pointer;
@@ -327,7 +327,7 @@
 
   /* ── Snapshot card ── */
   .snap-card {
-    background: var(--bg-primary);
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.4);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 8px 9px;
@@ -378,7 +378,7 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--text-primary);
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.5);
     border: 1px solid var(--accent);
     border-radius: 4px;
     padding: 1px 5px;
@@ -433,7 +433,7 @@
     gap: 4px;
     padding: 2px 6px;
     border-radius: 4px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.45);
     border: 1px solid var(--border);
     font-size: 10px;
   }

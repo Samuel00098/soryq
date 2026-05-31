@@ -86,7 +86,7 @@
   const customTheme = EditorView.theme({
     "&": {
       color: "var(--text-primary)",
-      backgroundColor: "var(--editor-bg)",
+      backgroundColor: "transparent",
       height: "100%",
       fontSize: "var(--editor-font-size, 13px)",
       fontFamily: "var(--editor-font-family, monospace)",
@@ -105,7 +105,7 @@
       backgroundColor: "var(--selection-bg)",
     },
     ".cm-gutters": {
-      backgroundColor: "var(--editor-gutter)",
+      backgroundColor: "transparent",
       color: "var(--text-muted)",
       border: "none",
       borderRight: "1px solid var(--border)",
@@ -348,6 +348,9 @@
     pointer-events: none;
     opacity: 0.55;
     transition: opacity 0.2s;
+  }
+  :global(:root:not(.solid-theme)) .minimap-container {
+    background: rgba(var(--bg-tertiary-rgb, 34, 34, 42), var(--frost-surface, 0.72));
   }
   .minimap-container:hover {
     opacity: 0.85;

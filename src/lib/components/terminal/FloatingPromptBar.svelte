@@ -1106,9 +1106,10 @@
     flex-direction: column;
     border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
     border-radius: 16px;
-    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
-    backdrop-filter: blur(20px);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+    background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow: var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)), inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13));
     overflow: hidden;
   }
 
@@ -1210,9 +1211,10 @@
     padding: 10px 12px;
     border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
     border-radius: 20px;
-    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-    backdrop-filter: blur(20px);
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+    background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow: var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)), inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13));
   }
 
   .floating-prompt-bar.disabled {
@@ -1737,7 +1739,7 @@
     padding: 0 3px;
     border-radius: 8px;
     background: var(--accent);
-    color: #fff;
+    color: var(--button-text, #fff);
     font-size: 8.5px;
     font-weight: 700;
     display: flex;

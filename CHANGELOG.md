@@ -2,6 +2,14 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.6] - 2026-05-31
+
+### Added
+
+- **Frosted glass transparency (Warp-style)** — implemented a premium semi-transparent frosted glass aesthetic throughout the application. Users can adjust interface transparency using the global slider. All panels (Scratchpad, HTTP Client, Tasks, Run History, Merge/Review, Snapshots) and popups/menus (Workspace and Project Switchers, File Explorer context menu, Microphone Permission dialog, Command Palette, and Terminal panes/title bars) are now fully styled and aligned with this transparent aesthetic.
+- **Opaque performance mode** — when the transparency slider is set to 0, transparency is completely disabled (using solid backgrounds and disabling all backdrop blurs) for maximum performance and legibility.
+- **High-contrast readability tweaks** — automatically boosted secondary and muted text/icon color contrast and added a subtle readability-enhancing drop shadow to non-code text elements when transparency is enabled (excluding CodeMirror editors, xterm terminals, and Markdown code blocks to ensure text remain pixel-sharp).
+
 ## [0.1.5] - 2026-05-30
 
 ### Added

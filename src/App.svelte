@@ -17,7 +17,8 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { initDefaultCommands } from '$lib/stores/commandpalette';
   import { requestNotificationPermission } from '$lib/stores/notification';
-  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted } from '$lib/stores/settings';
+  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted, backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur } from '$lib/stores/settings';
+  import { initBackground, applyBackgroundImage, applyInterfaceFrost, applyBackgroundAppearance } from '$lib/stores/background';
   import OnboardingWalkthrough from '$lib/components/workspace/OnboardingWalkthrough.svelte';
 
   const ZOOM_LEVELS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const;
@@ -38,9 +39,30 @@
 
   onMount(() => {
     loadThemes();
+    initBackground();
     initializeWorkspaces();
     initDefaultCommands();
     requestNotificationPermission();
+
+    // Live-apply the global interface transparency as the slider moves, and the
+    // image layer when toggled. Skip the initial synchronous fire — startup is
+    // handled by initBackground().
+    let bgFirstRun = true;
+    const unsubFrost = interfaceTransparency.subscribe((v) => {
+      if (bgFirstRun) { bgFirstRun = false; return; }
+      applyInterfaceFrost(v);
+    });
+    const unsubBgEnabled = backgroundImageEnabled.subscribe(() => applyBackgroundImage());
+    // Live-apply background image opacity/blur as their sliders move (initial
+    // values are applied by initBackground()).
+    let bgAppearanceRuns = 0;
+    const applyAppearanceLive = () => {
+      // Skip the two initial synchronous fires (one per store subscription).
+      if (bgAppearanceRuns < 2) { bgAppearanceRuns++; return; }
+      applyBackgroundAppearance(get(backgroundImageOpacity), get(backgroundImageBlur));
+    };
+    const unsubBgOpacity = backgroundImageOpacity.subscribe(applyAppearanceLive);
+    const unsubBgBlur = backgroundImageBlur.subscribe(applyAppearanceLive);
 
     // Auto-open today's daily note once per project per day
     let lastDailyProjectId: string | null = null;
@@ -118,6 +140,10 @@
       unlistenClose?.();
       unsubscribeShortcuts();
       unsubDailyNote();
+      unsubFrost();
+      unsubBgEnabled();
+      unsubBgOpacity();
+      unsubBgBlur();
     };
   });
 </script>

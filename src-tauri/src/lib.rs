@@ -7,6 +7,7 @@ mod theme;
 mod workspace;
 
 use state::AppState;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,12 +22,31 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            let window = app.get_webview_window("main").unwrap();
+
+            #[cfg(target_os = "macos")]
+            let _ = window_vibrancy::apply_vibrancy(&window, window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground, None, None);
+
+            #[cfg(target_os = "windows")]
+            {
+                // Try acrylic first (frosted glass), fallback to mica or basic blur
+                if let Err(_) = window_vibrancy::apply_acrylic(&window, Some((15, 15, 20, 10))) {
+                    let _ = window_vibrancy::apply_mica(&window, None);
+                }
+            }
+
+            Ok(())
+        })
         .manage(AppState::new(config_dir))
         .invoke_handler(tauri::generate_handler![
             commands::theme::theme_list,
             commands::theme::theme_activate,
             commands::theme::theme_get_active,
             commands::theme::theme_save,
+            commands::background::background_image_set,
+            commands::background::background_image_get,
+            commands::background::background_image_clear,
             commands::secrets::openrouter_api_key_exists,
             commands::secrets::openrouter_api_key_set,
             commands::secrets::openrouter_api_key_delete,

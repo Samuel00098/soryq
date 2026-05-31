@@ -29,7 +29,9 @@
     width: 100%;
     height: 100%;
     overflow-y: auto;
-    background: var(--bg-primary);
+    /* Transparent so the frosted editor surface (and any background image)
+       shows through; inner code/quote blocks provide their own light fill. */
+    background: transparent;
     color: var(--text-primary);
     padding: 2.5rem 2rem;
   }
@@ -112,7 +114,7 @@
     margin: 1.8rem 0;
     padding: 0.6rem 1.2rem;
     color: var(--text-secondary);
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
     border-left: 4px solid var(--accent);
     border-radius: 0 6px 6px 0;
     font-style: italic;
@@ -127,7 +129,7 @@
     margin-top: 1.2rem;
     margin-bottom: 1.2rem;
     padding: 1.1rem;
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
     border: 1px solid var(--border);
     border-radius: 8px;
     overflow-x: auto;
@@ -136,7 +138,7 @@
   .markdown-body :global(code) {
     font-family: var(--editor-font-family, 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace);
     font-size: 88%;
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
     padding: 0.2rem 0.45rem;
     border-radius: 4px;
     color: var(--text-primary);
@@ -166,7 +168,7 @@
   }
 
   .markdown-body :global(th) {
-    background: var(--bg-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
     font-weight: 600;
     color: var(--text-primary);
   }

@@ -421,8 +421,12 @@
     display: flex;
     align-items: center;
     height: 38px;
-    background: var(--titlebar-bg);
+    background: rgba(var(--titlebar-bg-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border-bottom: 1px solid var(--titlebar-border);
+    /* Glass rim: a hairline highlight along the top edge of the window */
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     user-select: none;
     flex-shrink: 0;
     z-index: 100;
@@ -544,7 +548,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.4);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0 10px;
@@ -624,8 +628,8 @@
     right: 0;
     width: 320px;
     max-height: 380px;
-    background: var(--bg-secondary);
-    backdrop-filter: blur(12px);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.7);
+    backdrop-filter: blur(20px);
     border: 1px solid var(--border);
     border-radius: 8px;
     box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 1px 1px 0 var(--border) inset;

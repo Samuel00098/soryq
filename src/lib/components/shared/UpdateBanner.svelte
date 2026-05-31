@@ -91,7 +91,7 @@
   .update-install-btn {
     padding: 3px 10px;
     background: var(--accent);
-    color: #fff;
+    color: var(--button-text, #fff);
     border: none;
     border-radius: 4px;
     font-size: 11px;

@@ -354,12 +354,14 @@
   .context-menu {
     position: fixed;
     z-index: 1000;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 4px;
     min-width: 160px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    box-shadow: var(--glass-shadow, 0 4px 12px rgba(0,0,0,0.3)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
   }
 
   .context-item {
@@ -376,7 +378,7 @@
 
   .context-item:hover {
     background: var(--accent);
-    color: #fff;
+    color: var(--button-text, #fff);
   }
 
   .context-item.danger:hover {

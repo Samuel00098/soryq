@@ -147,7 +147,7 @@
     background: var(--accent);
     border: none;
     border-radius: 5px;
-    color: #fff;
+    color: var(--button-text, #fff);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;

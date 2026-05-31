@@ -1,3 +1,4 @@
+pub mod background;
 pub mod file_system;
 pub mod preview;
 pub mod secrets;

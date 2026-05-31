@@ -147,10 +147,12 @@
   .command-palette {
     width: 600px;
     max-width: 90%;
-    background: var(--bg-secondary);
+    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
     border-radius: 12px;
-    box-shadow: var(--shadow-lg), 0 1px 0 var(--border-subtle) inset;
+    box-shadow: var(--glass-shadow, var(--shadow-lg)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     overflow: hidden;
     display: flex;
     flex-direction: column;

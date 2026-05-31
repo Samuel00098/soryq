@@ -24,7 +24,12 @@
     voiceRefinementModel,
     voiceRefinementModelOptions,
     onboardingCompleted,
+    backgroundImageEnabled,
+    interfaceTransparency,
+    backgroundImageOpacity,
+    backgroundImageBlur,
   } from '$lib/stores/settings';
+  import { chooseBackgroundImage, removeBackgroundImage, backgroundImagePresent } from '$lib/stores/background';
   import { requestNotificationPermission } from '$lib/stores/notification';
   import { getAvailableShells, type ShellInfo } from '$lib/services/pty-bridge';
   import { showToast } from '$lib/stores/notification';
@@ -65,9 +70,9 @@
 
   const modalTabs = [
     { id: 'general'   as Tab, label: 'General' },
+    { id: 'themes'    as Tab, label: 'Themes' },
     { id: 'terminal'  as Tab, label: 'Terminal' },
     { id: 'shortcuts' as Tab, label: 'Shortcuts' },
-    { id: 'themes'    as Tab, label: 'Themes' },
     { id: 'about'     as Tab, label: 'About' },
   ];
 
@@ -1132,7 +1137,7 @@
       {:else if activeTab === 'themes'}
         <div class="section-heading">
           <h2>Themes</h2>
-          <p>Choose a color theme for the editor and interface.</p>
+          <p>Choose a color theme and set a background image for the interface.</p>
         </div>
 
         {#if showingCustomThemeEditor}
@@ -1217,6 +1222,107 @@
               Create Custom Theme
             </button>
           </div>
+
+          <!-- Interface transparency (always available) -->
+          <div class="setting-group bg-image-group">
+            <div class="group-label">Interface</div>
+            <div class="slider-row">
+              <div class="toggle-info">
+                <span class="toggle-label">Transparency</span>
+                <span class="toggle-desc">Make every surface more see-through (revealing the desktop or your background image) or more solid. Drag left for solid, right for glassy.</span>
+              </div>
+              <div class="slider-control">
+                <input
+                  class="bg-slider"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  bind:value={$interfaceTransparency}
+                  aria-label="Interface transparency"
+                />
+                <span class="slider-value">{$interfaceTransparency}%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Background image -->
+          <div class="setting-group bg-image-group">
+            <div class="group-label">Background Image</div>
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <span class="toggle-label">Custom background</span>
+                <span class="toggle-desc">Show an image behind the interface. Use the Transparency slider above to balance it against legibility.</span>
+              </div>
+              <div class="bg-actions">
+                <button class="bg-btn" onclick={chooseBackgroundImage}>
+                  {$backgroundImagePresent ? 'Change…' : 'Choose…'}
+                </button>
+                {#if $backgroundImagePresent}
+                  <button class="bg-btn bg-btn-danger" onclick={removeBackgroundImage}>Remove</button>
+                {/if}
+              </div>
+            </div>
+
+            {#if $backgroundImagePresent}
+              <div class="toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-label">Show background</span>
+                  <span class="toggle-desc">Toggle the image on or off without removing it.</span>
+                </div>
+                <button
+                  class="toggle"
+                  class:on={$backgroundImageEnabled}
+                  onclick={() => $backgroundImageEnabled = !$backgroundImageEnabled}
+                  aria-label="Toggle background image"
+                  role="switch"
+                  aria-checked={$backgroundImageEnabled}
+                >
+                  <span class="toggle-thumb"></span>
+                </button>
+              </div>
+
+              {#if $backgroundImageEnabled}
+                <div class="slider-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Image opacity</span>
+                    <span class="toggle-desc">Dim the image against the desktop. Lower it so the UI stays readable.</span>
+                  </div>
+                  <div class="slider-control">
+                    <input
+                      class="bg-slider"
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      bind:value={$backgroundImageOpacity}
+                      aria-label="Background image opacity"
+                    />
+                    <span class="slider-value">{$backgroundImageOpacity}%</span>
+                  </div>
+                </div>
+
+                <div class="slider-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Image blur</span>
+                    <span class="toggle-desc">Soften the image so text and panels read more clearly over it.</span>
+                  </div>
+                  <div class="slider-control">
+                    <input
+                      class="bg-slider"
+                      type="range"
+                      min="0"
+                      max="60"
+                      step="1"
+                      bind:value={$backgroundImageBlur}
+                      aria-label="Background image blur"
+                    />
+                    <span class="slider-value">{$backgroundImageBlur}px</span>
+                  </div>
+                </div>
+              {/if}
+            {/if}
+          </div>
         {/if}
 
       {:else if activeTab === 'about'}
@@ -1262,7 +1368,6 @@
         <div class="tour-section" style="margin: 20px 0 10px;">
           <button
             class="tour-btn"
-            style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 32px; border-radius: 6px; background: var(--accent-light); color: var(--accent); font-size: 11.5px; font-weight: 600; border: 1px solid var(--border-focus); cursor: pointer; transition: all 0.15s;"
             onclick={() => { onboardingCompleted.set(false); onclose(); }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1376,14 +1481,20 @@
     width: 600px;
     max-width: calc(100vw - 40px);
     max-height: calc(100vh - 80px);
-    background: var(--bg-secondary);
+    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
     border-radius: 16px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    box-shadow: 0 24px 64px rgba(0,0,0,0.35), 0 0 0 1px var(--border);
+    box-shadow: var(--glass-shadow, 0 24px 64px rgba(0,0,0,0.35)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     animation: modalIn 0.2s cubic-bezier(0.34,1.56,0.64,1);
+  }
+
+  :global(:root:not(.solid-theme)) .modal {
+    --bg-primary: rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-base, 0.45));
   }
 
   @keyframes modalIn {
@@ -1399,7 +1510,7 @@
     padding: 6px 16px 0;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    background: var(--bg-secondary);
+    background: transparent;
   }
 
   .modal-tabs {
@@ -1501,6 +1612,94 @@
     color: var(--text-muted);
     margin-bottom: 10px;
     display: block;
+  }
+
+  /* ── Background image ─────────────────── */
+  .bg-image-group {
+    margin-top: 22px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .bg-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .bg-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .bg-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+
+  .bg-btn-danger:hover {
+    border-color: var(--error);
+    color: var(--error);
+  }
+
+  .slider-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .slider-value {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    min-width: 38px;
+    text-align: right;
+  }
+
+  .bg-slider {
+    flex-shrink: 0;
+    width: 180px;
+    height: 4px;
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-active, var(--bg-tertiary));
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .bg-slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg-primary);
+    transition: transform 0.12s;
+  }
+
+  .bg-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+  }
+
+  .bg-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg-primary);
   }
 
   /* ── Appearance cards ─────────────────── */
@@ -1702,7 +1901,9 @@
     right: 16px;
     top: calc(100% - 6px);
     z-index: 100;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     border: 1.5px solid var(--border);
     border-radius: 10px;
     box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.18);
@@ -2400,6 +2601,41 @@
     font-size: 12px;
     color: var(--text-secondary);
     font-weight: 500;
+  }
+
+  /* ── Tour Section ──────────────────────── */
+  .tour-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 32px;
+    border-radius: 6px;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 11.5px;
+    font-weight: 600;
+    border: 1px solid var(--border-focus);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .tour-btn:hover {
+    background: color-mix(in srgb, var(--accent) 25%, var(--accent-light));
+  }
+
+  :global(.light-theme) .tour-btn {
+    background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.45));
+    color: var(--accent-hover, var(--accent));
+    border-color: color-mix(in srgb, var(--accent) 35%, rgba(0, 0, 0, 0.1));
+  }
+
+  :global(.light-theme) .tour-btn:hover {
+    background: color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.45));
+    border-color: var(--accent-hover, var(--accent));
+    color: var(--accent-hover, var(--accent));
+    box-shadow: 0 2px 8px rgba(var(--accent-rgb, 6, 182, 212), 0.12);
   }
 
   /* ── Reset Section ─────────────────────── */

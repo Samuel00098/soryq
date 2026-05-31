@@ -916,7 +916,7 @@
 
   .key-cap.active {
     background: var(--accent);
-    color: #000;
+    color: var(--button-text, #fff);
     border-color: var(--accent);
     box-shadow: 0 0 8px var(--accent-light);
     transform: scale(1.08);

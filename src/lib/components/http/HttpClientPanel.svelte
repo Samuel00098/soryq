@@ -265,6 +265,8 @@
     flex-direction: row;
     height: 100%;
     overflow: hidden;
+    /* Transparent so the parent .auxiliary-panel provides the frosted glass. */
+    background: transparent;
   }
 
   /* ─── Left sidebar ─────────────────────────── */
@@ -273,7 +275,7 @@
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    background: var(--bg-secondary);
+    background: rgba(var(--sidebar-bg-rgb, 18, 18, 22), 0.35);
     border-right: 1px solid var(--border);
     overflow: hidden;
   }
@@ -458,7 +460,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: var(--bg-primary);
+    background: transparent;
     min-width: 0;
   }
 
@@ -496,7 +498,7 @@
 
   .method-select {
     padding: 4px 8px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.6);
     border: 1px solid var(--border);
     border-radius: 5px;
     font-size: 11px;
@@ -508,12 +510,13 @@
 
   .method-select option {
     color: var(--text-primary);
+    background: var(--bg-secondary);
   }
 
   .url-input {
     flex: 1;
     padding: 5px 10px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.6);
     border: 1px solid var(--border);
     border-radius: 5px;
     color: var(--text-primary);
@@ -535,7 +538,7 @@
   .send-btn {
     padding: 5px 16px;
     background: var(--accent);
-    color: #fff;
+    color: var(--button-text, #fff);
     border: none;
     border-radius: 5px;
     font-size: 12px;
@@ -582,7 +585,7 @@
     gap: 1px;
     padding: 0 12px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.25);
     flex-shrink: 0;
   }
 
@@ -651,7 +654,7 @@
   .header-key {
     flex: 0 0 35%;
     padding: 3px 7px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.4);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-primary);
@@ -668,7 +671,7 @@
   .header-val {
     flex: 1;
     padding: 3px 7px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.4);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-primary);
@@ -760,6 +763,10 @@
     transition: border-color 0.15s, color 0.15s;
   }
 
+  :global(:root:not(.solid-theme)) .format-btn {
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+  }
+
   .format-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
@@ -769,7 +776,7 @@
     resize: none;
     height: 120px;
     padding: 8px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.4);
     border: 1px solid var(--border);
     border-radius: 5px;
     color: var(--text-primary);
@@ -811,7 +818,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.25);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     flex-wrap: nowrap;
@@ -1023,7 +1030,7 @@
     padding: 6px 16px;
     border-radius: 6px;
     background: var(--accent);
-    color: #fff;
+    color: var(--button-text, #fff);
     border: none;
     font-size: 12px;
     font-weight: 600;

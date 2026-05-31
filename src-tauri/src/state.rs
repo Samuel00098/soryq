@@ -42,6 +42,7 @@ pub struct AppState {
     pub pty_manager: PtyManager,
     pub preview_manager: PreviewManager,
     pub write_rate_limiter: WriteRateLimiter,
+    pub config_dir: PathBuf,
 }
 
 impl AppState {
@@ -53,6 +54,7 @@ impl AppState {
             pty_manager: PtyManager::new(),
             preview_manager: PreviewManager::new(active_project_id),
             write_rate_limiter: WriteRateLimiter::new(),
+            config_dir,
         }
     }
 }

@@ -437,13 +437,15 @@
     term = new Terminal({
       cursorBlink: true,
       cursorStyle: $terminalCursorStyle,
-      allowTransparency: false,
+      // Transparent terminal so the frosted glass pane (and ambient backdrop)
+      // shows through — the premium "Warp" look. DOM renderer handles this for free.
+      allowTransparency: true,
       scrollback: $terminalScrollback,
       fontSize: $terminalFontSize,
       fontFamily: $resolvedFontFamily,
       windowsPty,
       theme: {
-        background: initialColors['editor-bg'] || initialColors['bg-primary'] || (isLight ? '#ffffff' : '#111116'),
+        background: 'rgba(0, 0, 0, 0)',
         foreground: initialColors['text-primary'] || (isLight ? '#1f2328' : '#e6edf3'),
         cursor: initialColors['accent'] || (isLight ? '#0f766e' : '#7c6af7'),
         cursorAccent: initialColors['editor-bg'] || initialColors['bg-primary'] || (isLight ? '#ffffff' : '#1a1a1f'),
@@ -610,7 +612,7 @@
       const syntax = $activeTheme.syntax;
       const isLight = $activeTheme.type === 'light';
       term.options.theme = {
-        background: colors['editor-bg'] || colors['bg-primary'] || (isLight ? '#ffffff' : '#111116'),
+        background: 'rgba(0, 0, 0, 0)',
         foreground: colors['text-primary'] || (isLight ? '#1f2328' : '#e6edf3'),
         cursor: colors['accent'] || (isLight ? '#0f766e' : '#7c6af7'),
         cursorAccent: colors['editor-bg'] || colors['bg-primary'] || (isLight ? '#ffffff' : '#111116'),
@@ -777,7 +779,11 @@
   .terminal-pane {
     display: flex;
     flex-direction: column;
-    background: var(--editor-bg, var(--bg-primary));
+    /* Frosted glass surface — the xterm background is transparent and reads
+       over this translucent layer + the ambient backdrop behind the window. */
+    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-surface, 0.72));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     overflow: hidden;
     position: relative;
     border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
@@ -812,7 +818,7 @@
     gap: 8px;
     height: 28px;
     padding: 0 8px;
-    background: var(--bg-secondary);
+    background: transparent;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     user-select: none;
@@ -820,7 +826,7 @@
   }
 
   .terminal-pane:not(.active) .pane-titlebar {
-    background: color-mix(in srgb, var(--bg-secondary) 84%, var(--bg-primary));
+    background: transparent;
     border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
   }
 
@@ -1044,14 +1050,16 @@
     top: 29px;
     left: 8px;
     z-index: 50;
-    background: var(--bg-secondary);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.88);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 8px;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--glass-shadow, 0 8px 24px rgba(0, 0, 0, 0.35)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     min-width: 200px;
   }
 
@@ -1119,7 +1127,7 @@
     background: var(--accent);
     border: none;
     border-radius: 5px;
-    color: #fff;
+    color: var(--button-text, #fff);
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;

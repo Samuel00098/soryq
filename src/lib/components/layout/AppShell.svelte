@@ -754,8 +754,11 @@
 
   /* ─── Sidebar ─────────────────────────── */
   .sidebar {
-    background: var(--sidebar-bg);
+    background: rgba(var(--sidebar-bg-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border-right: 1px solid var(--sidebar-border);
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -773,7 +776,7 @@
     padding: 5px 6px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
-    background: var(--sidebar-bg);
+    background: transparent;
     overflow: hidden;
   }
 
@@ -869,7 +872,7 @@
     flex-direction: column;
     padding: 8px 14px 6px;
     flex-shrink: 0;
-    background: var(--sidebar-bg);
+    background: transparent;
   }
 
   .sidebar-subheader {
@@ -892,7 +895,7 @@
     display: flex;
     align-items: center;
     border-bottom: 1px solid var(--border-subtle);
-    background: var(--sidebar-bg);
+    background: transparent;
     padding: 0 4px;
     height: 32px;
     flex-shrink: 0;
@@ -986,7 +989,7 @@
     display: flex;
     flex-direction: row;
     overflow: hidden;
-    background: var(--bg-primary, var(--editor-bg));
+    background: transparent;
     min-width: 0;
     position: relative;
   }
@@ -1051,8 +1054,11 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: var(--editor-bg);
+    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border-left: 1px solid var(--border);
+    box-shadow: inset 1px 0 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     flex-shrink: 0;
     position: relative;
   }
@@ -1087,7 +1093,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: var(--editor-bg);
+    background: transparent;
   }
 
   .aux-pane.full-pane {
@@ -1162,7 +1168,7 @@
   .aux-tabs-bar {
     display: flex;
     align-items: center;
-    background: var(--bg-secondary);
+    background: transparent;
     border-bottom: 1px solid var(--border);
     height: 38px;
     padding: 0 8px;

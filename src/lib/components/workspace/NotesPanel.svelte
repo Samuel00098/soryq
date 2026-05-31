@@ -190,7 +190,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-    background: var(--sidebar-bg);
+    background: transparent;
   }
 
   .panel-header {
@@ -305,7 +305,7 @@
     flex: 1;
     width: 100%;
     resize: none;
-    background: var(--sidebar-bg);
+    background: transparent;
     border: none;
     outline: none;
     color: var(--text-primary);

@@ -608,7 +608,7 @@ export const presetThemes: Theme[] = [
     {
       'bg-primary': '#ffffff', 'bg-secondary': '#f6f8fa', 'bg-tertiary': '#eaeef2',
       'bg-hover': 'rgba(0,0,0,0.05)', 'bg-active': 'rgba(0,0,0,0.09)',
-      'text-primary': '#24292f', 'text-secondary': '#57606a', 'text-muted': '#8c959f',
+      'text-primary': '#24292f', 'text-secondary': '#444d56', 'text-muted': '#57606a',
       'accent': '#0969da', 'accent-hover': '#0550ae',
       'error': '#cf222e', 'warning': '#9a6700', 'success': '#1a7f37', 'info': '#0969da',
       'border': 'rgba(0,0,0,0.1)', 'border-focus': '#0969da',
@@ -622,11 +622,11 @@ export const presetThemes: Theme[] = [
       'terminal-bg': '#ffffff',
       'input-bg': '#ffffff', 'input-border': 'rgba(0,0,0,0.12)', 'input-focus-border': '#0969da',
       'button-bg': '#0969da', 'button-hover-bg': '#0550ae', 'button-text': '#ffffff',
-      'statusbar-bg': '#f6f8fa', 'statusbar-border': 'rgba(0,0,0,0.08)', 'statusbar-text': '#57606a',
+      'statusbar-bg': '#f6f8fa', 'statusbar-border': 'rgba(0,0,0,0.08)', 'statusbar-text': '#444d56',
       'scrollbar-thumb': 'rgba(0,0,0,0.12)', 'scrollbar-track': 'transparent',
     },
     {
-      'keyword': '#cf222e', 'string': '#0a3069', 'number': '#0550ae', 'comment': '#6e7781',
+      'keyword': '#cf222e', 'string': '#0a3069', 'number': '#0550ae', 'comment': '#57606a',
       'function': '#8250df', 'variable': '#24292f', 'type': '#953800', 'operator': '#cf222e',
       'punctuation': '#24292f', 'constant': '#0550ae', 'tag': '#116329', 'attribute': '#0550ae',
     }
@@ -636,7 +636,7 @@ export const presetThemes: Theme[] = [
     {
       'bg-primary': '#eff1f5', 'bg-secondary': '#e6e9ef', 'bg-tertiary': '#dce0e8',
       'bg-hover': 'rgba(0,0,0,0.05)', 'bg-active': 'rgba(0,0,0,0.09)',
-      'text-primary': '#4c4f69', 'text-secondary': '#5c5f77', 'text-muted': '#9ca0b0',
+      'text-primary': '#4c4f69', 'text-secondary': '#4c4f69', 'text-muted': '#6c6f85',
       'accent': '#1e66f5', 'accent-hover': '#166bfb',
       'error': '#d20f39', 'warning': '#df8e1d', 'success': '#40a02b', 'info': '#04a5e5',
       'border': 'rgba(76,79,105,0.15)', 'border-focus': '#1e66f5',
@@ -650,11 +650,11 @@ export const presetThemes: Theme[] = [
       'terminal-bg': '#eff1f5',
       'input-bg': '#e6e9ef', 'input-border': 'rgba(76,79,105,0.2)', 'input-focus-border': '#1e66f5',
       'button-bg': '#1e66f5', 'button-hover-bg': '#166bfb', 'button-text': '#eff1f5',
-      'statusbar-bg': '#dce0e8', 'statusbar-border': 'rgba(76,79,105,0.1)', 'statusbar-text': '#9ca0b0',
+      'statusbar-bg': '#dce0e8', 'statusbar-border': 'rgba(76,79,105,0.1)', 'statusbar-text': '#6c6f85',
       'scrollbar-thumb': 'rgba(0,0,0,0.1)', 'scrollbar-track': 'transparent',
     },
     {
-      'keyword': '#8839ef', 'string': '#40a02b', 'number': '#fe640b', 'comment': '#9ca0b0',
+      'keyword': '#8839ef', 'string': '#40a02b', 'number': '#fe640b', 'comment': '#6c6f85',
       'function': '#1e66f5', 'variable': '#4c4f69', 'type': '#df8e1d', 'operator': '#04a5e5',
       'punctuation': '#4c4f69', 'constant': '#fe640b', 'tag': '#d20f39', 'attribute': '#1e66f5',
     }
@@ -664,7 +664,7 @@ export const presetThemes: Theme[] = [
     {
       'bg-primary': '#fdf6e3', 'bg-secondary': '#eee8d5', 'bg-tertiary': '#e5ddc8',
       'bg-hover': 'rgba(0,0,0,0.05)', 'bg-active': 'rgba(0,0,0,0.09)',
-      'text-primary': '#657b83', 'text-secondary': '#839496', 'text-muted': '#93a1a1',
+      'text-primary': '#657b83', 'text-secondary': '#586e75', 'text-muted': '#657b83',
       'accent': '#268bd2', 'accent-hover': '#1e7bbf',
       'error': '#dc322f', 'warning': '#cb4b16', 'success': '#859900', 'info': '#268bd2',
       'border': 'rgba(0,0,0,0.1)', 'border-focus': '#268bd2',
@@ -678,11 +678,11 @@ export const presetThemes: Theme[] = [
       'terminal-bg': '#fdf6e3',
       'input-bg': '#ffffff', 'input-border': 'rgba(0,0,0,0.12)', 'input-focus-border': '#268bd2',
       'button-bg': '#268bd2', 'button-hover-bg': '#1e7bbf', 'button-text': '#fdf6e3',
-      'statusbar-bg': '#eee8d5', 'statusbar-border': 'rgba(0,0,0,0.08)', 'statusbar-text': '#93a1a1',
+      'statusbar-bg': '#eee8d5', 'statusbar-border': 'rgba(0,0,0,0.08)', 'statusbar-text': '#586e75',
       'scrollbar-thumb': 'rgba(0,0,0,0.1)', 'scrollbar-track': 'transparent',
     },
     {
-      'keyword': '#859900', 'string': '#2aa198', 'number': '#d33682', 'comment': '#93a1a1',
+      'keyword': '#859900', 'string': '#2aa198', 'number': '#d33682', 'comment': '#657b83',
       'function': '#268bd2', 'variable': '#657b83', 'type': '#b58900', 'operator': '#859900',
       'punctuation': '#657b83', 'constant': '#d33682', 'tag': '#dc322f', 'attribute': '#268bd2',
     }
@@ -692,7 +692,7 @@ export const presetThemes: Theme[] = [
     {
       'bg-primary': '#fafafa', 'bg-secondary': '#f0f0f0', 'bg-tertiary': '#e8e8e8',
       'bg-hover': 'rgba(0,0,0,0.05)', 'bg-active': 'rgba(0,0,0,0.09)',
-      'text-primary': '#383a42', 'text-secondary': '#696c77', 'text-muted': '#a0a1a7',
+      'text-primary': '#383a42', 'text-secondary': '#383a42', 'text-muted': '#696c77',
       'accent': '#4078f2', 'accent-hover': '#3060d4',
       'error': '#e45649', 'warning': '#986801', 'success': '#50a14f', 'info': '#0184bc',
       'border': 'rgba(0,0,0,0.1)', 'border-focus': '#4078f2',
@@ -706,11 +706,11 @@ export const presetThemes: Theme[] = [
       'terminal-bg': '#fafafa',
       'input-bg': '#ffffff', 'input-border': 'rgba(0,0,0,0.12)', 'input-focus-border': '#4078f2',
       'button-bg': '#4078f2', 'button-hover-bg': '#3060d4', 'button-text': '#ffffff',
-      'statusbar-bg': '#f0f0f0', 'statusbar-border': 'rgba(0,0,0,0.08)', 'statusbar-text': '#a0a1a7',
+      'statusbar-bg': '#f0f0f0', 'statusbar-border': 'rgba(0,0,0,0.08)', 'statusbar-text': '#696c77',
       'scrollbar-thumb': 'rgba(0,0,0,0.1)', 'scrollbar-track': 'transparent',
     },
     {
-      'keyword': '#a626a4', 'string': '#50a14f', 'number': '#986801', 'comment': '#a0a1a7',
+      'keyword': '#a626a4', 'string': '#50a14f', 'number': '#986801', 'comment': '#696c77',
       'function': '#4078f2', 'variable': '#e45649', 'type': '#c18401', 'operator': '#0184bc',
       'punctuation': '#383a42', 'constant': '#986801', 'tag': '#e45649', 'attribute': '#4078f2',
     }
@@ -720,7 +720,7 @@ export const presetThemes: Theme[] = [
     {
       'bg-primary': '#faf4ed', 'bg-secondary': '#fffaf3', 'bg-tertiary': '#f2e9e1',
       'bg-hover': 'rgba(0,0,0,0.05)', 'bg-active': 'rgba(0,0,0,0.09)',
-      'text-primary': '#575279', 'text-secondary': '#797593', 'text-muted': '#9893a5',
+      'text-primary': '#575279', 'text-secondary': '#575279', 'text-muted': '#797593',
       'accent': '#d7827a', 'accent-hover': '#c76e66',
       'error': '#b4637a', 'warning': '#ea9d34', 'success': '#56949f', 'info': '#286983',
       'border': 'rgba(87,82,121,0.15)', 'border-focus': '#d7827a',
@@ -734,11 +734,11 @@ export const presetThemes: Theme[] = [
       'terminal-bg': '#faf4ed',
       'input-bg': '#fffaf3', 'input-border': 'rgba(87,82,121,0.15)', 'input-focus-border': '#d7827a',
       'button-bg': '#d7827a', 'button-hover-bg': '#c76e66', 'button-text': '#faf4ed',
-      'statusbar-bg': '#f2e9e1', 'statusbar-border': 'rgba(87,82,121,0.1)', 'statusbar-text': '#9893a5',
+      'statusbar-bg': '#f2e9e1', 'statusbar-border': 'rgba(87,82,121,0.1)', 'statusbar-text': '#797593',
       'scrollbar-thumb': 'rgba(0,0,0,0.1)', 'scrollbar-track': 'transparent',
     },
     {
-      'keyword': '#b4637a', 'string': '#56949f', 'number': '#ea9d34', 'comment': '#9893a5',
+      'keyword': '#b4637a', 'string': '#56949f', 'number': '#ea9d34', 'comment': '#797593',
       'function': '#286983', 'variable': '#575279', 'type': '#ea9d34', 'operator': '#b4637a',
       'punctuation': '#575279', 'constant': '#ea9d34', 'tag': '#b4637a', 'attribute': '#286983',
     }

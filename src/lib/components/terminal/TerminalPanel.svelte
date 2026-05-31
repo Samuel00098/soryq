@@ -938,30 +938,39 @@
 </div>
 
 <style>
-  /* â”€â”€ Outer shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  /* ─── Outer shell ────────────────────────── */
   .terminal-fullscreen {
     display: flex;
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--bg-primary);
+    /* Pure layout container — NO fill/blur of its own. The frosted .terminal-pane
+       inside is the single glass surface, so the terminal reads as see-through as
+       the editor (stacking a second frost layer here made it look solid). The
+       toolbar/gaps show the body's ambient frost behind. */
+    background: transparent;
     overflow: hidden;
   }
 
-  /* â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  /* ─── Toolbar ────────────────────────────── */
   .terminal-toolbar {
+    position: relative;
+    z-index: 100;
     display: flex;
     align-items: center;
     height: 38px;
-    background: var(--bg-secondary);
+    background: rgba(var(--titlebar-bg-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border-bottom: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     flex-shrink: 0;
     padding: 0 8px;
     min-width: 0;
     gap: 0;
   }
 
-  /* Session tabs â€” macOS pill style */
+  /* Session tabs — macOS pill style */
   .session-tabs {
     display: flex;
     align-items: center;
@@ -997,7 +1006,7 @@
 
   .session-tab.active {
     color: var(--text-primary);
-    background: var(--bg-primary);
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.45);
     border-color: var(--border);
     box-shadow: 0 1px 4px rgba(0,0,0,0.12);
   }
@@ -1189,6 +1198,14 @@
     animation: dropIn 0.15s ease;
   }
 
+  :global(:root:not(.solid-theme)) .layout-dropdown {
+    --bg-primary: rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-base, 0.45));
+    --bg-secondary: rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  }
+
   @keyframes dropIn {
     from { opacity: 0; transform: translateY(-5px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -1250,7 +1267,7 @@
     flex: 1;
     display: flex;
     flex-direction: row;
-    background: var(--bg-primary);
+    background: transparent;
     min-height: 0;
     width: 100%;
     position: relative;

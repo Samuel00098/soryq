@@ -88,7 +88,8 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    background: var(--editor-bg);
+    /* Transparent so the parent .auxiliary-panel provides the frosted glass. */
+    background: transparent;
     overflow: hidden;
   }
 
@@ -98,7 +99,7 @@
     justify-content: space-between;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    background: var(--tab-inactive-bg);
+    background: transparent;
     width: 100%;
     height: 35px;
     padding-right: 32px;

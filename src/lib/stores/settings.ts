@@ -258,6 +258,23 @@ export function matchShortcut(e: KeyboardEvent, shortcutKeys: string): boolean {
 // Appearance / Theme
 export const appearance = persistentWritable<'system' | 'light' | 'dark'>('appearance', 'system');
 
+// Global interface transparency (0 = solid, 100 = most see-through). Controls the
+// frost/glass opacity of every surface — works with or without a background image,
+// letting the desktop/acrylic (or the image) show through. Default 50 ≈ the
+// app's built-in frosted look.
+export const interfaceTransparency = persistentWritable<number>('interfaceTransparency', 50);
+
+// Background image — an optional personalization layer painted behind the frosted UI.
+// The image file lives in the app data dir (managed by the Rust backend); this only
+// tracks whether it's currently shown.
+export const backgroundImageEnabled = persistentWritable<boolean>('backgroundImageEnabled', false);
+
+// Background image appearance (Terax-style), independent of the global interface
+// transparency. Opacity 0–100 dims the image against the desktop; blur 0–60px
+// softens it for legibility. Pure CSS on the html::before layer — no backend.
+export const backgroundImageOpacity = persistentWritable<number>('backgroundImageOpacity', 100);
+export const backgroundImageBlur = persistentWritable<number>('backgroundImageBlur', 0);
+
 // Onboarding
 export const onboardingCompleted = persistentWritable<boolean>('onboardingCompleted', false);
 
@@ -303,6 +320,10 @@ export function resetSettingsToDefault() {
   formatOnSave.set(true);
   userShortcuts.set(defaultShortcuts);
   appearance.set('system');
+  interfaceTransparency.set(50);
+  backgroundImageEnabled.set(false);
+  backgroundImageOpacity.set(100);
+  backgroundImageBlur.set(0);
   onboardingCompleted.set(false);
   terminalShell.set('');
   terminalCursorStyle.set('bar');
