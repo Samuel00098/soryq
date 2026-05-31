@@ -4,8 +4,6 @@
   import {
     contextMenu,
     hideContextMenu,
-    createFile,
-    createDir,
     deleteFile,
     loadRootDirectory,
     projectRootNodes,
@@ -14,14 +12,17 @@
     cancelRename,
     confirmRename,
     renamingPath,
+    startCreate,
+    cancelCreate,
+    confirmCreate,
+    creatingPath,
+    creatingType,
+    creatingValue,
   } from '$lib/stores/explorer';
   import {
     activeProject,
     openProject
   } from '$lib/stores/workspace';
-
-  let creating = $state<{ parentPath: string; type: 'file' | 'dir' } | null>(null);
-  let creatingValue = $state('');
 
   function handleContextAction(action: string) {
     const { path, isDir } = $contextMenu;
@@ -29,12 +30,10 @@
 
     switch (action) {
       case 'new-file':
-        creating = { parentPath: path, type: 'file' };
-        creatingValue = '';
+        startCreate(path, 'file');
         break;
       case 'new-dir':
-        creating = { parentPath: path, type: 'dir' };
-        creatingValue = '';
+        startCreate(path, 'dir');
         break;
       case 'rename':
         startRename(path);
@@ -48,47 +47,15 @@
   }
 
   function startNewFile() {
-    if ($activeProject) {
-      creating = { parentPath: $activeProject.root_path, type: 'file' };
-      creatingValue = '';
-    }
+    if ($activeProject) startCreate($activeProject.root_path, 'file');
   }
 
   function startNewDir() {
-    if ($activeProject) {
-      creating = { parentPath: $activeProject.root_path, type: 'dir' };
-      creatingValue = '';
-    }
+    if ($activeProject) startCreate($activeProject.root_path, 'dir');
   }
 
   function refreshExplorer() {
     if ($activeProject) loadRootDirectory($activeProject.root_path);
-  }
-
-  async function confirmCreate() {
-    if (!creating) return;
-    const val = creatingValue.trim();
-    if (!val) {
-      cancelCreate();
-      return;
-    }
-    const newPath = creating.parentPath + '/' + val;
-    const type = creating.type;
-    cancelCreate();
-    try {
-      if (type === 'file') {
-        await createFile(newPath);
-      } else {
-        await createDir(newPath);
-      }
-    } catch (err) {
-      console.error('Failed to create:', err);
-    }
-  }
-
-  function cancelCreate() {
-    creating = null;
-    creatingValue = '';
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -98,7 +65,7 @@
       hideContextMenu();
     }
     if (e.key === 'Enter') {
-      if (creating) confirmCreate();
+      if ($creatingPath !== null) confirmCreate();
       if ($renamingPath) confirmRename();
     }
   }
@@ -155,16 +122,17 @@
           {@const rootChildren = $projectRootNodes.get(project.root_path) ?? []}
           {@const rootLoading = $loadingProjectRoots.has(project.root_path)}
           <section class="root-section">
-            {#if creating && creating.parentPath === project.root_path}
+            {#if $creatingPath === project.root_path}
               <div class="create-input" style="padding-left: 24px">
-                {creating.type === 'file' ? 'File' : 'Dir'}
+                {$creatingType === 'file' ? 'File' : 'Dir'}
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
                   type="text"
-                  placeholder={creating.type === 'file' ? 'filename.ts' : 'folder-name'}
-                  bind:value={creatingValue}
+                  placeholder={$creatingType === 'file' ? 'filename.ts' : 'folder-name'}
+                  bind:value={$creatingValue}
                   autofocus
                   onblur={confirmCreate}
+                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmCreate(); } else if (e.key === 'Escape') { e.preventDefault(); cancelCreate(); } }}
                 />
               </div>
             {/if}

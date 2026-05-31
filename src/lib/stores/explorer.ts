@@ -23,6 +23,55 @@ export const contextMenu = writable<ContextMenuState>({
 export const renamingPath = writable<string | null>(null);
 export const renamingValue = writable('');
 
+// ── Inline create state ───────────────────────────────────────────────────
+// `creatingPath` holds the *parent* directory the new entry will be created in.
+export const creatingPath = writable<string | null>(null);
+export const creatingType = writable<'file' | 'dir'>('file');
+export const creatingValue = writable('');
+
+export function startCreate(parentPath: string, type: 'file' | 'dir') {
+  creatingPath.set(parentPath);
+  creatingType.set(type);
+  creatingValue.set('');
+  // Make sure the target folder is expanded so the input is visible underneath it.
+  const root = get(activeProject)?.root_path;
+  if (parentPath && parentPath !== root) {
+    expandedPaths.update((s) => { s.add(parentPath); return s; });
+    updateProjectTreeNode(parentPath, (current) => ({ ...current, expanded: true }));
+  }
+}
+
+export function cancelCreate() {
+  creatingPath.set(null);
+  creatingValue.set('');
+}
+
+export async function confirmCreate() {
+  const parent = get(creatingPath);
+  if (parent === null) return;
+  const type = get(creatingType);
+  const val = get(creatingValue).trim();
+  cancelCreate();
+  if (!val) return;
+
+  // A name must be a single path segment — no separators or null bytes.
+  if (/[/\\\0]/.test(val)) {
+    showToast('Name cannot contain slashes or null bytes', 'error');
+    return;
+  }
+  if (val.length > 255) {
+    showToast('Name is too long (max 255 characters)', 'error');
+    return;
+  }
+
+  const newPath = parent.replace(/[\\\/]+$/, '') + '/' + val;
+  if (type === 'file') {
+    await createFile(newPath);
+  } else {
+    await createDir(newPath);
+  }
+}
+
 export function startRename(path: string) {
   renamingPath.set(path);
   renamingValue.set(path.split(/[\\\/]/).pop() || '');
@@ -281,8 +330,9 @@ export async function createFile(path: string) {
   try {
     await invoke('fs_create_file', { path });
     await refreshParent(path);
-  } catch (err) {
-    console.error('Failed to create file:', err);
+    showToast(`Created "${path.split(/[\\\/]/).pop()}"`, 'success');
+  } catch (err: any) {
+    showToast(`Create failed: ${err?.message ?? String(err)}`, 'error');
   }
 }
 
@@ -290,8 +340,9 @@ export async function createDir(path: string) {
   try {
     await invoke('fs_create_dir', { path });
     await refreshParent(path);
-  } catch (err) {
-    console.error('Failed to create directory:', err);
+    showToast(`Created "${path.split(/[\\\/]/).pop()}"`, 'success');
+  } catch (err: any) {
+    showToast(`Create failed: ${err?.message ?? String(err)}`, 'error');
   }
 }
 
@@ -328,51 +379,59 @@ export async function copyFile(from: string, to: string) {
   }
 }
 
+// Strip trailing separators and normalize to forward slashes so paths can be
+// compared regardless of the OS separator (Windows hands us backslashes, but
+// freshly-built paths use forward slashes).
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
 async function refreshParent(path: string) {
-  const parts = path.replace(/\\/g, '/').split('/');
-  parts.pop();
-  const parentPath = parts.join('/');
+  const normalized = normalizePath(path);
+  const lastSlash = normalized.lastIndexOf('/');
+  const parentPath = lastSlash >= 0 ? normalized.slice(0, lastSlash) : '';
   const projectRoot = findProjectRootForPath(path);
   if (!projectRoot) return;
 
-  if (parentPath === projectRoot) {
+  // Creating/removing directly under a workspace root: rebuild the whole root.
+  if (parentPath === normalizePath(projectRoot)) {
     await refreshProjectTree(projectRoot);
     return;
   }
 
-  const $expandedPaths = get(expandedPaths);
-  if (parentPath && $expandedPaths.has(parentPath)) {
-    const rootMap = get(projectRootNodes);
-    const projectNodes = rootMap.get(projectRoot) ?? [];
-      const entry = findNodeByPath(projectNodes, parentPath);
-    if (entry) {
-      const entries = await loadDirectory(parentPath);
-      const children = entries.map((e) => ({
-        entry: e,
-        children: e.is_dir ? [] : null,
-        expanded: false,
-        loading: false,
-        depth: entry.depth + 1,
-        }));
-      updateProjectTreeNode(parentPath, (current) => ({
-        ...current,
-        children,
-        loading: false,
-      }));
-    }
-  }
+  // Otherwise re-read just the parent folder and splice its children back in,
+  // preserving the expansion state of any nested folders via rebuildNode.
+  const rootMap = get(projectRootNodes);
+  const projectNodes = rootMap.get(projectRoot) ?? [];
+  const parentNode = findNodeByPath(projectNodes, parentPath);
+  if (!parentNode) return;
+
+  const entries = await loadDirectory(parentNode.entry.path);
+  const children = await Promise.all(
+    entries.map((e) => rebuildNode(e, parentNode.depth + 1))
+  );
+  updateProjectTreeNode(parentNode.entry.path, (current) => ({
+    ...current,
+    expanded: true,
+    children,
+    loading: false,
+  }));
 }
 
 function findProjectRootForPath(path: string): string | null {
-  const normalized = path.replace(/\\/g, '/');
+  const normalized = normalizePath(path);
   const roots = Array.from(get(projectRootNodes).keys())
     .sort((a, b) => b.length - a.length);
-  return roots.find((root) => normalized === root.replace(/\\/g, '/') || normalized.startsWith(`${root.replace(/\\/g, '/')}/`)) ?? null;
+  return roots.find((root) => {
+    const r = normalizePath(root);
+    return normalized === r || normalized.startsWith(`${r}/`);
+  }) ?? null;
 }
 
 function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {
+  const target = normalizePath(path);
   for (const node of nodes) {
-    if (node.entry.path === path) return node;
+    if (normalizePath(node.entry.path) === target) return node;
     if (node.children) {
       const found = findNodeByPath(node.children, path);
       if (found) return found;

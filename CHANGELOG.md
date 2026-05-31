@@ -2,6 +2,17 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.7] - 2026-05-31
+
+### Added
+
+- **File explorer — inline new file / folder** — creating a file or folder now shows a focused inline input nested directly beneath the target folder, rather than a single input pinned to the workspace root. The target folder auto-expands so the input is visible, and the create state now lives in the explorer store so it behaves identically from the header buttons, the right-click context menu, and the keyboard. Confirm with Enter or by clicking away; cancel with Escape.
+- **Native desktop notifications** — background notifications now go through the Tauri notification plugin (`@tauri-apps/plugin-notification`) instead of the WebView's `Notification` API, with the matching `notification:default` capability and Rust plugin registration. OS notifications are raised only when the app window is unfocused — when Soryq is in the foreground the in-app toast already covers it — and the granted permission is cached so the OS isn't re-queried on every toast.
+
+### Fixed
+
+- **File explorer — new files and folders appear instantly** — creating a file or folder no longer requires a manual refresh before it shows up in the tree. `refreshParent` and its path helpers normalised paths to forward slashes in some places but compared them against the OS's native backslash paths in others, so on Windows the in-place tree update silently matched nothing and the entry stayed hidden until a reload. Path comparisons are now separator-insensitive, and the parent folder is rebuilt in place (preserving the expansion state of any nested folders), so the new entry appears immediately.
+
 ## [0.1.6] - 2026-05-31
 
 ### Added

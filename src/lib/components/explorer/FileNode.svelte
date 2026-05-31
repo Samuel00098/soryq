@@ -2,7 +2,7 @@
   import FileIcon from './FileIcon.svelte';
   import FileNode from './FileNode.svelte';
   import type { FileNode as FileNodeType } from '$lib/types/explorer';
-  import { toggleNode, selectedPath, showContextMenu, renamingPath, renamingValue, confirmRename, cancelRename } from '$lib/stores/explorer';
+  import { toggleNode, selectedPath, showContextMenu, renamingPath, renamingValue, confirmRename, cancelRename, creatingPath, creatingType, creatingValue, confirmCreate, cancelCreate } from '$lib/stores/explorer';
 
   export let node: FileNodeType;
   const DRAG_THRESHOLD = 6;
@@ -147,6 +147,21 @@
       <span class="loading-spinner"></span>
     {/if}
   </div>
+  {#if $creatingPath === node.entry.path}
+    <div class="create-input" style="padding-left: {(node.depth + 1) * 16 + 8}px">
+      {$creatingType === 'file' ? 'File' : 'Dir'}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        type="text"
+        placeholder={$creatingType === 'file' ? 'filename.ts' : 'folder-name'}
+        bind:value={$creatingValue}
+        autofocus
+        onclick={(e) => e.stopPropagation()}
+        onblur={confirmCreate}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmCreate(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelCreate(); } }}
+      />
+    </div>
+  {/if}
   {#if node.expanded && node.children}
     {#each node.children as child (child.entry.path)}
       <FileNode node={child} />
@@ -251,6 +266,29 @@
     border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
+  }
+
+  .create-input {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding-right: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .create-input input {
+    flex: 1;
+    min-width: 0;
+    background: var(--input-bg);
+    border: 1px solid var(--input-focus-border, var(--accent));
+    outline: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    height: 18px;
   }
 
   @keyframes spin {
