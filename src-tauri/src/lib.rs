@@ -80,6 +80,7 @@ pub fn run() {
             commands::file_system::fs_delete,
             commands::file_system::fs_copy,
             commands::file_system::fs_read_file,
+            commands::file_system::fs_read_binary,
             commands::file_system::fs_write_file,
             commands::file_system::fs_write_binary,
             commands::file_system::fs_get_file_info,

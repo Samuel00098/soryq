@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import EditorTabs from './EditorTabs.svelte';
   import CodeEditor from './CodeEditor.svelte';
+  import ImageViewer from './ImageViewer.svelte';
   import MarkdownPreview from '$lib/components/preview/MarkdownPreview.svelte';
   import { openFiles, activeFile, fileCache, saveActiveFile } from '$lib/stores/editor';
   import { layout, toggleEditorSplitPreview } from '$lib/stores/layout';
@@ -33,7 +34,7 @@
     {#if file}
       <div class="editor-toolbar">
         <EditorTabs />
-        {#if file.language === 'markdown'}
+        {#if file.kind === 'text' && file.language === 'markdown'}
           <button
             class="markdown-toggle-btn"
             class:active={showMarkdownPreview}
@@ -60,7 +61,14 @@
         {/if}
       </div>
       <div class="editor-workspace-area">
-        {#if file.language === 'markdown' && showMarkdownPreview}
+        {#if file.kind === 'image' && file.imageSrc}
+          <ImageViewer
+            src={file.imageSrc}
+            path={file.path}
+            mimeType={file.mimeType}
+            size={file.size}
+          />
+        {:else if file.language === 'markdown' && showMarkdownPreview}
           <MarkdownPreview content={file.content} />
         {:else}
           {#key file.path}

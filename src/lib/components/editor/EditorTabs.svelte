@@ -27,10 +27,12 @@
         title={file}
       >
         <span class="tab-icon">
-          {#if fileState.language === 'rust'}
-            🦀
+          {#if fileState.kind === 'image'}
+            IMG
+          {:else if fileState.language === 'rust'}
+            RS
           {:else}
-            📄
+            TXT
           {/if}
         </span>
         <span class="tab-label">{getFileName(file)}</span>
@@ -98,8 +100,6 @@
   }
 
   .editor-tab.active {
-    /* Reads continuous with the frosted editor surface below it. No own
-       backdrop-filter — the parent .editor-panel already provides the glass. */
     background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-surface, 0.72));
     color: var(--text-primary);
   }
@@ -116,9 +116,13 @@
   }
 
   .tab-icon {
-    font-size: 13px;
+    min-width: 22px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.45px;
     display: flex;
     align-items: center;
+    justify-content: center;
     opacity: 0.8;
   }
 

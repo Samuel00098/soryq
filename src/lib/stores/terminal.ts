@@ -907,18 +907,16 @@ export async function killAllSessions() {
 
 export async function killSession(id: number) {
   const projectId = terminalSessionProjects.get(id);
-  const pty = ptyInstances.get(id);
-  if (pty) {
-    await pty.close().catch((err) => console.error('Failed to close terminal:', err));
-    ptyInstances.delete(id);
-  }
-  dataCallbacks.delete(id);
-  exitCallbacks.delete(id);
-  sessionOutputBuffers.delete(id);
-  sessionOutputDecoders.delete(id);
-  sessionInputBuffers.delete(id);
-  terminalSessionProjects.delete(id);
 
+  // Update the authoritative state *synchronously* — before the async pty
+  // teardown below. closePane() in TerminalPanel mutates the local mosaic
+  // (columns) and the paneAssignments store together the moment you close a
+  // pane. If this project-state update waited on `await pty.close()`, the later
+  // setVisibleProjectState() would re-broadcast a stale assignments array (one
+  // that still references panes other in-flight closes already removed), and the
+  // add-only mosaic reconcile would resurrect ghost "Open terminal" placeholders
+  // that can never be dismissed. Doing it now keeps overlapping closes (closing
+  // several terminals in quick succession) consistent.
   if (projectId) {
     updateProjectState(projectId, (state) => {
       const sessions = state.sessions.filter((x) => x.id !== id);
@@ -941,6 +939,20 @@ export async function killSession(id: number) {
       const $sessions = get(sessions);
       return $sessions.length > 0 ? $sessions[$sessions.length - 1].id : null;
     });
+  }
+
+  dataCallbacks.delete(id);
+  exitCallbacks.delete(id);
+  sessionOutputBuffers.delete(id);
+  sessionOutputDecoders.delete(id);
+  sessionInputBuffers.delete(id);
+  terminalSessionProjects.delete(id);
+
+  // Tear the pty down in the background; state no longer depends on it.
+  const pty = ptyInstances.get(id);
+  if (pty) {
+    ptyInstances.delete(id);
+    await pty.close().catch((err) => console.error('Failed to close terminal:', err));
   }
 }
 

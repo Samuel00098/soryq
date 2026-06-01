@@ -342,6 +342,16 @@ pub fn fs_read_file(path: String, state: State<AppState>) -> Result<String, Stri
 }
 
 #[tauri::command]
+pub fn fs_read_binary(path: String, state: State<AppState>) -> Result<Vec<u8>, String> {
+    let p = require_path(&path)?;
+    require_in_project(&p, &state)?;
+    if p.metadata().map(|m| m.len()).unwrap_or(0) > 50 * 1024 * 1024 {
+        return Err("File too large to read".to_string());
+    }
+    std::fs::read(&p).map_err(|e| sanitize_io_error(e, &path))
+}
+
+#[tauri::command]
 pub fn fs_write_file(path: String, content: String, state: State<AppState>) -> Result<(), String> {
     if content.len() > 100 * 1024 * 1024 {
         return Err("Content too large to write (limit 100 MB)".to_string());

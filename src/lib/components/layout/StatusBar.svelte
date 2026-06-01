@@ -9,11 +9,12 @@
   $: languageLabel = activeFileInfo
     ? activeFileInfo.language.charAt(0).toUpperCase() + activeFileInfo.language.slice(1)
     : '';
+  $: activeFileIsText = activeFileInfo?.kind === 'text';
 
   const viewColors: Record<string, string> = {
-    editor:   'var(--accent)',
+    editor: 'var(--accent)',
     terminal: 'var(--success)',
-    preview:  'var(--accent)',
+    preview: 'var(--accent)',
     settings: 'var(--accent)',
   };
 </script>
@@ -28,7 +29,7 @@
     </span>
 
     {#if $activeProject}
-      <span class="sb-sep">·</span>
+      <span class="sb-sep">.</span>
       <span class="sb-item">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
@@ -37,7 +38,7 @@
       </span>
     {/if}
     {#if $branchInfo?.current}
-      <span class="sb-sep">·</span>
+      <span class="sb-sep">.</span>
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span class="sb-item sb-branch" onclick={() => setSidebarTab('git')} title="Switch branch">
@@ -52,15 +53,19 @@
 
   <div class="sb-right">
     {#if activeFileInfo}
-      <span class="sb-item">Ln {$activeLine}, Col {$activeColumn}</span>
-      <span class="sb-sep">·</span>
+      {#if activeFileIsText}
+        <span class="sb-item">Ln {$activeLine}, Col {$activeColumn}</span>
+        <span class="sb-sep">.</span>
+      {/if}
       <span class="sb-item">{languageLabel}</span>
-      <span class="sb-sep">·</span>
+      <span class="sb-sep">.</span>
     {/if}
-    <span class="sb-item">UTF-8</span>
-    <span class="sb-sep">·</span>
-    <span class="sb-item">LF</span>
-    <span class="sb-sep">·</span>
+    {#if !activeFileInfo || activeFileIsText}
+      <span class="sb-item">UTF-8</span>
+      <span class="sb-sep">.</span>
+      <span class="sb-item">LF</span>
+      <span class="sb-sep">.</span>
+    {/if}
     <span class="sb-item zoom-indicator">{$uiZoom}%</span>
   </div>
 </footer>

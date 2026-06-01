@@ -244,18 +244,20 @@
     focusInput();
   }
 
-  async function saveImageToDisk(img: PastedImage): Promise<string | null> {
+  async function saveImageToDisk(img: PastedImage, projectPath: string): Promise<string | null> {
     try {
-      const projectPath = get(activeProject)?.root_path;
-      if (!projectPath) return null;
-      const savePath = `${projectPath}/.soryq/attachments/${img.name}`;
+      // Normalise to forward slashes so the path the agent CLI receives is clean
+      // and unambiguous — mixed back/forward slashes can trip up TUI path parsing.
+      const root = projectPath.replace(/\\/g, '/').replace(/\/+$/, '');
+      const savePath = `${root}/.soryq/attachments/${img.name}`;
       const response = await fetch(img.dataUrl);
       const blob = await response.blob();
       const arrayBuffer = await blob.arrayBuffer();
       const data = Array.from(new Uint8Array(arrayBuffer));
       await invoke('fs_write_binary', { path: savePath, data });
       return savePath;
-    } catch {
+    } catch (error) {
+      console.error('Failed to save pasted image to disk:', error);
       return null;
     }
   }
@@ -274,7 +276,10 @@
     for (const item of imageItems) {
       const blob = item.getAsFile();
       if (!blob) continue;
-      const name = `paste-${Date.now()}.png`;
+      // Unique name (timestamp + random) so two images pasted at once never
+      // collide; keep the real extension so the agent reads the right format.
+      const ext = (item.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'png';
+      const name = `paste-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const objectUrl = URL.createObjectURL(blob);
       const dataUrl = await new Promise<string>((resolve) => {
         const reader = new FileReader();
@@ -292,12 +297,29 @@
     let finalText = text;
 
     if (pastedImages.length > 0) {
+      const projectPath = get(activeProject)?.root_path;
+      if (!projectPath) {
+        showToast('Open a project before attaching images', 'warning');
+        return;
+      }
       const toSave = [...pastedImages];
       pastedImages = [];
-      const paths = await Promise.all(toSave.map(saveImageToDisk));
+      const paths = await Promise.all(toSave.map((img) => saveImageToDisk(img, projectPath)));
       const validPaths = paths.filter(Boolean) as string[];
+      const failedCount = toSave.length - validPaths.length;
+      if (failedCount > 0) {
+        showToast(
+          failedCount === toSave.length
+            ? `Couldn't attach ${toSave.length === 1 ? 'the image' : 'the images'}`
+            : `Couldn't attach ${failedCount} of ${toSave.length} images`,
+          'error'
+        );
+      }
       if (validPaths.length > 0) {
-        const quoted = validPaths.map((p) => `'${p.replace(/'/g, "'\\''")}'`).join(' ');
+        // Quote only when the path has spaces — matches attachPathsToInput and is
+        // friendlier to agent TUIs than always-single-quoting (which would leave
+        // literal quote characters in the prompt the CLI then reads).
+        const quoted = validPaths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
         finalText = finalText ? `${finalText} ${quoted}` : quoted;
       }
       toSave.forEach((img) => URL.revokeObjectURL(img.objectUrl));

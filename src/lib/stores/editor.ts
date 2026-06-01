@@ -4,7 +4,7 @@ import type { EditorFile } from '$lib/types/editor';
 import { showToast } from './notification';
 import { formatCode } from '$lib/utils/formatter';
 import { formatOnSave } from './settings';
-import { layout, setActiveView } from './layout';
+import { setActiveView } from './layout';
 
 export const openFiles = writable<string[]>([]);
 export const activeFile = writable<string | null>(null);
@@ -13,6 +13,52 @@ export const activeLine = writable<number>(1);
 export const activeColumn = writable<number>(1);
 export const jumpToLine = writable<{ path: string; line: number } | null>(null);
 
+const IMAGE_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif', 'tif', 'tiff',
+]);
+
+export function isImagePath(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
+function getImageMimeType(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  switch (ext) {
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'bmp':
+      return 'image/bmp';
+    case 'ico':
+      return 'image/x-icon';
+    case 'avif':
+      return 'image/avif';
+    case 'tif':
+    case 'tiff':
+      return 'image/tiff';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function createObjectUrl(bytes: number[], mimeType: string): string {
+  const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
+  return URL.createObjectURL(blob);
+}
+
+function revokeEditorAsset(file: EditorFile | undefined) {
+  if (file?.kind === 'image' && file.imageSrc?.startsWith('blob:')) {
+    URL.revokeObjectURL(file.imageSrc);
+  }
+}
+
 export function updateCursorPosition(line: number, col: number) {
   activeLine.set(line);
   activeColumn.set(col);
@@ -20,11 +66,15 @@ export function updateCursorPosition(line: number, col: number) {
 
 // Helper to detect language from file extension
 export function detectLanguage(path: string): string {
+  if (isImagePath(path)) {
+    return 'image';
+  }
+
   const filename = path.split(/[/\\]/).pop()?.toLowerCase() || '';
   const ext = filename.split('.').pop()?.toLowerCase();
   const name = filename.split('.').slice(0, -1).join('.');
 
-  // Shell files without extensions (e.g., "run.sh" → ext is "sh")
+  // Shell files without extensions (e.g., "run.sh" -> ext is "sh")
   if (ext === 'sh' || ext === 'bash' || ext === 'zsh' || (!ext && name === '' && filename !== '')) {
     return 'shell';
   }
@@ -91,7 +141,6 @@ export function detectLanguage(path: string): string {
 
 export async function openFile(path: string) {
   const currentOpenFiles = get(openFiles);
-  const cache = get(fileCache);
 
   if (currentOpenFiles.includes(path)) {
     activeFile.set(path);
@@ -100,16 +149,37 @@ export async function openFile(path: string) {
   }
 
   try {
-    const content = await invoke<string>('fs_read_file', { path });
-    const language = detectLanguage(path);
+    let editorFile: EditorFile;
 
-    const editorFile: EditorFile = {
-      path,
-      content,
-      originalContent: content,
-      isDirty: false,
-      language,
-    };
+    if (isImagePath(path)) {
+      const bytes = await invoke<number[]>('fs_read_binary', { path });
+      const mimeType = getImageMimeType(path);
+      editorFile = {
+        path,
+        content: '',
+        originalContent: '',
+        isDirty: false,
+        language: 'image',
+        kind: 'image',
+        imageSrc: createObjectUrl(bytes, mimeType),
+        mimeType,
+        size: bytes.length,
+      };
+    } else {
+      const content = await invoke<string>('fs_read_file', { path });
+      const language = detectLanguage(path);
+      editorFile = {
+        path,
+        content,
+        originalContent: content,
+        isDirty: false,
+        language,
+        kind: 'text',
+        imageSrc: null,
+        mimeType: null,
+        size: content.length,
+      };
+    }
 
     fileCache.update((c) => {
       const next = new Map(c);
@@ -129,6 +199,7 @@ export async function openFile(path: string) {
 export function closeFile(path: string) {
   const currentActive = get(activeFile);
   const files = get(openFiles);
+  const cachedFile = get(fileCache).get(path);
 
   const updatedFiles = files.filter((f) => f !== path);
   openFiles.set(updatedFiles);
@@ -138,6 +209,8 @@ export function closeFile(path: string) {
     next.delete(path);
     return next;
   });
+
+  revokeEditorAsset(cachedFile);
 
   if (currentActive === path) {
     if (updatedFiles.length > 0) {
@@ -174,7 +247,7 @@ export function updateContent(path: string, newContent: string) {
   fileCache.update((cache) => {
     const next = new Map(cache);
     const file = next.get(path);
-    if (file) {
+    if (file && file.kind === 'text') {
       const isDirty = newContent !== file.originalContent;
       next.set(path, {
         ...file,
@@ -189,7 +262,7 @@ export function updateContent(path: string, newContent: string) {
 export async function saveFile(path: string) {
   const cache = get(fileCache);
   const file = cache.get(path);
-  if (!file) return;
+  if (!file || file.kind !== 'text') return;
 
   let contentToSave = file.content;
 
@@ -246,24 +319,51 @@ export async function saveActiveFile() {
  * Used on app reopen to silently reload editor tabs.
  */
 export async function restoreEditorFiles(filePaths: string[], activeFilePath: string | null) {
+  const previousCache = get(fileCache);
   const newCache = new Map<string, EditorFile>();
   const validPaths: string[] = [];
 
   for (const path of filePaths) {
     try {
-      const content = await invoke<string>('fs_read_file', { path });
-      newCache.set(path, {
-        path,
-        content,
-        originalContent: content,
-        isDirty: false,
-        language: detectLanguage(path),
-      });
+      if (isImagePath(path)) {
+        const bytes = await invoke<number[]>('fs_read_binary', { path });
+        const mimeType = getImageMimeType(path);
+        newCache.set(path, {
+          path,
+          content: '',
+          originalContent: '',
+          isDirty: false,
+          language: 'image',
+          kind: 'image',
+          imageSrc: createObjectUrl(bytes, mimeType),
+          mimeType,
+          size: bytes.length,
+        });
+      } else {
+        const content = await invoke<string>('fs_read_file', { path });
+        newCache.set(path, {
+          path,
+          content,
+          originalContent: content,
+          isDirty: false,
+          language: detectLanguage(path),
+          kind: 'text',
+          imageSrc: null,
+          mimeType: null,
+          size: content.length,
+        });
+      }
       validPaths.push(path);
     } catch {
-      // File deleted or moved — skip silently
+      // File deleted or moved - skip silently
     }
   }
+
+  previousCache.forEach((file, path) => {
+    if (!newCache.has(path)) {
+      revokeEditorAsset(file);
+    }
+  });
 
   fileCache.set(newCache);
   openFiles.set(validPaths);
@@ -277,6 +377,10 @@ export async function formatActiveFile() {
   const cache = get(fileCache);
   const file = cache.get(active);
   if (!file) return;
+  if (file.kind !== 'text') {
+    showToast('Image files cannot be formatted', 'info');
+    return;
+  }
 
   try {
     const formatted = await formatCode(file.content, active);
@@ -299,4 +403,3 @@ export async function formatActiveFile() {
     showToast(`Formatting failed: ${err?.message || err}`, 'error');
   }
 }
-

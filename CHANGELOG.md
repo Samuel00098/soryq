@@ -2,6 +2,24 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.8] - 2026-06-01
+
+### Added
+
+- **Image viewer in the editor** — opening an image file (PNG, JPG, GIF, WebP, BMP, ICO, AVIF, TIFF) now renders it in a dedicated viewer instead of loading raw bytes into the code editor. A metadata bar shows the file name, format, pixel dimensions, and file size, and the image sits on a checkerboard stage so transparency is visible. Backed by a new `fs_read_binary` Tauri command (capped at 50 MB) that streams the file into an in-memory object URL; editor files now carry a `kind` (`text` | `image`) and those URLs are revoked when the tab closes or the editor reloads so nothing leaks. Markdown preview, formatting, save, and the cursor/encoding readouts in the status bar are all suppressed for image tabs.
+
+### Changed
+
+- **Drag a terminal pane to split, not just swap** — dragging a pane by its title bar now drops it onto an edge (left, right, top, or bottom) of the pane under the cursor and inserts it there, rather than only swapping the two panes' positions. The drop target is chosen from where the cursor sits within the hovered pane, and column/cell percentages are renormalised so the grid stays balanced.
+- **Layout picker fills every pane** — choosing a split layout now opens a live terminal in each newly revealed pane (using the project's starting directory) instead of leaving empty "Open terminal" placeholders; panes that already hold a session keep it.
+- **Editor tab icons** — file-type tabs now show compact text badges (IMG / RS / TXT) in place of the previous emoji glyphs.
+
+### Fixed
+
+- **Closing a pane reclaims its space** — closing a terminal pane now removes its cell from the mosaic so the surrounding panes expand to fill the gap, instead of leaving a dead "Open terminal" placeholder behind. Emptied columns are dropped and the remaining panes rebalanced; the very last pane is always kept (reset to an empty placeholder) so the grid can never end up with zero panes.
+- **Ghost panes when closing several terminals quickly** — `killSession` now updates the authoritative project state synchronously, before the asynchronous PTY teardown. Previously the slower teardown let a stale pane-assignment array re-broadcast, and the add-only mosaic reconcile would resurrect undismissable "Open terminal" placeholders when several panes were closed in quick succession.
+- **Pasted image attachments** — images pasted into the prompt bar now get a unique name (timestamp plus a random suffix) with their real file extension, so simultaneous pastes can't collide or be misread by the agent. Saved paths are only quoted when they contain spaces (cleaner for agent TUIs than always single-quoting), and failures now surface an error toast — plus a warning when no project is open — instead of silently dropping the image.
+
 ## [0.1.7] - 2026-05-31
 
 ### Added

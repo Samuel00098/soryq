@@ -16,7 +16,6 @@
     killSession,
     activateSessionInPane,
     registerMosaicGrow,
-    swapPanes,
   } from '$lib/stores/terminal';
   import { activeProject, openProjectIds } from '$lib/stores/workspace';
   import { activeFile } from '$lib/stores/editor';
@@ -80,11 +79,23 @@
 
   let layoutPickerOpen = $state(false);
 
-  function handleLayoutSelect(gl: GridLayout) {
+  async function handleLayoutSelect(gl: GridLayout) {
     setMaximizedPaneIndex(null);
     setGridLayout(gl);
     applyGridLayout(gl);
     layoutPickerOpen = false;
+
+    // Open a real terminal in every pane the chosen layout exposes, so picking a
+    // split lands you on live terminals instead of empty "Open terminal" panes.
+    // Existing panes keep their session; only the freshly-revealed slots spawn.
+    if (!$activeProject) return;
+    const count = getLayoutPaneCount(gl);
+    const cwd = getStartingCwd();
+    for (let i = 0; i < count; i += 1) {
+      if ($paneAssignments[i] == null) {
+        await createTerminalSession(cwd, i);
+      }
+    }
   }
 
   let projectPath = $derived($activeProject?.root_path);
@@ -240,32 +251,75 @@
     return () => registerMosaicGrow(null);
   });
 
+  // Close a pane: kill its session (if any) AND drop its cell from the mosaic so
+  // the surrounding terminals reclaim the freed space — no lingering "Open
+  // terminal" placeholder left in the background. The very last pane is the one
+  // exception: it's kept and reset to an empty placeholder so the grid is never
+  // left with zero panes. Used by every close affordance (pane titlebar button,
+  // empty-pane ✕, and the session tab ✕ via closeSession).
   function closePane(paneIndex: number) {
-    const nextPanes = [...$paneAssignments];
     const sessionId = $paneAssignments[paneIndex];
     if (sessionId !== null && sessionId !== undefined) {
       killSession(sessionId);
     }
 
+    const totalCells = columns.reduce((sum, col) => sum + col.cells.length, 0);
+    const position = findPanePosition(paneIndex);
+
+    if (totalCells > 1 && position) {
+      const { colIdx, cellIdx } = position;
+      columns[colIdx].cells.splice(cellIdx, 1);
+
+      if (columns[colIdx].cells.length === 0) {
+        // Column emptied — drop it and redistribute the remaining columns' widths.
+        columns.splice(colIdx, 1);
+        colWidths.splice(colIdx, 1);
+        cellHeights.splice(colIdx, 1);
+        const C = columns.length;
+        colWidths = Array(C).fill(100 / C);
+      } else {
+        // Rebalance the surviving cells in this column.
+        const n = columns[colIdx].cells.length;
+        cellHeights[colIdx] = Array(n).fill(100 / n);
+      }
+
+      columns = [...columns];
+      colWidths = [...colWidths];
+      cellHeights = [...cellHeights];
+    }
+
+    // Clear the slot's assignment so the reconcile effect won't re-add a cell.
     paneAssignments.update((panes) => {
       const copy = [...panes];
-      if (paneIndex >= 0 && paneIndex < copy.length) {
-        copy[paneIndex] = null;
-      }
+      if (paneIndex >= 0 && paneIndex < copy.length) copy[paneIndex] = null;
       return copy;
     });
 
+    // Move focus off the closed pane to a surviving cell when it was focused.
     activePaneIndex.update((active) => {
-      if (active === paneIndex) {
-        nextPanes[paneIndex] = null;
-        const nextPane = nextPanes.findIndex((session, idx) => idx !== paneIndex && session !== null);
-        return nextPane !== -1 ? nextPane : Math.max(0, paneIndex - 1);
-      }
-      return active;
+      if (active !== paneIndex) return active;
+      const survivor = columns.flatMap((col) => col.cells).find((cell) => cell.index !== paneIndex);
+      return survivor?.index ?? Math.max(0, paneIndex - 1);
     });
 
     if (maximizedPaneIndex === paneIndex) {
       setMaximizedPaneIndex(null);
+    }
+
+    // Geometry changed — tell panes to refit their xterm dimensions.
+    document.dispatchEvent(new CustomEvent('pane-resize-end'));
+  }
+
+  // Close a terminal identified by session id (from the session tab ✕). When the
+  // session occupies a pane, route through closePane so the pane is removed and
+  // its neighbors expand; otherwise the session is orphaned (in no pane) so just
+  // kill it.
+  function closeSession(sessionId: number) {
+    const paneIndex = $paneAssignments.indexOf(sessionId);
+    if (paneIndex !== -1) {
+      closePane(paneIndex);
+    } else {
+      killSession(sessionId);
     }
   }
 
@@ -411,11 +465,17 @@
     cells: CellInfo[];
   }
 
+  type PaneDropEdge = 'left' | 'right' | 'top' | 'bottom';
+
   let columns = $state<ColumnInfo[]>([
     { cells: [{ index: 0 }] }
   ]);
   let colWidths = $state<number[]>([100]);
   let cellHeights = $state<number[][]>([[100]]);
+
+  // Total cells currently in the mosaic — gates the empty-pane close button so
+  // the very last pane can never be removed.
+  let totalCells = $derived(columns.reduce((sum, col) => sum + col.cells.length, 0));
 
   let currentProjectId = $state<string | null>(null);
   const gridCache = new Map<string, { columns: ColumnInfo[]; colWidths: number[]; cellHeights: number[][] }>();
@@ -573,26 +633,120 @@
   // ── Pane reposition drag (pointer-based) ────────────────────
   // Native HTML5 DnD is unreliable in the Tauri webview, so we drive the drag
   // ourselves: mousedown on a pane titlebar → track movement past a threshold →
-  // on mouseup, swap with whichever pane cell sits under the cursor.
+  // on mouseup, insert the dragged pane into the hovered pane's edge.
   const PANE_DRAG_THRESHOLD = 5;
   let paneDrag = $state<{
     from: number;
     startX: number;
     startY: number;
     active: boolean;
-    overIndex: number | null;
+    over: { index: number; edge: PaneDropEdge } | null;
   } | null>(null);
 
   function startPaneDrag(from: number, e: MouseEvent) {
     if (e.button !== 0) return;
-    paneDrag = { from, startX: e.clientX, startY: e.clientY, active: false, overIndex: null };
+    paneDrag = { from, startX: e.clientX, startY: e.clientY, active: false, over: null };
   }
 
-  function paneIndexUnderPoint(x: number, y: number): number | null {
+  function paneElementUnderPoint(x: number, y: number): HTMLElement | null {
     const el = document.elementFromPoint(x, y)?.closest('[data-pane-index]') as HTMLElement | null;
+    return el;
+  }
+
+  function getPaneDropAtPoint(x: number, y: number): { index: number; edge: PaneDropEdge } | null {
+    const el = paneElementUnderPoint(x, y);
     if (!el) return null;
     const idx = Number(el.dataset.paneIndex);
-    return Number.isNaN(idx) ? null : idx;
+    if (Number.isNaN(idx)) return null;
+
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    const rx = (x - rect.left) / rect.width;
+    const ry = (y - rect.top) / rect.height;
+    const dx = rx - 0.5;
+    const dy = ry - 0.5;
+    const edge: PaneDropEdge = Math.abs(dx) > Math.abs(dy)
+      ? (dx < 0 ? 'left' : 'right')
+      : (dy < 0 ? 'top' : 'bottom');
+
+    return { index: idx, edge };
+  }
+
+  function normalizePercentages(values: number[]): number[] {
+    if (values.length === 0) return [];
+    const total = values.reduce((sum, value) => sum + value, 0);
+    if (total <= 0) return Array(values.length).fill(100 / values.length);
+    return values.map((value) => (value / total) * 100);
+  }
+
+  function removePaneCell(paneIndex: number) {
+    const position = findPanePosition(paneIndex);
+    if (!position) return false;
+
+    const { colIdx, cellIdx } = position;
+    columns[colIdx].cells.splice(cellIdx, 1);
+    cellHeights[colIdx].splice(cellIdx, 1);
+
+    if (columns[colIdx].cells.length === 0) {
+      columns.splice(colIdx, 1);
+      colWidths.splice(colIdx, 1);
+      cellHeights.splice(colIdx, 1);
+      colWidths = normalizePercentages(colWidths);
+    } else {
+      cellHeights[colIdx] = normalizePercentages(cellHeights[colIdx]);
+    }
+
+    return true;
+  }
+
+  function insertPaneAtEdge(paneIndex: number, targetIndex: number, edge: PaneDropEdge) {
+    const target = findPanePosition(targetIndex);
+    if (!target) return false;
+
+    const { colIdx, cellIdx } = target;
+
+    if (edge === 'left' || edge === 'right') {
+      const targetWidth = colWidths[colIdx] ?? (100 / Math.max(columns.length, 1));
+      const insertedWidth = targetWidth / 2;
+      const remainingWidth = targetWidth - insertedWidth;
+      const insertAt = edge === 'left' ? colIdx : colIdx + 1;
+
+      columns.splice(insertAt, 0, { cells: [{ index: paneIndex }] });
+      cellHeights.splice(insertAt, 0, [100]);
+      colWidths.splice(colIdx, 1, ...(edge === 'left'
+        ? [insertedWidth, remainingWidth]
+        : [remainingWidth, insertedWidth]));
+      return true;
+    }
+
+    const heights = [...(cellHeights[colIdx] ?? [])];
+    const targetHeight = heights[cellIdx] ?? (100 / Math.max(columns[colIdx].cells.length, 1));
+    const insertedHeight = targetHeight / 2;
+    const remainingHeight = targetHeight - insertedHeight;
+
+    if (edge === 'top') {
+      columns[colIdx].cells.splice(cellIdx, 0, { index: paneIndex });
+      heights.splice(cellIdx, 1, insertedHeight, remainingHeight);
+    } else {
+      columns[colIdx].cells.splice(cellIdx + 1, 0, { index: paneIndex });
+      heights.splice(cellIdx, 1, remainingHeight, insertedHeight);
+    }
+
+    cellHeights[colIdx] = heights;
+    return true;
+  }
+
+  function movePaneToEdge(from: number, targetIndex: number, edge: PaneDropEdge) {
+    if (from === targetIndex) return;
+    if (!findPanePosition(from) || !findPanePosition(targetIndex)) return;
+    if (!removePaneCell(from)) return;
+    if (!insertPaneAtEdge(from, targetIndex, edge)) return;
+
+    columns = [...columns];
+    colWidths = [...colWidths];
+    cellHeights = [...cellHeights];
+    focusPane(from);
   }
 
   function startColResize(e: MouseEvent, colIdx: number) {
@@ -623,8 +777,8 @@
       const dx = e.clientX - paneDrag.startX;
       const dy = e.clientY - paneDrag.startY;
       if (!paneDrag.active && Math.hypot(dx, dy) < PANE_DRAG_THRESHOLD) return;
-      const over = paneIndexUnderPoint(e.clientX, e.clientY);
-      paneDrag = { ...paneDrag, active: true, overIndex: over };
+      const over = getPaneDropAtPoint(e.clientX, e.clientY);
+      paneDrag = { ...paneDrag, active: true, over };
       return;
     }
 
@@ -658,11 +812,10 @@
 
   function onMouseUp() {
     if (paneDrag) {
-      const { from, active, overIndex } = paneDrag;
+      const { from, active, over } = paneDrag;
       paneDrag = null;
-      if (active && overIndex !== null && overIndex !== from) {
-        swapPanes(from, overIndex);
-        // Geometry is unchanged but the swapped panes remount — refit them.
+      if (active && over && over.index !== from) {
+        movePaneToEdge(from, over.index, over.edge);
         document.dispatchEvent(new CustomEvent('pane-resize-end'));
       }
       return;
@@ -702,8 +855,6 @@
     }
   }
 
-  // Swap the terminals living in two panes. Geometry (columns/widths/heights) is
-  // keyed by pane index, so only the session assignments move — cells stay put.
   // Tab click: make session active AND focus its pane
   function handleTabClick(sessionId: number) {
     const panes = $paneAssignments;
@@ -753,7 +904,7 @@
           </button>
           <button
             class="tab-close"
-            onclick={(e) => { e.stopPropagation(); killSession(session.id); }}
+            onclick={(e) => { e.stopPropagation(); closeSession(session.id); }}
             title="Close terminal"
             aria-label="Close terminal"
           >
@@ -870,8 +1021,10 @@
             {@const sessionId = $paneAssignments[cell.index]}
             <div
               class="terminal-cell"
-              class:pane-drop-target={paneDrag?.active && paneDrag.overIndex === cell.index && paneDrag.from !== cell.index}
+              class:pane-drop-target={paneDrag?.active && paneDrag.over?.index === cell.index && paneDrag.from !== cell.index}
               class:pane-drag-source={paneDrag?.active && paneDrag.from === cell.index}
+              data-drop-edge={paneDrag?.active && paneDrag.over?.index === cell.index && paneDrag.from !== cell.index ? paneDrag.over.edge : undefined}
+              data-drop-label={paneDrag?.active && paneDrag.over?.index === cell.index && paneDrag.from !== cell.index ? `Insert ${paneDrag.over.edge}` : undefined}
               data-pane-index={cell.index}
               style="flex: {cellHeights[colIdx]?.[cellIdx] ?? 100} 1 0%;"
             >
@@ -908,6 +1061,19 @@
                   </span>
                   <span class="empty-pane-label">Open terminal</span>
                 </button>
+                {#if totalCells > 1}
+                  <button
+                    class="empty-pane-close"
+                    onclick={(e) => { e.stopPropagation(); closePane(cell.index); }}
+                    title="Close pane"
+                    aria-label="Close pane"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                {/if}
               {/if}
             </div>
             {#if cellIdx < column.cells.length - 1}
@@ -1295,20 +1461,53 @@
   }
 
   .terminal-cell.pane-drop-target::after {
-    content: 'Drop to swap';
+    content: attr(data-drop-label);
     position: absolute;
-    inset: 0;
     z-index: 30;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18px;
     color: var(--text-primary);
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
-    border: 2px solid var(--accent);
-    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border: 2px solid color-mix(in srgb, var(--accent) 80%, white 8%);
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+    pointer-events: none;
+    text-transform: capitalize;
+  }
+
+  .terminal-cell[data-drop-edge='left']::after {
+    inset: 8px auto 8px 8px;
+    width: 38%;
+  }
+
+  .terminal-cell[data-drop-edge='right']::after {
+    inset: 8px 8px 8px auto;
+    width: 38%;
+  }
+
+  .terminal-cell[data-drop-edge='top']::after {
+    inset: 8px 8px auto 8px;
+    height: 38%;
+  }
+
+  .terminal-cell[data-drop-edge='bottom']::after {
+    inset: auto 8px 8px 8px;
+    height: 38%;
+  }
+
+  .terminal-cell.pane-drop-target::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    border-radius: 10px;
+    outline: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    outline-offset: -1px;
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
     pointer-events: none;
   }
 
@@ -1360,6 +1559,37 @@
     font-size: 12px;
     color: var(--text-secondary);
     font-weight: 500;
+  }
+
+  /* Close button to drop an empty pane and let neighbors reclaim the space */
+  .empty-pane-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 4;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .terminal-cell:hover .empty-pane-close {
+    opacity: 0.85;
+  }
+
+  .empty-pane-close:hover {
+    opacity: 1;
+    background: rgba(248, 113, 113, 0.14);
+    color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 40%, transparent);
   }
 
   /* â”€â”€ Resize handles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
