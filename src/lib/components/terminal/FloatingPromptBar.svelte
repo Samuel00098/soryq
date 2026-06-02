@@ -28,6 +28,7 @@
   import { refineVoicePrompt } from '$lib/services/voice-refinement';
   import { activeProject } from '$lib/stores/workspace';
   import { addRunEntry } from '$lib/stores/runHistory';
+  import { isImagePath, getImageMimeType } from '$lib/stores/editor';
 
   // Per-project state cache
   const barProjectCache = new Map<string, { inputValue: string; manualTargetId: number | null }>();
@@ -69,7 +70,10 @@
       : []
   );
 
-  type PastedImage = { objectUrl: string; dataUrl: string; name: string };
+  // `diskPath` is set when the image already exists on disk (attached via the
+  // file picker) so submitPrompt can reference it directly instead of re-saving
+  // a fresh copy — the agent then reads the exact file the user picked.
+  type PastedImage = { objectUrl: string; dataUrl: string; name: string; diskPath?: string };
   let pastedImages = $state<PastedImage[]>([]);
 
   let activeTerminal = $derived($sessions.find((session) => session.id === $activeSessionId) ?? null);
@@ -244,6 +248,29 @@
     focusInput();
   }
 
+  // Map a clipboard image MIME type to a clean file extension. Splitting on "/"
+  // alone mangles compound subtypes (e.g. "image/svg+xml" -> "svgxml"), which
+  // would write a file with a bogus extension the agent can't open.
+  function extensionForMime(mime: string): string {
+    switch (mime) {
+      case 'image/png': return 'png';
+      case 'image/apng': return 'apng';
+      case 'image/jpeg': return 'jpg';
+      case 'image/gif': return 'gif';
+      case 'image/webp': return 'webp';
+      case 'image/bmp': return 'bmp';
+      case 'image/x-icon':
+      case 'image/vnd.microsoft.icon': return 'ico';
+      case 'image/svg+xml': return 'svg';
+      case 'image/avif': return 'avif';
+      case 'image/tiff': return 'tif';
+      default: {
+        const sub = (mime.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').toLowerCase();
+        return sub || 'png';
+      }
+    }
+  }
+
   async function saveImageToDisk(img: PastedImage, projectPath: string): Promise<string | null> {
     try {
       // Normalise to forward slashes so the path the agent CLI receives is clean
@@ -278,7 +305,7 @@
       if (!blob) continue;
       // Unique name (timestamp + random) so two images pasted at once never
       // collide; keep the real extension so the agent reads the right format.
-      const ext = (item.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'png';
+      const ext = extensionForMime(item.type);
       const name = `paste-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const objectUrl = URL.createObjectURL(blob);
       const dataUrl = await new Promise<string>((resolve) => {
@@ -297,14 +324,24 @@
     let finalText = text;
 
     if (pastedImages.length > 0) {
+      const toSave = [...pastedImages];
+      // Only images without an on-disk path need to be written, which requires a
+      // project to hold the .soryq/attachments folder. Picked-from-disk images
+      // already have a path and can be sent even with no project open.
+      const needsSave = toSave.some((img) => !img.diskPath);
       const projectPath = get(activeProject)?.root_path;
-      if (!projectPath) {
+      if (needsSave && !projectPath) {
         showToast('Open a project before attaching images', 'warning');
         return;
       }
-      const toSave = [...pastedImages];
       pastedImages = [];
-      const paths = await Promise.all(toSave.map((img) => saveImageToDisk(img, projectPath)));
+      const paths = await Promise.all(
+        toSave.map((img) =>
+          img.diskPath
+            ? Promise.resolve(img.diskPath.replace(/\\/g, '/'))
+            : saveImageToDisk(img, projectPath as string)
+        )
+      );
       const validPaths = paths.filter(Boolean) as string[];
       const failedCount = toSave.length - validPaths.length;
       if (failedCount > 0) {
@@ -502,6 +539,24 @@
     await voiceInput.start();
   }
 
+  // Read an on-disk image into a preview chip. Returns true when the chip was
+  // added; false (e.g. file outside the project) lets the caller fall back to a
+  // plain path so the image is still sent, just without a thumbnail.
+  async function addDiskImageChip(path: string): Promise<boolean> {
+    try {
+      const bytes = await invoke<number[]>('fs_read_binary', { path });
+      const mimeType = getImageMimeType(path);
+      const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
+      const objectUrl = URL.createObjectURL(blob);
+      const name = path.split(/[\\/]/).pop() || 'image';
+      pastedImages = [...pastedImages, { objectUrl, dataUrl: '', name, diskPath: path }];
+      return true;
+    } catch (error) {
+      console.error('Failed to preview attached image:', error);
+      return false;
+    }
+  }
+
   async function attachFiles() {
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
@@ -513,21 +568,29 @@
 
       if (!selected || (Array.isArray(selected) && selected.length === 0)) return;
 
-      const paths = (Array.isArray(selected) ? selected : [selected])
-        .map((path) => {
-          const value = String(path);
-          return `'${value.replace(/'/g, "'\\''")}'`;
-        })
-        .join(' ');
+      const items = (Array.isArray(selected) ? selected : [selected]).map(String);
+      // Images become preview chips (sent as the exact file path, so the agent
+      // reads the right image); everything else is inserted as a plain path.
+      const textPaths: string[] = [];
+      for (const path of items) {
+        if (isImagePath(path)) {
+          const previewed = await addDiskImageChip(path);
+          if (!previewed) textPaths.push(path);
+        } else {
+          textPaths.push(path);
+        }
+      }
 
-      inputValue = inputValue ? `${inputValue} ${paths}` : paths;
-      historyOpen = false;
-      resetHistoryCursor();
-      requestAnimationFrame(() => {
-        adjustInputHeight();
-        inputEl?.focus();
-        inputEl?.setSelectionRange(inputEl.value.length, inputEl.value.length);
-      });
+      if (textPaths.length > 0) {
+        // Routed through the shared helper so quoting matches paste/drag-drop
+        // (double-quote only when the path has spaces) — the previous always
+        // single-quote behaviour left literal quotes the agent CLI couldn't open.
+        attachPathsToInput(textPaths);
+      } else {
+        historyOpen = false;
+        resetHistoryCursor();
+        requestAnimationFrame(() => inputEl?.focus());
+      }
     } catch (error) {
       console.error('Failed to attach files to prompt:', error);
       showToast('Failed to attach files', 'error');

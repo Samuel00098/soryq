@@ -187,12 +187,12 @@
         <path d="M9 21V12h6v9"/>
       </svg>
     </button>
-    <button class="nav-btn" onclick={goBack} aria-label="Go back" title="Back">
+    <button class="nav-btn tb-collapse-2" onclick={goBack} aria-label="Go back" title="Back">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="15 18 9 12 15 6"/>
       </svg>
     </button>
-    <button class="nav-btn" onclick={goForward} aria-label="Go forward" title="Forward">
+    <button class="nav-btn tb-collapse-2" onclick={goForward} aria-label="Go forward" title="Forward">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="9 18 15 12 9 6"/>
       </svg>
@@ -220,7 +220,9 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7a2 2 0 012-2h3.586a2 2 0 011.414.586L11.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
         </svg>
-        {$activeWorkspace.name}{$activeProject ? ` - ${$activeProject.name}` : ''}
+        <span class="titlebar-project-text"
+          >{$activeWorkspace.name}{$activeProject ? ` - ${$activeProject.name}` : ''}</span
+        >
       </span>
       {:else}
       <span class="titlebar-no-project">Soryq</span>
@@ -232,7 +234,7 @@
     <!-- GitHub Button connected to Source Control panel -->
     {#if $activeProjectId}
       <button
-        class="github-push-btn"
+        class="github-push-btn tb-collapse-2"
         class:active={$layout.sidebarVisible && $layout.sidebarTab === 'git'}
         onclick={handleGitButtonClick}
         title="Source Control"
@@ -341,7 +343,7 @@
     <!-- Daily Note button -->
     {#if $activeProject}
       <button
-        class="icon-btn"
+        class="icon-btn tb-collapse-1"
         onclick={() => openDailyNote($activeProject!, true).catch(() => {})}
         aria-label="Open Daily Note"
         title="Open Today's Note (Ctrl+Shift+D)"
@@ -358,7 +360,7 @@
 
     <!-- Quick Capture button -->
     <button
-      class="icon-btn"
+      class="icon-btn tb-collapse-1"
       onclick={openQuickCapture}
       aria-label="Quick Capture"
       title="Quick Capture (Ctrl+Shift+Space)"
@@ -371,7 +373,7 @@
 
     <!-- Scratchpad button -->
     <button
-      class="icon-btn"
+      class="icon-btn tb-collapse-1"
       class:active={$floatingNoteOpen}
       onclick={toggleFloatingNote}
       aria-label="Scratchpad"
@@ -504,23 +506,41 @@
     opacity: 1;
   }
 
-  /* Center */
+  /* Center — a real flex item so it shrinks and truncates between the nav and
+     the right-hand controls instead of floating over them (the old absolute
+     centring overlapped the search bar at medium widths). */
   .titlebar-center {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
     z-index: 1;
     pointer-events: none;
   }
 
   .titlebar-project {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 5px;
+    min-width: 0;
+    max-width: 100%;
     font-size: 11px;
     color: var(--text-secondary);
     pointer-events: auto;
     -webkit-app-region: no-drag;
+  }
+
+  .titlebar-project svg {
+    flex-shrink: 0;
+  }
+
+  .titlebar-project-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .titlebar-no-project {
@@ -536,6 +556,7 @@
     align-items: center;
     margin-left: auto;
     gap: 3px;
+    flex-shrink: 0;
     -webkit-app-region: no-drag;
     app-region: no-drag;
     z-index: 2;
@@ -833,14 +854,19 @@
     color: var(--accent);
   }
 
-  @media (max-width: 800px) {
-    .titlebar-search {
-      width: 140px;
-    }
-    .titlebar-search.focused {
-      width: 200px;
-    }
-    .search-hint {
+  /* ─── Responsive: progressively condense the bar as it narrows ───────────
+     Controls drop in priority order so the essentials (window controls,
+     settings, search access, sidebar toggle, home) survive the longest. Every
+     hidden action still has a keyboard shortcut, so nothing becomes unreachable.
+
+     Tier 1 (.tb-collapse-1): note-taking trio — daily note, quick capture,
+       scratchpad. First to go.
+     Tier 2 (.tb-collapse-2): back/forward nav + source control. Next.
+  */
+
+  /* Tighten spacing and trim the search hint + brand label first. */
+  @media (max-width: 960px) {
+    .titlebar-name {
       display: none;
     }
     .titlebar-brand {
@@ -849,30 +875,78 @@
     .titlebar-right {
       gap: 2px;
     }
-  }
-
-  @media (max-width: 640px) {
     .titlebar-search {
-      width: 36px;
-      padding: 0 6px;
+      width: 170px;
     }
     .titlebar-search.focused {
-      width: 180px;
-      position: absolute;
-      right: 100px;
-      z-index: 200;
+      width: 260px;
     }
-    .github-push-btn {
+    .search-hint {
       display: none;
     }
-    .titlebar-nav {
+  }
+
+  /* Drop the note-taking trio; the breadcrumb keeps shrinking/truncating. */
+  @media (max-width: 820px) {
+    .tb-collapse-1 {
+      display: none;
+    }
+    .titlebar-search {
+      width: 150px;
+    }
+    .titlebar-search.focused {
+      width: 240px;
+    }
+  }
+
+  /* Drop back/forward + source control; shrink the remaining buttons and
+     collapse the search to an icon that expands over the bar on focus. */
+  @media (max-width: 680px) {
+    .tb-collapse-2 {
       display: none;
     }
     .titlebar-center {
       display: none;
     }
+    .nav-btn,
+    .icon-btn,
+    .github-push-btn {
+      width: 26px;
+      height: 26px;
+    }
+    .titlebar-nav {
+      padding: 0 3px;
+      margin-right: 3px;
+    }
+    .titlebar-search {
+      width: 34px;
+      padding: 0 6px;
+    }
+    .titlebar-search.focused {
+      width: 200px;
+      position: absolute;
+      right: 88px;
+      z-index: 200;
+    }
+  }
+
+  /* Bare minimum: home + sidebar toggle stay (core navigation); narrow the
+     window controls and tighten the rest so everything still fits. */
+  @media (max-width: 520px) {
+    .wc-btn {
+      width: 38px;
+    }
+    .icon-btn,
+    .nav-btn,
+    .github-push-btn {
+      width: 24px;
+      height: 24px;
+    }
     .titlebar-right {
-      gap: 1px;
+      gap: 0;
+    }
+    .titlebar-search.focused {
+      right: 70px;
     }
   }
 </style>

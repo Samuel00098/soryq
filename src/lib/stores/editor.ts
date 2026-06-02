@@ -14,7 +14,8 @@ export const activeColumn = writable<number>(1);
 export const jumpToLine = writable<{ path: string; line: number } | null>(null);
 
 const IMAGE_EXTENSIONS = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif', 'tif', 'tiff',
+  'png', 'apng', 'jpg', 'jpeg', 'jpe', 'jfif', 'gif', 'webp', 'bmp', 'ico', 'cur',
+  'svg', 'avif', 'tif', 'tiff',
 ]);
 
 export function isImagePath(path: string): boolean {
@@ -22,13 +23,17 @@ export function isImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.has(ext);
 }
 
-function getImageMimeType(path: string): string {
+export function getImageMimeType(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   switch (ext) {
     case 'png':
       return 'image/png';
+    case 'apng':
+      return 'image/apng';
     case 'jpg':
     case 'jpeg':
+    case 'jpe':
+    case 'jfif':
       return 'image/jpeg';
     case 'gif':
       return 'image/gif';
@@ -37,7 +42,10 @@ function getImageMimeType(path: string): string {
     case 'bmp':
       return 'image/bmp';
     case 'ico':
+    case 'cur':
       return 'image/x-icon';
+    case 'svg':
+      return 'image/svg+xml';
     case 'avif':
       return 'image/avif';
     case 'tif':

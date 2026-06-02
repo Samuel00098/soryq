@@ -2,6 +2,17 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.1.9] - 2026-06-02
+
+### Added
+
+- **Attach images from the file picker** — picking an image through the prompt bar's attach-files dialog now adds it as a preview chip (the same thumbnails you get from pasting or drag-and-drop) instead of inserting a raw path string. The chip references the exact file on disk, so the agent reads the original image rather than a re-saved copy, and images can be attached even with no project open (only pasted images, which must be written to `.soryq/attachments`, still require one). Non-image files are still inserted as plain paths, now routed through the shared quoting helper so they're only quoted when the path contains spaces. Backed by `img-src blob:` in the Content-Security-Policy so the in-memory preview can render.
+- **Wider image-format coverage** — the image detector and MIME mapping now recognise APNG, SVG, the `.jpe`/`.jfif` JPEG aliases, and `.cur` cursors, and pasted clipboard images map their MIME type to a clean file extension (so `image/svg+xml` saves as `.svg` instead of a mangled `svgxml`).
+
+### Changed
+
+- **Responsive title bar** — the centre breadcrumb is now a real flex item that shrinks and truncates with an ellipsis between the navigation and the right-hand controls, instead of being absolutely centred where it overlapped the search bar at medium window widths. As the window narrows the bar progressively condenses: the brand label and search hint trim first, then the note-taking trio (daily note, quick capture, scratchpad), then back/forward navigation and source control, leaving the essentials (home, sidebar toggle, search, settings, window controls) visible the longest. Every hidden action still has a keyboard shortcut, so nothing becomes unreachable.
+
 ## [0.1.8] - 2026-06-01
 
 ### Added
