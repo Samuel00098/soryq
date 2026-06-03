@@ -676,88 +676,6 @@ export function isAgentSession(session: TerminalSessionInfo | null | undefined):
   return Boolean(session.agentPreset);
 }
 
-function trimSummaryLine(line: string): string {
-  const cleaned = line
-    .replace(/^[\-*•]\s+/, '')
-    .replace(/^[0-9]+\.\s+/, '')
-    .replace(/^(summary|done|completed|result|final answer|answer|update)\s*:\s*/i, '')
-    .trim();
-  return cleaned.length > 72 ? `${cleaned.slice(0, 69)}...` : cleaned;
-}
-
-export function summarizeAgentResponse(output: string, command?: string, agentPreset?: string | null): string {
-  const clean = output
-    .replace(/\x1b\[[0-9;]*[mGKHFABCDJrsu]/g, '')
-    .replace(/\x1b\][^\x07]*\x07/g, '')
-    .replace(/\r/g, '')
-    .trim();
-  if (!clean) return '';
-
-  const lines = clean
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const shellNoise = /^(PS [A-Z]:\\|[A-Z]:\\.*>|[$#>])|^(warning|error):?\s*$/i;
-  const promptEcho = command?.trim();
-  const provider = (agentPreset ?? '').toLowerCase();
-
-  const labeledSummaryPatterns =
-    provider === 'claude'
-      ? [/^summary\s*:/i, /^done\s*:/i, /^completed\s*:/i, /^result\s*:/i]
-      : provider === 'codex'
-        ? [/^summary\s*:/i, /^final answer\s*:/i, /^result\s*:/i, /^done\s*:/i]
-        : provider === 'opencode'
-          ? [/^summary\s*:/i, /^update\s*:/i, /^done\s*:/i, /^completed\s*:/i]
-          : [/^summary\s*:/i, /^done\s*:/i, /^completed\s*:/i, /^result\s*:/i, /^final answer\s*:/i];
-
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i];
-    if (labeledSummaryPatterns.some((pattern) => pattern.test(line))) {
-      return trimSummaryLine(line);
-    }
-  }
-
-  if (provider === 'claude') {
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const line = lines[i];
-      if (/^(here('| i)s|i('| a)m|implemented|updated|fixed|added|removed|changed)\b/i.test(line)) {
-        return trimSummaryLine(line);
-      }
-    }
-  }
-
-  if (provider === 'codex') {
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const line = lines[i];
-      if (/^(implemented|fixed|updated|added|removed|wired|moved|changed|done)\b/i.test(line)) {
-        return trimSummaryLine(line);
-      }
-    }
-  }
-
-  if (provider === 'opencode') {
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const line = lines[i];
-      if (/^(updated|implemented|completed|finished|created|refactored)\b/i.test(line)) {
-        return trimSummaryLine(line);
-      }
-    }
-  }
-
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    let line = lines[i];
-    if (!line) continue;
-    if (promptEcho && line === promptEcho) continue;
-    if (shellNoise.test(line)) continue;
-    line = trimSummaryLine(line);
-    if (line.length < 6) continue;
-    return line;
-  }
-
-  const fallback = lines[lines.length - 1] ?? '';
-  return trimSummaryLine(fallback);
-}
 
 export function setSessionTaskSummary(id: number, taskSummary: string | null) {
   const projectId = terminalSessionProjects.get(id);
@@ -853,37 +771,17 @@ export function finalizeCommandBlock(sessionId: number) {
 export function finalizeCommandBlockWithExit(sessionId: number, exitCode?: number) {
   _flushCommandBlockAppendsForSession(sessionId);
 
-  let finalizedOutput = '';
-  let finalizedCommand = '';
-  let didFinalize = false;
   commandBlocks.update((map) => {
     const list = map.get(sessionId);
     if (!list || list.length === 0) return map;
     const last = list[list.length - 1];
     if (last.endTime !== undefined) return map;
     const copy = new Map(map);
-    finalizedOutput = last.output;
-    finalizedCommand = last.command;
-    didFinalize = true;
     const finalizedBlock = { ...last, endTime: Date.now(), exitCode, collapsed: true };
     const updated = [...list.slice(0, -1), finalizedBlock];
     copy.set(sessionId, updated);
     return copy;
   });
-
-  if (!didFinalize) return;
-
-  const session = get(sessions).find((entry) => entry.id === sessionId);
-  if (!session?.agentPreset) return;
-
-  const summary = summarizeAgentResponse(
-    finalizedOutput,
-    finalizedCommand,
-    session.agentPreset
-  );
-  if (summary) {
-    setSessionTaskSummary(sessionId, summary);
-  }
 }
 
 export function toggleCommandBlockCollapse(sessionId: number, blockId: string) {

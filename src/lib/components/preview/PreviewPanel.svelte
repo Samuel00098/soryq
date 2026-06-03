@@ -29,6 +29,8 @@
   import { setActiveView } from '$lib/stores/layout';
   import { activeProject } from '$lib/stores/workspace';
 
+  import { extractExternalUrlFromProxyUrl } from '$lib/utils/proxy-url';
+
   let iframeElements = $state<Record<string, HTMLIFrameElement | undefined>>({});
   let previewContentEl = $state<HTMLDivElement>();
   let deviceShellEl = $state<HTMLDivElement>();
@@ -385,6 +387,9 @@
       }
     } else {
       await setPreferredLocalHost(null);
+      // Ensure the background proxy is running BEFORE updating the store and
+      // triggering the iframe src binding, so buildIframeSrc sees the port set.
+      await ensureProxyRunning();
     }
     navigatePreviewTab(normalized);
     inputUrl = normalized;
@@ -614,6 +619,7 @@
 
 
 
+
   function handleIframeLoad(tabId: string) {
     updateTabLoadState(tabId, { isLoading: false, slowLoad: false, iframeError: false });
     clearLoadFeedbackTimer();
@@ -624,24 +630,48 @@
       const iframeElement = iframeElements[tabId];
       if (iframeElement && iframeElement.contentWindow) {
         const href = iframeElement.contentWindow.location.href;
-        // Don't overwrite the address bar when loading via our proxy
-        if (href && !href.includes('/proxy?') && !href.includes('/proxy/')) {
+        if (!href) return;
+
+        // Local dev server: direct same-origin URL, no '/proxy' prefix.
+        // Read the pathname and push it to both store and address bar.
+        if (!href.includes('/proxy')) {
           const path = iframeElement.contentWindow.location.pathname;
           const search = iframeElement.contentWindow.location.search;
-          if (path) {
+          if (path && activeTab?.id === tabId) {
             const newUrl = path + search;
-            if (activeTab?.id === tabId) {
+            // If the active tab's current URL is a full localhost URL whose
+            // path already matches this load, the iframe just (re)loaded the
+            // page we're already on — typically after Back/Forward to a
+            // typed-in `http://localhost:PORT/...` history entry. Pushing here
+            // would rewrite that entry to a relative path and truncate the
+            // forward history, so only sync the address bar instead.
+            const currentLocalDev = parseLocalDevUrl(normalizeUrl(activeTab.url));
+            if (currentLocalDev && currentLocalDev.path === newUrl) {
+              inputUrl = activeTab.url;
+            } else {
               navigatePreviewTab(newUrl);
               inputUrl = newUrl;
             }
           }
+          return;
+        }
+
+        // External URL proxied through the background server.
+        // The iframe's src is the proxy URL — we DON'T call
+        // navigatePreviewTab here because that would trigger an
+        // iframe reload (the store change flows back through
+        // buildIframeSrc → iframe src binding).
+        // Instead, just update the address bar so it reflects
+        // the real URL the user is looking at.
+        const externalUrl = extractExternalUrlFromProxyUrl(href);
+        if (externalUrl && activeTab?.id === tabId) {
+          inputUrl = externalUrl;
         }
       }
     } catch (err) {
-      // Cross-origin expected
+      // Cross-origin expected for direct external URLs without proxy
     }
   }
-
   function handleIframeError(tabId: string) {
     clearLoadFeedbackTimer();
     updateTabLoadState(tabId, { isLoading: false, slowLoad: false, iframeError: true });

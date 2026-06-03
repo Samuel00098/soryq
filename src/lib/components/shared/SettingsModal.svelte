@@ -2892,11 +2892,14 @@
     border: 1.5px solid var(--border);
     border-radius: 10px;
     box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.25);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    /* The dropdown itself is the scroll container so the search bar can stick
+       to the top; height hugs its content up to the cap (no reserved gap). */
+    overflow-y: auto;
+    overflow-x: hidden;
     max-height: 280px;
     animation: modelDropdownIn 0.15s ease;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   }
 
   @keyframes modelDropdownIn {
@@ -2910,9 +2913,15 @@
     gap: 8px;
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-primary);
+    /* Pinned to the top of the scrolling dropdown. A translucent, blurred
+       backdrop keeps the glass look instead of an opaque strip. */
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     color: var(--text-muted);
-    position: relative;
   }
 
   .model-search-input {
@@ -2942,12 +2951,8 @@
   }
 
   .model-list {
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    flex: 1;
-    scrollbar-width: thin;
-    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   }
 
   .model-empty {

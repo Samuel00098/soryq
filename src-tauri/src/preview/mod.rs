@@ -673,25 +673,33 @@ async fn proxy_local_dev_request(
         let mut reqwest_req = reqwest::Request::new(method, url.clone());
         *reqwest_req.headers_mut() = parts.headers.clone();
 
-        // Rewrite Origin and Referer headers to match target dev server
-        let target_origin = format!("http://{}:{}", host, target_port);
+        // Make the forwarded request look first-party to the dev server. The
+        // browser issues subresource requests (/_next/* chunks, CSS, modules)
+        // against the proxy origin (127.0.0.1:{proxy_port}); dev servers like
+        // Next.js 15 (allowedDevOrigins) block those as cross-origin, which makes
+        // the page render unstyled. We advertise `localhost` (not the loopback IP
+        // we actually connect to) because that is the host these dev servers trust
+        // by default — Next.js, for example, allows `localhost` out of the box but
+        // blocks `127.0.0.1`. The check only inspects the Origin/Referer host, not
+        // the TCP target, so this is safe regardless of which host we connect to.
+        // Origin is set unconditionally because many chunk/module requests omit it.
+        let advertised_origin = format!("http://localhost:{}", target_port);
         reqwest_req.headers_mut().remove("accept-encoding");
-        if reqwest_req.headers().contains_key("origin") {
-            if let Ok(val) = target_origin.parse() {
-                reqwest_req.headers_mut().insert("origin", val);
-            }
+        if let Ok(val) = advertised_origin.parse() {
+            reqwest_req.headers_mut().insert("origin", val);
         }
-        if let Some(referer) = reqwest_req.headers_mut().get_mut("referer") {
-            if let Ok(referer_str) = referer.to_str() {
-                let proxy_host = parts.headers.get("host")
-                    .and_then(|h| h.to_str().ok())
-                    .unwrap_or("127.0.0.1");
-                let proxy_origin = format!("http://{}", proxy_host);
-                let new_referer = referer_str.replace(&proxy_origin, &target_origin);
-                if let Ok(val) = new_referer.parse() {
-                    *referer = val;
-                }
-            }
+        let proxy_host = parts.headers.get("host")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("127.0.0.1");
+        let proxy_origin = format!("http://{}", proxy_host);
+        let new_referer = match reqwest_req.headers().get("referer").and_then(|r| r.to_str().ok()) {
+            // Preserve the path the browser was actually on, just swap the host.
+            Some(referer_str) => referer_str.replace(&proxy_origin, &advertised_origin),
+            // Subresource request with no referer — point it at the dev root.
+            None => format!("{}/", advertised_origin),
+        };
+        if let Ok(val) = new_referer.parse() {
+            reqwest_req.headers_mut().insert("referer", val);
         }
 
         reqwest_req.headers_mut().remove("host");
@@ -801,6 +809,32 @@ async fn proxy_external_url(
     }
 }
 
+/// Headers that must be dropped before re-serving a proxied page inside the
+/// preview iframe. The body is always re-framed by the proxy (length/encoding
+/// change), and the security/embedding headers are authored for the target's
+/// real origin — re-applying them under the proxy origin (127.0.0.1:{proxy_port})
+/// blocks the page from embedding or, more subtly, blocks it from loading its own
+/// stylesheets and scripts (the page renders but appears unstyled).
+fn should_strip_preview_header(key_lower: &str) -> bool {
+    matches!(
+        key_lower,
+        // Body framing — the proxy re-emits the (decompressed) body itself.
+        "content-length"
+            | "content-encoding"
+            | "transfer-encoding"
+            // Embedding guards — would prevent the iframe from rendering at all.
+            | "x-frame-options"
+            // CSP authored for the dev origin breaks asset loading under the proxy
+            // origin (this is the usual cause of "Dev: On" stripping the CSS).
+            | "content-security-policy"
+            | "content-security-policy-report-only"
+            // COEP/CORP can block cross-origin subresources (fonts, CDN CSS).
+            | "cross-origin-embedder-policy"
+            | "cross-origin-opener-policy"
+            | "cross-origin-resource-policy"
+    )
+}
+
 async fn build_preview_response(res: reqwest::Response, strip_embed_headers: bool) -> Response<Body> {
     let is_html = res
         .headers()
@@ -828,19 +862,12 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
         let mut builder = Response::builder().status(status);
         for (key, value) in headers.iter() {
             let key_lower = key.as_str().to_lowercase();
-            if matches!(
-                key_lower.as_str(),
-                "content-length"
-                    | "content-encoding"
-                    | "transfer-encoding"
-                    | "etag"
-                    | "content-md5"
-                    | "accept-ranges"
-            ) {
-              continue;
+            // HTML is buffered and rewritten, so range/validator headers no longer apply.
+            if matches!(key_lower.as_str(), "etag" | "content-md5" | "accept-ranges") {
+                continue;
             }
-            if strip_embed_headers && key_lower == "x-frame-options" {
-              continue;
+            if should_strip_preview_header(&key_lower) {
+                continue;
             }
             builder = builder.header(key, value);
         }
@@ -853,13 +880,7 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
     let mut builder = Response::builder().status(status);
     for (key, value) in headers.iter() {
         let key_lower = key.as_str().to_lowercase();
-        if matches!(
-            key_lower.as_str(),
-            "content-length" | "content-encoding" | "transfer-encoding"
-        ) {
-            continue;
-        }
-        if strip_embed_headers && key_lower == "x-frame-options" {
+        if should_strip_preview_header(&key_lower) {
             continue;
         }
         builder = builder.header(key, value);
