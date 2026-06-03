@@ -2,6 +2,17 @@
 
 All notable changes to Soryq will be documented here.
 
+
+## [0.2.1] - 2026-06-03
+
+### Added
+
+- **CI build workflow** — the repository now includes `.github/workflows/build.yml` that runs on push and pull-request to `main` across Windows, macOS, and Linux. The pipeline typechecks the Svelte frontend, builds the Vite bundle, runs `cargo check` on the Tauri/Rust backend, and produces a debug build on every supported platform, keeping cross-platform regressions out of main.
+
+### Changed
+
+- **Preview toolbar reorganised into nav groups** — the device-toolbar controls have been split from a single flat `.nav-controls` into three logical groups: main navigation, utility actions, and viewport controls. The viewport divider that previously separated navigation from proxy/device controls has been removed, and the proxy button text is now wrapped in styled `<span>` elements so labels stay readable in cramped layouts. An obsolete `@container (max-width: 480px)` media query for `.preview-tabs` that conflicted with the restructured toolbar has also been removed.
+- **Auxiliary panel default width increased** — the default `auxPanelWidth` has been raised from 500 px to 550 px for a more spacious right-panel experience. The new default is applied consistently across the layout store initial state, sanitisation/clamp bounds in the workspace store, and the project-restore fallback path.
 ## [0.2.0] - 2026-06-03
 
 ### Added

@@ -27,7 +27,7 @@ const defaultLayout: LayoutState = {
   reviewVisible: false,
   httpVisible: false,
   tasksVisible: false,
-  auxPanelWidth: 500,
+  auxPanelWidth: 550,
   auxEditorHeight: 50,
 };
 

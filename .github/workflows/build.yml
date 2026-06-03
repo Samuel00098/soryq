@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            os: windows
+            rust-targets: ''
+
+          - platform: macos-latest
+            os: macos
+            rust-targets: ''
+
+          - platform: ubuntu-22.04
+            os: linux
+            rust-targets: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck Svelte app
+        run: npm run check
+
+      - name: Build frontend bundle
+        run: npm run build
+
+      - name: Check Rust backend
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Tauri app
+        run: npm run tauri build -- --debug --bundles none

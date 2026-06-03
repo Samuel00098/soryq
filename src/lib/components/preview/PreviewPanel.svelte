@@ -869,7 +869,7 @@
   </div>
 
   <div class="browser-bar">
-    <div class="nav-controls">
+    <div class="nav-group main-nav">
       <button class="nav-btn" onclick={goBack} disabled={!canGoBack} title="Back">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6"/>
@@ -888,6 +888,9 @@
           <path d="M8 16H3v5"/>
         </svg>
       </button>
+    </div>
+
+    <div class="nav-group utility-nav">
       <button
         class="nav-btn inspect-btn"
         class:active={inspectMode}
@@ -929,9 +932,9 @@
           </svg>
         {/if}
       </button>
+    </div>
 
-      <div class="viewport-divider"></div>
-
+    <div class="nav-group viewport-nav">
       <!-- Viewport: Responsive (desktop) -->
       <button
         class="nav-btn viewport-btn"
@@ -1050,15 +1053,15 @@
           <svg class="spin-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
           </svg>
-          Connecting
+          <span class="proxy-btn-text">Connecting</span>
         {:else if $proxyStarted}
           <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
-          Dev: On
+          <span class="proxy-btn-text">Dev: On</span>
         {:else}
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/>
           </svg>
-          Dev: Off
+          <span class="proxy-btn-text">Dev: Off</span>
         {/if}
       </button>
     </div>
@@ -1377,10 +1380,17 @@
     flex-shrink: 0;
   }
 
-  .nav-controls {
+  .nav-group {
     display: flex;
     gap: 2px;
     flex-shrink: 0;
+    align-items: center;
+  }
+
+  .viewport-nav {
+    border-left: 1px solid var(--border);
+    padding-left: 4px;
+    margin-left: 2px;
   }
 
   .nav-btn {
@@ -1432,7 +1442,7 @@
     padding: 0 4px 0 12px;
     gap: 6px;
     transition: border-color 0.15s;
-    min-width: 0;
+    overflow: hidden;
   }
 
   .address-bar:focus-within {
@@ -1984,13 +1994,6 @@
   }
 
   /* ── Viewport toggle ── */
-  .viewport-divider {
-    width: 1px;
-    height: 16px;
-    background: var(--border);
-    flex-shrink: 0;
-    margin: 0 2px;
-  }
 
   .viewport-btn.active {
     background: var(--accent-light);
@@ -2202,6 +2205,45 @@
   }
 
   /* Container queries for responsive toolbar */
+  @container (max-width: 650px) {
+    .browser-bar {
+      height: auto;
+      min-height: 74px;
+      padding: 6px 8px;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+    }
+
+    /* Row 1 elements */
+    .main-nav {
+      order: 1;
+    }
+
+    .address-bar {
+      order: 2;
+      flex: 1;
+      min-width: 140px;
+    }
+
+    .open-external-btn {
+      order: 3;
+    }
+
+    /* Row 2 elements */
+    .utility-nav {
+      order: 4;
+    }
+
+    .viewport-nav {
+      order: 5;
+    }
+
+    .proxy-settings {
+      order: 6;
+      margin-left: auto;
+    }
+  }
+
   @container (max-width: 480px) {
     .preview-tabs {
       padding-inline: 8px;
@@ -2212,29 +2254,9 @@
       max-width: 150px;
     }
 
-    .browser-bar {
-      height: auto;
-      min-height: 42px;
-      padding: 6px;
-      align-items: stretch;
-      flex-wrap: wrap;
-    }
-
-    .nav-controls {
-      order: 1;
-    }
-
-    .address-bar {
-      order: 2;
-      flex: 1 1 100%;
-      width: 100%;
-    }
-
-    .proxy-settings {
-      order: 3;
-      width: 100%;
-      justify-content: flex-end;
-      flex-wrap: wrap;
+    /* Hide viewport selectors on small screens to save space */
+    .viewport-nav {
+      display: none;
     }
 
     .label {
@@ -2250,30 +2272,53 @@
     .protocol-badge {
       display: none;
     }
+
     .browser-bar {
       gap: 4px;
     }
-    .proxy-settings {
-      gap: 4px;
-      justify-content: flex-start;
+
+    /* Hide utility nav (inspect/console/screenshot) at very narrow widths */
+    .utility-nav {
+      display: none;
     }
+
+    /* Row 1: main-nav + proxy-settings */
+    .main-nav {
+      order: 1;
+    }
+
+    .proxy-settings {
+      order: 2;
+      margin-left: auto;
+    }
+
+    /* Row 2: Address bar alone */
     .address-bar {
-      padding: 0 4px 0 8px;
-      gap: 4px;
+      order: 3;
+      flex: 1 1 100%;
+      width: 100%;
+      margin-top: 2px;
+    }
+
+    .open-external-btn {
+      order: 4;
+    }
+
+    .proxy-btn-text {
+      display: none;
+    }
+
+    .proxy-btn {
+      padding: 0 8px;
     }
   }
 
-  @container (max-width: 320px) {
+  @container (max-width: 280px) {
     .port-input {
-      width: 42px;
+      width: 48px;
     }
     .detect-btn {
       display: none;
-    }
-    .proxy-btn {
-      padding: 0 6px;
-      font-size: 10.5px;
-      gap: 3px;
     }
   }
 </style>
