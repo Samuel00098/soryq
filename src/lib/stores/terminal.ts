@@ -600,6 +600,43 @@ export function getSessionLabel(session: TerminalSessionInfo, allSessions: Termi
   return idx === -1 ? role : `${role} ${idx + 1}`;
 }
 
+export function getSessionPaneDisplayTitle(session: TerminalSessionInfo, allSessions: TerminalSessionInfo[]): string {
+  const paneTitle = session.paneTitle?.trim();
+  if (paneTitle) return paneTitle;
+
+  const taskSummary = session.taskSummary?.trim();
+  if (taskSummary) return taskSummary;
+
+  return session.role ? getSessionLabel(session, allSessions) : session.title;
+}
+
+export function getSessionPaneSecondaryTitle(session: TerminalSessionInfo): string {
+  const paneTitle = session.paneTitle?.trim();
+  const taskSummary = session.taskSummary?.trim();
+  if (!paneTitle || !taskSummary || paneTitle === taskSummary) return '';
+  return taskSummary;
+}
+
+export function getSessionDisplayName(session: TerminalSessionInfo, allSessions: TerminalSessionInfo[]): string {
+  const title = getSessionPaneDisplayTitle(session, allSessions);
+  const agentName = getAgentDisplayName(session.agentPreset);
+  if (!agentName) return title;
+  return title.toLowerCase() === agentName.toLowerCase() ? title : `${agentName} · ${title}`;
+}
+
+export function getSessionPromptTargetLabel(session: TerminalSessionInfo, allSessions: TerminalSessionInfo[]): string {
+  const agentName = getAgentDisplayName(session.agentPreset);
+  if (!agentName) return getSessionLabel(session, allSessions);
+
+  const sameAgentSessions = allSessions.filter(
+    (entry) => entry.isRunning && entry.agentPreset === session.agentPreset
+  );
+  if (sameAgentSessions.length <= 1) return agentName;
+
+  const idx = sameAgentSessions.findIndex((entry) => entry.id === session.id);
+  return idx === -1 ? agentName : `${agentName} ${idx + 1}`;
+}
+
 export function setSessionRole(id: number, role: string | null) {
   const projectId = terminalSessionProjects.get(id);
   if (!projectId) return;

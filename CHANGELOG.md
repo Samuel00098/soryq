@@ -3,6 +3,21 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.2.2] - 2026-06-03
+
+### Added
+
+- **Terminal pane display-title helpers** — three new exported functions in the terminal store:
+  `getSessionPaneDisplayTitle` returns the agent-emitted pane title, falling back to the task summary and then to the role-based session label;
+  `getSessionPaneSecondaryTitle` returns the task summary only when a distinct pane title is already shown, avoiding duplicate text;
+  `getSessionDisplayName` combines the agent display name with the pane display title for use in pane headers and target labels.
+- **Prompt-target label for agent sessions** — `getSessionPromptTargetLabel` shows the agent display name (e.g. `Claude Code`) for agent sessions, numbered when multiple instances of the same agent are running, giving clearer labels in the prompt bar's target picker and sent-toast messages.
+
+### Changed
+
+- **Terminal pane title area refactored** — the pane header now uses the dedicated `getSessionPaneDisplayTitle` and `getSessionPaneSecondaryTitle` helpers instead of inline `$derived` logic. The agent badge is rendered as a separate pill (`.pane-agent-badge`) before the main title, styled with a rounded accent-tinted background and a `132px` max-width. The old `.pane-title-main` class has been replaced.
+- **Prompt bar target labels use the new helpers** — the floating prompt bar's target picker, target pill, and sent-toast messages now call `getSessionPromptTargetLabel` instead of `getSessionLabel`, so active agent sessions show the agent name instead of a generic session title.
+
 ## [v0.2.1] - 2026-06-03
 
 ### Added

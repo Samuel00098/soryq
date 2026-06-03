@@ -26,6 +26,8 @@
     terminalInputRequest,
     getSessionLabel,
     getAgentDisplayName,
+    getSessionPaneDisplayTitle,
+    getSessionPaneSecondaryTitle,
     activateSessionInPane,
   } from '$lib/stores/terminal';
   import {
@@ -295,20 +297,11 @@
   })());
   let sessionLabel = $derived(sessionInfo ? getSessionLabel(sessionInfo, $sessions) : promptPath);
   let agentName = $derived(getAgentDisplayName(sessionInfo?.agentPreset));
-  let sessionPaneTitle = $derived(sessionInfo?.paneTitle?.trim() || '');
-  let sessionTaskSummary = $derived(sessionInfo?.taskSummary?.trim() || '');
-  // The agent-emitted conversation title (paneTitle, from OSC sequences) is the
-  // canonical name the agent gave this session, so it always leads. The scraped
-  // task summary and the static fallbacks fill in only when no title was emitted.
-  // (paneTitle is set exclusively for agent panes — parseOscTitle bails when there
-  // is no agentPreset — so this expression also covers plain shells correctly.)
   let paneTitleText = $derived(
-    sessionPaneTitle || sessionTaskSummary || (sessionInfo?.role ? sessionLabel : (sessionInfo?.title ?? promptPath))
+    sessionInfo ? getSessionPaneDisplayTitle(sessionInfo, $sessions) : promptPath
   );
-  // When the agent gave a title AND we computed a summary, surface the summary as
-  // the smaller secondary line so both are visible without competing.
   let paneSecondaryText = $derived(
-    sessionPaneTitle && sessionTaskSummary && sessionPaneTitle !== sessionTaskSummary ? sessionTaskSummary : ''
+    sessionInfo ? getSessionPaneSecondaryTitle(sessionInfo) : ''
   );
   let isDead = $derived(sessionInfo ? !sessionInfo.isRunning : false);
   let isLightTheme = $derived($activeTheme?.type === 'light');
@@ -781,15 +774,20 @@
       onclick={openRolePicker}
       title={paneTitleText || 'Click to set role'}
     >
-      <span class="pane-title-main">
-        {#if sessionInfo?.role}
-          <span class="role-dot" style="background: {getRoleColor(sessionInfo.role)}"></span>
-        {/if}
-        {paneTitleText}
-      </span>
-      {#if paneSecondaryText}
-        <span class="pane-title-summary">{paneSecondaryText}</span>
+      {#if agentName}
+        <span class="pane-agent-badge">{agentName}</span>
       {/if}
+      <span class="pane-title-copy">
+        <span class="pane-title-main">
+          {#if sessionInfo?.role}
+            <span class="role-dot" style="background: {getRoleColor(sessionInfo.role)}"></span>
+          {/if}
+          {paneTitleText}
+        </span>
+        {#if paneSecondaryText}
+          <span class="pane-title-summary">{paneSecondaryText}</span>
+        {/if}
+      </span>
     </span>
 
     <!-- Running indicator dot -->
@@ -1015,8 +1013,33 @@
     transition: color 0.15s;
   }
 
-  .pane-title-main {
+  .pane-agent-badge {
     flex-shrink: 0;
+    max-width: 132px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pane-title-copy {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .pane-title-main {
+    min-width: 0;
+    flex-shrink: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

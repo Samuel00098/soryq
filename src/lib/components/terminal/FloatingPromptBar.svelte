@@ -18,6 +18,7 @@
     activateSessionInPane,
     sendPromptToSession,
     getSessionLabel,
+    getSessionPromptTargetLabel,
     isAgentSession,
     spawnAgentPreset,
   } from '$lib/stores/terminal';
@@ -414,7 +415,7 @@
     showToast(
       broadcastAgents
         ? `Broadcast to ${targets.length} AI agent terminal${targets.length === 1 ? '' : 's'}`
-        : `Sent to ${targets[0]?.title ?? 'terminal'}`,
+        : `Sent to ${targets[0] ? getSessionPromptTargetLabel(targets[0], $sessions) : 'terminal'}`,
       'info',
       undefined,
       true
@@ -1102,7 +1103,7 @@
               onclick={toggleTargetPicker}
               title="Click to choose target terminal"
             >
-              {promptTarget ? getSessionLabel(promptTarget, $sessions) : 'No active terminal'}
+              {promptTarget ? getSessionPromptTargetLabel(promptTarget, $sessions) : 'No active terminal'}
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
@@ -1122,7 +1123,7 @@
                 {#if s.role}
                   <span class="target-dot" style="background: {s.role === 'Server' ? '#4ade80' : s.role === 'Tests' ? '#60a5fa' : s.role === 'Build' ? '#fb923c' : s.role === 'Agent' ? '#a78bfa' : s.role === 'Git' ? '#fbbf24' : '#9ca3af'}"></span>
                 {/if}
-                <span class="target-label">{getSessionLabel(s, $sessions)}</span>
+                <span class="target-label">{getSessionPromptTargetLabel(s, $sessions)}</span>
                 {#if s.id === promptTarget?.id && !isPinned}
                   <span class="target-auto-badge">auto</span>
                 {/if}
