@@ -3,6 +3,33 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.2.4] - 2026-06-03
+
+### Added
+
+- **Publish a project to GitHub from Source Control** — a new "Publish to GitHub" flow turns an un-versioned folder, or a local repo with no remote, into a GitHub repository without leaving the app. When the active project has no `origin`, the Source Control panel offers a Publish button that opens an inline form: a one-time personal-access-token field (with a deep link to GitHub's token page pre-scoped to `repo`), the repository name (pre-filled from the folder name and sanitised to GitHub's allowed characters), an optional description, and a Private/public toggle. Creating the repo runs the whole sequence end-to-end — it calls the GitHub API to create the repository under your account, runs `git init` if needed, makes an `Initial commit` when the project has no commits yet, wires up `origin`, pushes the first commit, and opens the new repo in your browser. Backed by a new Rust `github` command module (`workspace_github_create_repo`) and a `src/lib/services/github.ts` client.
+- **Unpushed-commit visibility** — Source Control now shows when you have local commits that haven't reached GitHub. The branch bar carries a sync badge (`↑N` ahead / `↓N` behind, or an `unpublished` pill when the branch has no upstream), and the Push button shows the outstanding count (e.g. `Push (2)`) and highlights in the accent colour whenever there's something to push. `workspace_git_branches` now also returns `ahead`, `behind`, `upstream`, and `has_remote` (computed via `git rev-list --left-right --count @{u}...HEAD`), and these counts refresh after every commit, push, and fetch.
+- **Frontend unit tests (Vitest)** — the project now has a Vitest setup (`vitest.config.ts`, `npm test` / `npm run test:watch`) with the first suites covering the preview store's navigation/history (including the Back/Forward localhost regression below), the terminal store's command-block lifecycle, and the new proxy-URL extraction helper.
+
+### Changed
+
+- **Push is clearer and harder to get wrong** — `git push` now sets the upstream (`-u`) on the first push so the branch tracks `origin/<branch>` afterward (which is what powers the new ahead/behind counts), reports a friendly "Already up to date — nothing new to push" for no-op pushes, and translates failures into actionable messages instead of a raw git blob. The common silent-failure case — where the app disables interactive credential prompts (`GIT_TERMINAL_PROMPT=0`) and a push fails authentication without surfacing a login dialog — now reports "Authentication failed — your changes were NOT pushed. Sign in to GitHub…", with similarly specific guidance for rejected (fetch-first), missing-remote, and offline cases.
+- **Model picker search bar stays pinned** — in Settings → Models, the model-list dropdown is now its own scroll container so its height hugs the available options up to the cap, and the filter input sticks to the top while you scroll, sitting on a translucent blurred backdrop that preserves the glass aesthetic instead of an opaque strip.
+- **Simpler, more reliable agent pane titles** — the heuristic `summarizeAgentResponse` routine, which tried to guess a one-line summary by regex-scanning the tail of an agent's terminal output, has been removed along with the summarisation step in `finalizeCommandBlockWithExit`. Pane titles now come from the agent-emitted terminal title and task summary (the helpers added in v0.2.2), avoiding mislabelled panes built from noisy shell output.
+
+### Fixed
+
+- **Proxied dev-server pages render with their styles** — pages served through the Preview proxy could appear completely unstyled (the "Dev: On strips the CSS" problem), most visibly with Next.js 15. The proxy now advertises a `localhost` Origin/Referer to the dev server so its cross-origin guard (e.g. Next.js `allowedDevOrigins`, which trusts `localhost` but blocks `127.0.0.1`) accepts the subresource requests for chunks, modules, and stylesheets, and it strips the target's embedding/security headers (`Content-Security-Policy`, `X-Frame-Options`, the `Cross-Origin-*` policies) before re-serving inside the iframe, since those were authored for the dev origin and otherwise block the page from loading its own assets under the proxy origin.
+- **Preview address bar shows the real URL** — when viewing an external site through the background proxy, the address bar now displays the actual external URL instead of the internal `http://127.0.0.1:<port>/proxy/…` form, via a new `extractExternalUrlFromProxyUrl` helper that decodes both the structured (`/proxy/<scheme>/<authority>/…`) and `?url=`-fallback proxy formats.
+- **Back/Forward no longer truncates preview history** — returning to a typed-in `http://localhost:PORT/...` history entry no longer rewrote that entry to a bare relative path and discarded the forward history. When the iframe re-loads the page you're already on, the app now only syncs the address bar instead of pushing a new navigation entry.
+- **Preview proxy is ready before the iframe loads** — entering a URL that routes through the proxy now starts the background proxy before the store update and iframe `src` binding fire, so the first load no longer races an unset proxy port.
+
+### Security
+
+- **GitHub token is keychain-only** — the personal access token used to create repositories is stored exclusively in the OS keychain via the `keyring` crate and read directly by the Rust backend. Unlike the AI provider keys (which live in `localStorage`), the GitHub token is never passed through the frontend, persisted to `localStorage`, or returned to the WebView.
+- **No token leakage during the initial push** — the first push to a freshly created repo authenticates with the token injected through per-invocation `GIT_CONFIG_*` environment variables rather than the command line or `.git/config`. The credential never persists to the repository config and never appears in a process listing, while still guaranteeing the push succeeds even when no git credential helper is configured.
+- **Hardened repo-creation inputs and errors** — repository names are validated against GitHub's character rules before any request, the publish flow refuses to act when an `origin` remote already exists (so it can't silently repoint an existing repo at a new empty one), and GitHub API failures are mapped to safe, specific messages (invalid token → 401, missing `repo` scope → 403, name already taken → 422) without echoing raw response bodies.
+
 ## [v0.2.3] - 2026-06-03
 
 ### Fixed
