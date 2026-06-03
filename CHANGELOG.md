@@ -3,6 +3,13 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.2.3] - 2026-06-03
+
+### Fixed
+
+- **Release version metadata is now kept in sync** — the Tauri app version used by the native About screen and packaged release asset names is now aligned with the npm package version again. This resolves the bad `v0.2.2` release state where GitHub showed the `v0.2.2` tag but the generated installers and updater metadata were still stamped as `0.2.1`.
+- **Version sync hook accepts this repo's changelog format** — the release helper now recognises changelog headings written as `[vX.Y.Z]` as well as `[X.Y.Z]`, preventing `npm version` from leaving `src-tauri/tauri.conf.json` behind when preparing a release.
+
 ## [v0.2.2] - 2026-06-03
 
 ### Added
