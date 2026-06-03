@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import FileNode from './FileNode.svelte';
+  import FileIcon from './FileIcon.svelte';
   import EmptyWorkspace from './EmptyWorkspace.svelte';
   import {
     contextMenu,
     hideContextMenu,
-    deleteFile,
+    selectedPaths,
+    deletePaths,
     loadRootDirectory,
     projectRootNodes,
     loadingProjectRoots,
@@ -24,6 +27,8 @@
     openProject
   } from '$lib/stores/workspace';
 
+  let contextMenuEl = $state<HTMLDivElement | null>(null);
+
   function handleContextAction(action: string) {
     const { path, isDir } = $contextMenu;
     hideContextMenu();
@@ -38,11 +43,21 @@
       case 'rename':
         startRename(path);
         break;
-      case 'delete':
-        if (confirm(`Delete ${isDir ? 'folder' : 'file'} "${path.split(/[\\\/]/).pop()}"?`)) {
-          deleteFile(path);
+      case 'delete': {
+        // Act on the whole selection. handleContextMenu in FileNode guarantees
+        // the right-clicked item is part of it, so a single-item selection here
+        // is just the one path the user pointed at.
+        const targets = Array.from(get(selectedPaths));
+        const list = targets.length > 0 ? targets : (path ? [path] : []);
+        if (list.length === 0) break;
+        const label = list.length === 1
+          ? `${isDir ? 'folder' : 'file'} "${list[0].split(/[\\\/]/).pop()}"`
+          : `${list.length} items`;
+        if (confirm(`Delete ${label}?`)) {
+          deletePaths(list);
         }
         break;
+      }
     }
   }
 
@@ -68,6 +83,38 @@
       if ($creatingPath !== null) confirmCreate();
       if ($renamingPath) confirmRename();
     }
+    if (e.key === 'Delete') {
+      const target = e.target as HTMLElement | null;
+      // Ignore when typing in a field, when not focused inside the explorer, or
+      // mid rename/create — Delete there belongs to the input, not the tree.
+      if (!target || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if (!target.closest('.file-explorer')) return;
+      if ($renamingPath || $creatingPath !== null) return;
+      const targets = Array.from(get(selectedPaths));
+      if (targets.length === 0) return;
+      e.preventDefault();
+      const label = targets.length === 1
+        ? `"${targets[0].split(/[\\\/]/).pop()}"`
+        : `${targets.length} items`;
+      if (confirm(`Delete ${label}?`)) deletePaths(targets);
+    }
+  }
+
+  function handleWindowMouseDown(e: MouseEvent) {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    if ($contextMenu.visible && contextMenuEl && !contextMenuEl.contains(target)) {
+      hideContextMenu();
+    }
+
+    if ($creatingPath !== null && !target.closest('.create-input')) {
+      cancelCreate();
+    }
+
+    if ($renamingPath && !target.closest('.rename-input')) {
+      cancelRename();
+    }
   }
 
   $effect(() => {
@@ -79,7 +126,7 @@
 
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} onmousedown={handleWindowMouseDown} />
 
 <div class="file-explorer">
   <div class="explorer-header">
@@ -124,14 +171,14 @@
           <section class="root-section">
             {#if $creatingPath === project.root_path}
               <div class="create-input" style="padding-left: 24px">
-                {$creatingType === 'file' ? 'File' : 'Dir'}
+                <FileIcon name={$creatingValue} isDir={$creatingType === 'dir'} />
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
                   type="text"
                   placeholder={$creatingType === 'file' ? 'filename.ts' : 'folder-name'}
                   bind:value={$creatingValue}
                   autofocus
-                  onblur={confirmCreate}
+                  onblur={cancelCreate}
                   onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmCreate(); } else if (e.key === 'Escape') { e.preventDefault(); cancelCreate(); } }}
                 />
               </div>
@@ -164,6 +211,7 @@
   {#if $contextMenu.visible}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      bind:this={contextMenuEl}
       class="context-menu"
       style="left: {$contextMenu.x}px; top: {$contextMenu.y}px"
       onmouseleave={hideContextMenu}

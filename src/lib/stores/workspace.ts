@@ -3,7 +3,7 @@ import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn, restoreEditorFiles } from './editor';
 import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession, getTerminalProjectState, restoreTerminalProjectState, setActiveTerminalProject } from './terminal';
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
-import { expandedPaths, selectedPath } from './explorer';
+import { expandedPaths, selectedPath, selectedPaths } from './explorer';
 import { resetSettingsToDefault } from './settings';
 import { resetLayoutToDefault, layout, sanitiseActiveView, sanitiseSidebarTab } from './layout';
 
@@ -280,7 +280,7 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
       tasksVisible: Boolean(l.tasksVisible),
       lastAuxView: typeof l.lastAuxView === 'string' ? l.lastAuxView : undefined,
       editorSplitPreview: Boolean(l.editorSplitPreview),
-      auxPanelWidth: typeof l.auxPanelWidth === 'number' ? Math.max(700, Math.min(2000, l.auxPanelWidth)) : 700,
+      auxPanelWidth: typeof l.auxPanelWidth === 'number' ? Math.max(180, Math.min(2000, l.auxPanelWidth)) : 500,
       auxEditorHeight: typeof l.auxEditorHeight === 'number' ? Math.max(10, Math.min(90, l.auxEditorHeight)) : 50,
       sidebarVisible: Boolean(l.sidebarVisible ?? true),
       sidebarWidth: typeof l.sidebarWidth === 'number' ? Math.max(100, Math.min(600, l.sidebarWidth)) : 260,
@@ -407,6 +407,7 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
 
       expandedPaths.set(new Set(cached.explorer.expandedPaths));
       selectedPath.set(cached.explorer.selectedPath);
+      selectedPaths.set(new Set(cached.explorer.selectedPath ? [cached.explorer.selectedPath] : []));
 
       layout.update((l) => ({
         ...l,
@@ -462,7 +463,7 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
           tasksVisible: persisted.layout!.tasksVisible ?? false,
           lastAuxView: sanitiseActiveView(persisted.layout!.lastAuxView, l.lastAuxView),
           editorSplitPreview: persisted.layout!.editorSplitPreview ?? false,
-          auxPanelWidth: persisted.layout!.auxPanelWidth ?? 700,
+          auxPanelWidth: persisted.layout!.auxPanelWidth ?? 500,
           auxEditorHeight: persisted.layout!.auxEditorHeight ?? 50,
           sidebarVisible: persisted.layout!.sidebarVisible ?? true,
           sidebarWidth: persisted.layout!.sidebarWidth ?? 260,
@@ -535,6 +536,7 @@ export function clearAllStores() {
 
   expandedPaths.set(new Set());
   selectedPath.set(null);
+  selectedPaths.set(new Set());
 
   layout.update((l) => ({
     ...l,
@@ -544,7 +546,7 @@ export function clearAllStores() {
     reviewVisible: false,
     httpVisible: false,
     editorSplitPreview: false,
-    auxPanelWidth: 700,
+    auxPanelWidth: 500,
     auxEditorHeight: 50,
     sidebarTab: 'files',
   }));

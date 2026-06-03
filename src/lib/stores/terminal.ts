@@ -7,6 +7,7 @@ export type TerminalSessionInfo = {
   id: number;
   projectId: string;
   title: string;
+  paneTitle?: string | null;
   isRunning: boolean;
   isExecuting?: boolean;
   agentPreset?: string | null;
@@ -25,7 +26,7 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   pi: 'Pi',
   antigravity: 'Antigravity',
   cursor: 'Cursor',
-  copilot: 'GitHub Copilot',
+  'oh-my-pi': 'Oh My Pi',
 };
 
 export type GridLayout = 'single' | '2h' | '2v' | '3h' | '3v' | '4' | '9';
@@ -190,8 +191,8 @@ const AGENT_COMMAND_PATTERNS: Array<{ preset: string; pattern: RegExp }> = [
   { preset: 'pi', pattern: /(?:^|\s)(?:pi)(?:\s|$)/i },
   { preset: 'antigravity', pattern: /(?:^|\s)(?:antigravity)(?:\s|$)/i },
   { preset: 'aider', pattern: /(?:^|\s)(?:aider)(?:\s|$)/i },
-  { preset: 'cursor', pattern: /(?:^|\s)(?:cursor|cursor-agent)(?:\s|$)/i },
-  { preset: 'copilot', pattern: /(?:^|\s)(?:copilot)(?:\s|$)/i },
+  { preset: 'cursor', pattern: /(?:^|\s)(?:agent)(?:\s|$)/i },
+  { preset: 'oh-my-pi', pattern: /(?:^|\s)(?:omp)(?:\s|$)/i },
 ];
 
 export function getLayoutPaneCount(layout: GridLayout): number {
@@ -443,6 +444,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       id: pty.id,
       projectId: owningProjectId,
       title: `Terminal ${sessionNum}`,
+      paneTitle: null,
       isRunning: true,
       lastActivatedAt: Date.now(),
     };
@@ -542,6 +544,28 @@ export function setSessionExecuting(id: number, executing: boolean) {
   updateProjectState(projectId, (state) => ({
     ...state,
     sessions: state.sessions.map((x) => (x.id === id ? { ...x, isExecuting: executing } : x)),
+  }));
+}
+
+export function updateSessionTitle(id: number, title: string) {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) =>
+      x.id === id ? { ...x, title } : x
+    ),
+  }));
+}
+
+export function setSessionPaneTitle(id: number, paneTitle: string | null) {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) =>
+      x.id === id ? { ...x, paneTitle } : x
+    ),
   }));
 }
 
@@ -742,11 +766,8 @@ export function startCommandBlock(sessionId: number, command: string) {
 const _pendingBlockText = new Map<number, string>();
 let _blockFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-function _flushCommandBlockAppends() {
-  _blockFlushTimer = null;
-  if (_pendingBlockText.size === 0) return;
-  const batch = new Map(_pendingBlockText);
-  _pendingBlockText.clear();
+function _flushCommandBlockAppendBatch(batch: Map<number, string>) {
+  if (batch.size === 0) return;
   commandBlocks.update((map) => {
     let dirty = false;
     const copy = new Map(map);
@@ -762,6 +783,25 @@ function _flushCommandBlockAppends() {
   });
 }
 
+function _flushCommandBlockAppends() {
+  _blockFlushTimer = null;
+  if (_pendingBlockText.size === 0) return;
+  const batch = new Map(_pendingBlockText);
+  _pendingBlockText.clear();
+  _flushCommandBlockAppendBatch(batch);
+}
+
+function _flushCommandBlockAppendsForSession(sessionId: number) {
+  const text = _pendingBlockText.get(sessionId);
+  if (!text) return;
+  _pendingBlockText.delete(sessionId);
+  _flushCommandBlockAppendBatch(new Map([[sessionId, text]]));
+  if (_pendingBlockText.size === 0 && _blockFlushTimer !== null) {
+    clearTimeout(_blockFlushTimer);
+    _blockFlushTimer = null;
+  }
+}
+
 export function appendToCommandBlock(sessionId: number, text: string) {
   _pendingBlockText.set(sessionId, (_pendingBlockText.get(sessionId) ?? '') + text);
   if (_blockFlushTimer === null) {
@@ -774,16 +814,39 @@ export function finalizeCommandBlock(sessionId: number) {
 }
 
 export function finalizeCommandBlockWithExit(sessionId: number, exitCode?: number) {
+  _flushCommandBlockAppendsForSession(sessionId);
+
+  let finalizedOutput = '';
+  let finalizedCommand = '';
+  let didFinalize = false;
   commandBlocks.update((map) => {
     const list = map.get(sessionId);
     if (!list || list.length === 0) return map;
     const last = list[list.length - 1];
     if (last.endTime !== undefined) return map;
     const copy = new Map(map);
-    const updated = [...list.slice(0, -1), { ...last, endTime: Date.now(), exitCode, collapsed: true }];
+    finalizedOutput = last.output;
+    finalizedCommand = last.command;
+    didFinalize = true;
+    const finalizedBlock = { ...last, endTime: Date.now(), exitCode, collapsed: true };
+    const updated = [...list.slice(0, -1), finalizedBlock];
     copy.set(sessionId, updated);
     return copy;
   });
+
+  if (!didFinalize) return;
+
+  const session = get(sessions).find((entry) => entry.id === sessionId);
+  if (!session?.agentPreset) return;
+
+  const summary = summarizeAgentResponse(
+    finalizedOutput,
+    finalizedCommand,
+    session.agentPreset
+  );
+  if (summary) {
+    setSessionTaskSummary(sessionId, summary);
+  }
 }
 
 export function toggleCommandBlockCollapse(sessionId: number, blockId: string) {
@@ -889,6 +952,8 @@ export async function spawnAgentPreset(command: string, cwd?: string): Promise<n
   if (sessionId === null || sessionId === undefined) return null;
 
   markSessionAgentPreset(sessionId, command);
+  const displayName = getAgentDisplayName(command) ?? command;
+  updateSessionTitle(sessionId, displayName);
   writeToSession(sessionId, command + '\r');
   return sessionId;
 }

@@ -21,13 +21,21 @@
     formatOnSave,
     notificationsEnabled,
     voiceRefinementEnabled,
-    voiceRefinementModel,
-    voiceRefinementModelOptions,
-    onboardingCompleted,
+    aiProvider,
+    currentAiModel,
+    setAiModel,
+    type AiModelOption,
+    type AiProviderId,
+    aiProviders,
+    getProviderDef,
+    isLocalProvider,
+    getProviderBaseUrl,
+    setProviderBaseUrl,
     backgroundImageEnabled,
     interfaceTransparency,
     backgroundImageOpacity,
     backgroundImageBlur,
+    onboardingCompleted,
   } from '$lib/stores/settings';
   import { chooseBackgroundImage, removeBackgroundImage, backgroundImagePresent } from '$lib/stores/background';
   import { requestNotificationPermission } from '$lib/stores/notification';
@@ -36,9 +44,9 @@
   import { clearAllApplicationState } from '$lib/stores/workspace';
   import { checkForUpdate, pendingUpdate } from '$lib/stores/updater';
   import { getVersion } from '@tauri-apps/api/app';
-  import { clearOpenRouterApiKey, openRouterApiKeyExists, saveOpenRouterApiKey } from '$lib/services/openrouter-keychain';
+  import { clearProviderApiKey, providerApiKeyExists, saveProviderApiKey, listProviderModels } from '$lib/services/ai-keychain';
 
-  type Tab = 'general' | 'terminal' | 'shortcuts' | 'themes' | 'about';
+  type Tab = 'general' | 'models' | 'terminal' | 'shortcuts' | 'themes' | 'about';
   let activeTab = $state<Tab>('general');
 
   let updateStatus = $state<'idle' | 'checking' | 'latest' | 'available' | 'error'>('idle');
@@ -70,6 +78,7 @@
 
   const modalTabs = [
     { id: 'general'   as Tab, label: 'General' },
+    { id: 'models'    as Tab, label: 'Models' },
     { id: 'themes'    as Tab, label: 'Themes' },
     { id: 'terminal'  as Tab, label: 'Terminal' },
     { id: 'shortcuts' as Tab, label: 'Shortcuts' },
@@ -85,14 +94,158 @@
   // Terminal settings
   let availableShells = $state<ShellInfo[]>([]);
   // openRouterKeyValue is for entering a new key only — we never read the stored key back to the frontend.
-  let openRouterKeyValue = $state('');
-  let openRouterKeyStatus = $state<'loading' | 'saved' | 'idle' | 'error'>('loading');
+
+  // ── Models tab ──
+  // Key entry box value per provider (entry only — we never read stored keys
+  // back to the frontend). Status tracks whether each provider has a saved key.
+  let providerKeyValue = $state<Record<string, string>>({});
+  let providerKeyStatus = $state<Record<string, 'loading' | 'saved' | 'idle' | 'error'>>({});
+
+  // Live model catalogues fetched per provider through its own key. Falls back
+  // to the curated static list (getProviderDef().models) until loaded.
+  let providerModels = $state<Record<string, AiModelOption[]>>({});
+  let providerModelsStatus = $state<Record<string, 'idle' | 'loading' | 'loaded' | 'error'>>({});
+  let providerModelsError = $state<Record<string, string>>({});
+  let modelSearch = $state('');
+
+  // Local providers (Ollama, LM Studio) are configured by a server URL instead
+  // of an API key. We mirror the effective URL here for the input field, and
+  // reuse `providerKeyStatus` as the single readiness signal (saved = a URL is
+  // set) so the model picker and live-load logic work unchanged.
+  let providerBaseUrlValue = $state<Record<string, string>>({});
+
+  async function refreshProviderKeyStatuses() {
+    for (const provider of aiProviders) {
+      if (provider.local) {
+        const url = getProviderBaseUrl(provider.id);
+        providerBaseUrlValue[provider.id] = url;
+        providerKeyStatus[provider.id] = url ? 'saved' : 'idle';
+        continue;
+      }
+      providerKeyStatus[provider.id] = 'loading';
+      const exists = await providerApiKeyExists(provider.id);
+      providerKeyStatus[provider.id] = exists ? 'saved' : 'idle';
+    }
+  }
+
+  // Fetch the provider's live model list and merge curated labels/descriptions
+  // onto known ids so familiar models keep their friendly copy.
+  async function loadModels(provider: AiProviderId, force = false) {
+    if (providerKeyStatus[provider] !== 'saved') return;
+    const status = providerModelsStatus[provider];
+    if (!force && (status === 'loading' || status === 'loaded')) return;
+
+    providerModelsStatus[provider] = 'loading';
+    providerModelsError[provider] = '';
+    try {
+      const remote = await listProviderModels(provider);
+      const curated = new Map(getProviderDef(provider).models.map((m) => [m.id, m]));
+      const merged: AiModelOption[] = remote.map((r) => {
+        const c = curated.get(r.id);
+        return {
+          id: r.id,
+          label: c?.label ?? r.label ?? r.id,
+          description: c?.description ?? r.description ?? '',
+          free: c?.free ?? r.id.endsWith(':free'),
+        };
+      });
+      providerModels[provider] = merged.length ? merged : getProviderDef(provider).models;
+      providerModelsStatus[provider] = 'loaded';
+    } catch (error: any) {
+      providerModelsError[provider] = String(error?.message ?? error ?? 'Failed to load models');
+      providerModelsStatus[provider] = 'error';
+    }
+  }
+
+  // Models shown for the active provider: live list once loaded, else curated.
+  let activeModels = $derived(
+    (providerModels[$aiProvider]?.length ? providerModels[$aiProvider] : getProviderDef($aiProvider).models)
+  );
+
+  let filteredModels = $derived.by(() => {
+    const q = modelSearch.trim().toLowerCase();
+    if (!q) return activeModels;
+    return activeModels.filter((m) =>
+      `${m.label} ${m.id} ${m.description}`.toLowerCase().includes(q)
+    );
+  });
+
+  let selectedModel = $derived(activeModels.find((m) => m.id === $currentAiModel));
+
+  // Lazily load the live catalogue for whichever provider is in view once its
+  // key is known to exist.
+  $effect(() => {
+    const p = $aiProvider;
+    if (providerKeyStatus[p] === 'saved' &&
+        providerModelsStatus[p] !== 'loaded' &&
+        providerModelsStatus[p] !== 'loading') {
+      loadModels(p);
+    }
+  });
+
+  // Reset the in-dropdown search when switching providers.
+  $effect(() => {
+    void $aiProvider;
+    modelSearch = '';
+  });
+
+  async function saveProviderKey(provider: AiProviderId) {
+    const value = providerKeyValue[provider] ?? '';
+    const label = getProviderDef(provider).label;
+    try {
+      await saveProviderApiKey(provider, value);
+      providerKeyValue[provider] = '';
+      providerKeyStatus[provider] = 'saved';
+      showToast(`${label} key saved`, 'success');
+      // A new key may unlock a different model set — refetch.
+      loadModels(provider, true);
+    } catch (error: any) {
+      providerKeyStatus[provider] = 'error';
+      showToast(error?.message || `Failed to save ${label} key`, 'error');
+    }
+  }
+
+  async function saveProviderBaseUrl(provider: AiProviderId) {
+    const def = getProviderDef(provider);
+    const value = (providerBaseUrlValue[provider] ?? '').trim() || def.defaultBaseUrl || '';
+    setProviderBaseUrl(provider, value);
+    providerBaseUrlValue[provider] = value;
+    providerKeyStatus[provider] = value ? 'saved' : 'idle';
+    // Point at the new server — drop any cached catalogue and re-fetch.
+    providerModels[provider] = [];
+    providerModelsStatus[provider] = 'idle';
+    providerModelsError[provider] = '';
+    showToast(`${def.label} server URL saved`, 'success');
+    loadModels(provider, true);
+  }
+
+  function resetProviderBaseUrl(provider: AiProviderId) {
+    const def = getProviderDef(provider);
+    providerBaseUrlValue[provider] = def.defaultBaseUrl ?? '';
+    saveProviderBaseUrl(provider);
+  }
+
+  async function clearProviderKey(provider: AiProviderId) {
+    const label = getProviderDef(provider).label;
+    try {
+      await clearProviderApiKey(provider);
+      providerKeyValue[provider] = '';
+      providerKeyStatus[provider] = 'idle';
+      // Without a key we can't list live models — drop back to the curated set.
+      providerModels[provider] = [];
+      providerModelsStatus[provider] = 'idle';
+      providerModelsError[provider] = '';
+      showToast(`${label} key cleared`, 'info');
+    } catch (error: any) {
+      providerKeyStatus[provider] = 'error';
+      showToast(error?.message || `Failed to clear ${label} key`, 'error');
+    }
+  }
 
   onMount(async () => {
     availableShells = await getAvailableShells();
     appVersion = await getVersion().catch(() => '0.1.0');
-    const keyExists = await openRouterApiKeyExists();
-    openRouterKeyStatus = keyExists ? 'saved' : 'idle';
+    await refreshProviderKeyStatuses();
   });
 
   let recordingId = $state<string | null>(null);
@@ -142,30 +295,6 @@
 
   function stopNewRecording() {
     newShortcutRecording = false;
-  }
-
-  async function saveOpenRouterKey() {
-    try {
-      await saveOpenRouterApiKey(openRouterKeyValue);
-      openRouterKeyValue = '';
-      openRouterKeyStatus = 'saved';
-      showToast('OpenRouter key saved to your OS keychain', 'success');
-    } catch (error: any) {
-      openRouterKeyStatus = 'error';
-      showToast(error?.message || 'Failed to save OpenRouter key', 'error');
-    }
-  }
-
-  async function clearOpenRouterKey() {
-    try {
-      await clearOpenRouterApiKey();
-      openRouterKeyValue = '';
-      openRouterKeyStatus = 'idle';
-      showToast('OpenRouter key cleared from your OS keychain', 'info');
-    } catch (error: any) {
-      openRouterKeyStatus = 'error';
-      showToast(error?.message || 'Failed to clear OpenRouter key', 'error');
-    }
   }
 
   function normalizeShortcutKeys(keys: string): string {
@@ -318,10 +447,24 @@
   let modelDropdownEl = $state<HTMLDivElement | null>(null);
   let modelDropdownOpen = $state(false);
 
-  function getModelProvider(id: string): string {
-    if (id.startsWith('anthropic/')) return 'Anthropic';
-    if (id.startsWith('google/')) return 'Google';
-    return 'Other';
+  // Badge shown next to a model. For OpenRouter we infer the underlying vendor
+  // from the slug prefix; for native providers it's the provider itself.
+  function modelBadge(providerId: AiProviderId, modelId: string): string {
+    if (providerId === 'openrouter') {
+      if (modelId.startsWith('anthropic/')) return 'Anthropic';
+      if (modelId.startsWith('google/')) return 'Google';
+      if (modelId.startsWith('openai/')) return 'OpenAI';
+      return 'Other';
+    }
+    switch (providerId) {
+      case 'anthropic': return 'Anthropic';
+      case 'google': return 'Google';
+      case 'openai': return 'OpenAI';
+      case 'groq': return 'Groq';
+      case 'ollama': return 'Local';
+      case 'lmstudio': return 'Local';
+      default: return 'Other';
+    }
   }
 
   $effect(() => {
@@ -494,6 +637,12 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="3"/>
                   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.5 1z"/>
+                </svg>
+              {:else if id === 'models'}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/>
+                  <rect x="9" y="9" width="6" height="6" rx="1"/>
+                  <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3"/>
                 </svg>
               {:else if id === 'terminal'}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -765,14 +914,26 @@
           </div>
         </div>
 
-        <!-- Voice refinement section -->
-        <div class="setting-group">
-          <div class="group-label">Voice Refinement</div>
+      {:else if activeTab === 'models'}
+        {@const activeProvider = getProviderDef($aiProvider)}
+        <div class="section-heading">
+          <h2>Models</h2>
+          <p>Pick a provider, add its API key, and choose the model used for voice refinement and AI commit messages.</p>
+        </div>
 
-          <div class="toggle-row">
+        <!-- AI feature toggle -->
+        <div class="setting-group">
+          <div class="group-label">AI features</div>
+          <div class="ai-feature-card">
+            <div class="ai-feature-icon-wrapper">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.813 15.904L9 21L8.188 15.904L3 15L8.188 14.096L9 9L9.813 14.096L15 15L9.813 15.904Z" fill="currentColor" fill-opacity="0.15" />
+                <path d="M19.071 4.929a10 10 0 0 0-1.414-1.414M14 2L15 4M20 9L22 10" />
+              </svg>
+            </div>
             <div class="toggle-info">
               <span class="toggle-label">AI voice refinement</span>
-              <span class="toggle-desc">Rewrite dictated text into a stronger prompt before it reaches the floating bar. Falls back to local cleanup if OpenRouter is unavailable.</span>
+              <span class="toggle-desc">Rewrite dictated text into a stronger prompt before it reaches the floating bar. Falls back to local cleanup when the selected provider has no key.</span>
             </div>
             <button
               class="toggle"
@@ -785,106 +946,386 @@
               <span class="toggle-thumb"></span>
             </button>
           </div>
+        </div>
 
-          <div class="slider-row">
-            <div class="toggle-info">
-              <span class="toggle-label">OpenRouter API key</span>
-              <span class="toggle-desc">Stored locally in this app. Required for voice refinement and AI commit messages.</span>
-            </div>
-            <input
-              class="text-input font-input"
-              type="password"
-              bind:value={openRouterKeyValue}
-              placeholder={openRouterKeyStatus === 'saved' ? 'Key configured.' : 'sk-or-...'}
-              spellcheck="false"
-              autocomplete="off"
-              onkeydown={(e) => { if (e.key === 'Enter' && openRouterKeyValue.trim()) saveOpenRouterKey(); }}
-            />
-          </div>
-
-          <div class="model-selector" bind:this={modelDropdownEl}>
-            <div class="toggle-info" style="padding: 0 0 10px 0;">
-              <span class="toggle-label">Preferred model</span>
-              <span class="toggle-desc">Pick the model you want first. We fall back to other cheap/fast models if it fails.</span>
-            </div>
-            <button
-              type="button"
-              class="model-trigger"
-              onclick={() => (modelDropdownOpen = !modelDropdownOpen)}
-              aria-haspopup="listbox"
-              aria-expanded={modelDropdownOpen}
-            >
-              <div class="model-trigger-left">
-                <span class="model-trigger-badge" data-provider={getModelProvider($voiceRefinementModel)}>
-                  {getModelProvider($voiceRefinementModel)}
-                </span>
-                <div>
-                  <div class="model-trigger-name">
-                    {voiceRefinementModelOptions.find(m => m.id === $voiceRefinementModel)?.label ?? $voiceRefinementModel}
-                  </div>
-                  <div class="model-trigger-desc">
-                    {voiceRefinementModelOptions.find(m => m.id === $voiceRefinementModel)?.description ?? ''}
-                  </div>
-                </div>
-              </div>
-              <svg class="model-chevron" class:open={modelDropdownOpen} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </button>
-
-            {#if modelDropdownOpen}
-              <div class="model-dropdown" role="listbox">
-                {#each voiceRefinementModelOptions as model}
-                  <button
-                    type="button"
-                    class="model-option"
-                    class:selected={$voiceRefinementModel === model.id}
-                    role="option"
-                    aria-selected={$voiceRefinementModel === model.id}
-                    onclick={() => { $voiceRefinementModel = model.id; modelDropdownOpen = false; }}
-                  >
-                    <div class="model-option-left">
-                      <span class="model-option-badge" data-provider={getModelProvider(model.id)}>
-                        {getModelProvider(model.id)}
-                      </span>
-                      <div class="model-option-body">
-                        <div class="model-option-name">{model.label}</div>
-                        <div class="model-option-desc">{model.description}</div>
-                      </div>
-                      {#if model.id.includes(':free')}
-                        <span class="model-free-badge">Free</span>
-                      {/if}
-                    </div>
-                    {#if $voiceRefinementModel === model.id}
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <polyline points="20 6 9 17 4 12"/>
+        <!-- Provider picker -->
+        <div class="setting-group">
+          <div class="group-label">Provider</div>
+          <div class="provider-grid">
+            {#each aiProviders as provider}
+              <button
+                type="button"
+                class="provider-card"
+                data-provider={provider.id}
+                class:selected={$aiProvider === provider.id}
+                onclick={() => ($aiProvider = provider.id)}
+              >
+                <div class="provider-card-top">
+                  <span class="provider-card-icon">
+                    {#if provider.id === 'openrouter'}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16.804 1.957l7.22 4.105v.087L16.73 10.21l.017-2.117-.821-.03c-1.059-.028-1.611.002-2.268.11-1.064.175-2.038.577-3.147 1.352L8.345 11.03c-.284.195-.495.336-.68.455l-.515.322-.397.234.385.23.53.338c.476.314 1.17.796 2.701 1.866 1.11.775 2.083 1.177 3.147 1.352l.3.045c.694.091 1.375.094 2.825.033l.022-2.159 7.22 4.105v.087L16.589 22l.014-1.862-.635.022c-1.386.042-2.137.002-3.138-.162-1.694-.28-3.26-.926-4.881-2.059l-2.158-1.5a21.997 21.997 0 00-.755-.498l-.467-.28a55.927 55.927 0 00-.76-.43C2.908 14.73.563 14.116 0 14.116V9.888l.14.004c.564-.007 2.91-.622 3.809-1.124l1.016-.58.438-.274c.428-.28 1.072-.726 2.686-1.853 1.621-1.133 3.186-1.78 4.881-2.059 1.152-.19 1.974-.213 3.814-.138l.02-1.907z" fill="currentColor"/>
+                      </svg>
+                    {:else if provider.id === 'anthropic'}
+                      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                        <path fill-rule="evenodd" d="M9.218 2h2.402L16 12.987h-2.402zM4.379 2h2.512l4.38 10.987H8.82l-.895-2.308h-4.58l-.896 2.307H0L4.38 2.001zm2.755 6.64L5.635 4.777 4.137 8.64z"/>
+                      </svg>
+                    {:else if provider.id === 'openai'}
+                      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M14.949 6.547a3.94 3.94 0 0 0-.348-3.273 4.11 4.11 0 0 0-4.4-1.934A4.1 4.1 0 0 0 8.423.2 4.15 4.15 0 0 0 6.305.086a4.1 4.1 0 0 0-1.891.948 4.04 4.04 0 0 0-1.158 1.753 4.1 4.1 0 0 0-1.563.679A4 4 0 0 0 .554 4.72a3.99 3.99 0 0 0 .502 4.731 3.94 3.94 0 0 0 .346 3.274 4.11 4.11 0 0 0 4.402 1.933c.382.425.852.764 1.377.995.526.231 1.095.35 1.67.346 1.78.002 3.358-1.132 3.901-2.804a4.1 4.1 0 0 0 1.563-.68 4 4 0 0 0 1.14-1.253 3.99 3.99 0 0 0-.506-4.716m-6.097 8.406a3.05 3.05 0 0 1-1.945-.694l.096-.054 3.23-1.838a.53.53 0 0 0 .265-.455v-4.49l1.366.778q.02.011.025.035v3.722c-.003 1.653-1.361 2.992-3.037 2.996m-6.53-2.75a2.95 2.95 0 0 1-.36-2.01l.095.057L5.29 12.09a.53.53 0 0 0 .527 0l3.949-2.246v1.555a.05.05 0 0 1-.022.041L6.473 13.3c-1.454.826-3.311.335-4.15-1.098m-.85-6.94A3.02 3.02 0 0 1 3.07 3.949v3.785a.51.51 0 0 0 .262.451l3.93 2.237-1.366.779a.05.05 0 0 1-.048 0L2.585 9.342a2.98 2.98 0 0 1-1.113-4.094zm11.216 2.571L8.747 5.576l1.362-.776a.05.05 0 0 1 .048 0l3.265 1.86a3 3 0 0 1 1.173 1.207 2.96 2.96 0 0 1-.27 3.2 3.05 3.05 0 0 1-1.36.997V8.279a.52.52 0 0 0-.276-.445m1.36-2.015-.097-.057-3.226-1.855a.53.53 0 0 0-.53 0L6.249 6.153V4.598a.04.04 0 0 1 .019-.04L9.533 2.7a3.07 3.07 0 0 1 3.257.139c.474.325.843.778 1.066 1.303.223.526.289 1.103.191 1.664zM5.503 8.575 4.139 7.8a.05.05 0 0 1-.026-.037V4.049c0-.57.166-1.127.476-1.607s.752-.864 1.275-1.105a3.08 3.08 0 0 1 0 0z"/>
+                      </svg>
+                    {:else if provider.id === 'google'}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z"/>
+                      </svg>
+                    {:else if provider.id === 'groq'}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12.036 2c-3.853-.035-7 3-7.036 6.781-.035 3.782 3.055 6.872 6.908 6.907h2.42v-2.566h-2.292c-2.407.028-4.38-1.866-4.408-4.23-.029-2.362 1.901-4.298 4.308-4.326h.1c2.407 0 4.358 1.915 4.365 4.278v6.305c0 2.342-1.944 4.25-4.323 4.279a4.375 4.375 0 01-3.033-1.252l-1.851 1.818A7 7 0 0012.029 22h.092c3.803-.056 6.858-3.083 6.879-6.816v-6.5C18.907 4.963 15.817 2 12.036 2z"/>
+                      </svg>
+                    {:else if provider.id === 'ollama'}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7.905 1.09c.216.085.411.225.588.41.295.306.544.744.734 1.263.191.522.315 1.1.362 1.68a5.054 5.054 0 012.049-.636l.051-.004c.87-.07 1.73.087 2.48.474.101.053.2.11.297.17.05-.569.172-1.134.36-1.644.19-.52.439-.957.733-1.264a1.67 1.67 0 01.589-.41c.257-.1.53-.118.796-.042.401.114.745.368 1.016.737.248.337.434.769.561 1.287.23.934.27 2.163.115 3.645l.053.04.026.019c.757.576 1.284 1.397 1.563 2.35.435 1.487.216 3.155-.534 4.088l-.018.021.002.003c.417.762.67 1.567.724 2.4l.002.03c.064 1.065-.2 2.137-.814 3.19l-.007.01.01.024c.472 1.157.62 2.322.438 3.486l-.006.039a.651.651 0 01-.747.536.648.648 0 01-.54-.742c.167-1.033.01-2.069-.48-3.123a.643.643 0 01.04-.617l.004-.006c.604-.924.854-1.83.8-2.72-.046-.779-.325-1.544-.8-2.273a.644.644 0 01.18-.886l.009-.006c.243-.159.467-.565.58-1.12a4.229 4.229 0 00-.095-1.974c-.205-.7-.58-1.284-1.105-1.683-.595-.454-1.383-.673-2.38-.61a.653.653 0 01-.632-.371c-.314-.665-.772-1.141-1.343-1.436a3.288 3.288 0 00-1.772-.332c-1.245.099-2.343.801-2.67 1.686a.652.652 0 01-.61.425c-1.067.002-1.893.252-2.497.703-.522.39-.878.935-1.066 1.588a4.07 4.07 0 00-.068 1.886c.112.558.331 1.02.582 1.269l.008.007c.212.207.257.53.109.785-.36.622-.629 1.549-.673 2.44-.05 1.018.186 1.902.719 2.536l.016.019a.643.643 0 01.095.69c-.576 1.236-.753 2.252-.562 3.052a.652.652 0 01-1.269.298c-.243-1.018-.078-2.184.473-3.498l.014-.035-.008-.012a4.339 4.339 0 01-.598-1.309l-.005-.019a5.764 5.764 0 01-.177-1.785c.044-.91.278-1.842.622-2.59l.012-.026-.002-.002c-.293-.418-.51-.953-.63-1.545l-.005-.024a5.352 5.352 0 01.093-2.49c.262-.915.777-1.701 1.536-2.269.06-.045.123-.09.186-.132-.159-1.493-.119-2.73.112-3.67.127-.518.314-.95.562-1.287.27-.368.614-.622 1.015-.737.266-.076.54-.059.797.042zm4.116 9.09c.936 0 1.8.313 2.446.855.63.527 1.005 1.235 1.005 1.94 0 .888-.406 1.58-1.133 2.022-.62.375-1.451.557-2.403.557-1.009 0-1.871-.259-2.493-.734-.617-.47-.963-1.13-.963-1.845 0-.707.398-1.417 1.056-1.946.668-.537 1.55-.849 2.485-.849zm0 .896a3.07 3.07 0 00-1.916.65c-.461.37-.722.835-.722 1.25 0 .428.21.829.61 1.134.455.347 1.124.548 1.943.548.799 0 1.473-.147 1.932-.426.463-.28.7-.686.7-1.257 0-.423-.246-.89-.683-1.256-.484-.405-1.14-.643-1.864-.643zm.662 1.21l.004.004c.12.151.095.37-.056.49l-.292.23v.446a.375.375 0 01-.376.373.375.375 0 01-.376-.373v-.46l-.271-.218a.347.347 0 01-.052-.49.353.353 0 01.494-.051l.215.172.22-.174a.353.353 0 01.49.051zm-5.04-1.919c.478 0 .867.39.867.871a.87.87 0 01-.868.871.87.87 0 01-.867-.87.87.87 0 01.867-.872zm8.706 0c.48 0 .868.39.868.871a.87.87 0 01-.868.871.87.87 0 01-.867-.87.87.87 0 01.867-.872zM7.44 2.3l-.003.002a.659.659 0 00-.285.238l-.005.006c-.138.189-.258.467-.348.832-.17.692-.216 1.631-.124 2.782.43-.128.899-.208 1.404-.237l.01-.001.019-.034c.046-.082.095-.161.148-.239.123-.771.022-1.692-.253-2.444-.134-.364-.297-.65-.453-.813a.628.628 0 00-.107-.09L7.44 2.3zm9.174.04l-.002.001a.628.628 0 00-.107.09c-.156.163-.32.45-.453.814-.29.794-.387 1.776-.23 2.572l.058.097.008.014h.03a5.184 5.184 0 011.466.212c.086-1.124.038-2.043-.128-2.722-.09-.365-.21-.643-.349-.832l-.004-.006a.659.659 0 00-.285-.239h-.004z"/>
+                      </svg>
+                    {:else if provider.id === 'lmstudio'}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M2.84 2a1.273 1.273 0 100 2.547h14.107a1.273 1.273 0 100-2.547H2.84zM7.935 5.33a1.273 1.273 0 000 2.548H22.04a1.274 1.274 0 000-2.547H7.935zM3.624 9.935c0-.704.57-1.274 1.274-1.274h14.106a1.274 1.274 0 010 2.547H4.898c-.703 0-1.274-.57-1.274-1.273zM1.273 12.188a1.273 1.273 0 100 2.547H15.38a1.274 1.274 0 000-2.547H1.273zM3.624 16.792c0-.704.57-1.274 1.274-1.274h14.106a1.273 1.273 0 110 2.547H4.898c-.703 0-1.274-.57-1.274-1.273zM13.029 18.849a1.273 1.273 0 100 2.547h9.698a1.273 1.273 0 100-2.547h-9.698z" fill-opacity=".3"></path>
+                        <path d="M2.84 2a1.273 1.273 0 100 2.547h10.287a1.274 1.274 0 000-2.547H2.84zM7.935 5.33a1.273 1.273 0 000 2.548H18.22a1.274 1.274 0 000-2.547H7.935zM3.624 9.935c0-.704.57-1.274 1.274-1.274h10.286a1.273 1.273 0 010 2.547H4.898c-.703 0-1.274-.57-1.274-1.273zM1.273 12.188a1.273 1.273 0 100 2.547H11.56a1.274 1.274 0 000-2.547H1.273zM3.624 16.792c0-.704.57-1.274 1.274-1.274h10.286a1.273 1.273 0 110 2.547H4.898c-.703 0-1.274-.57-1.274-1.273zM13.029 18.849a1.273 1.273 0 100 2.547h5.78a1.273 1.273 0 100-2.547h-5.78z"></path>
                       </svg>
                     {/if}
-                  </button>
-                {/each}
-              </div>
-            {/if}
+                  </span>
+                  <span class="provider-card-name">{provider.label}</span>
+                </div>
+                <span class="provider-card-status" class:ready={providerKeyStatus[provider.id] === 'saved'}>
+                  {#if providerKeyStatus[provider.id] === 'saved'}
+                    <span class="provider-key-dot"></span> {provider.local ? 'Ready' : 'Active'}
+                  {:else if providerKeyStatus[provider.id] === 'loading'}
+                    <span class="provider-key-dot loading"></span> checking
+                  {:else}
+                    {provider.local ? 'No URL' : 'No key'}
+                  {/if}
+                </span>
+              </button>
+            {/each}
           </div>
+        </div>
 
-          <div class="slider-row">
-            <div class="toggle-info">
-              <span class="toggle-label">Key status</span>
-              <span class="toggle-desc">
-                {#if openRouterKeyStatus === 'saved'}
-                  Key saved. AI features are ready.
-                {:else if openRouterKeyStatus === 'loading'}
-                  Checking for saved key…
-                {:else if openRouterKeyStatus === 'error'}
-                  Could not save the key. Try again.
+        <!-- Active provider: key + model -->
+        <div class="setting-group active-provider-group">
+          <div class="group-label">Configure {activeProvider.label}</div>
+
+          <div class="provider-details-card">
+
+            {#if activeProvider.local}
+            <!-- Server URL Row (local providers: Ollama, LM Studio) -->
+            <div class="detail-row key-section">
+              <div class="detail-row-header">
+                <div class="detail-info">
+                  <span class="detail-label">{activeProvider.keyLabel}</span>
+                  <span class="detail-desc">
+                    Runs on your machine — no API key needed. Make sure {activeProvider.label} is running.
+                    <a class="provider-key-link" href={activeProvider.keyUrl} target="_blank" rel="noreferrer">Setup ↗</a>
+                  </span>
+                </div>
+              </div>
+
+              <div class="api-key-input-wrapper">
+                <div class="input-inner-container">
+                  <span class="input-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
+                      <circle cx="12" cy="12" r="9" />
+                    </svg>
+                  </span>
+                  <input
+                    class="text-input key-input"
+                    type="text"
+                    bind:value={providerBaseUrlValue[$aiProvider]}
+                    placeholder={activeProvider.defaultBaseUrl}
+                    spellcheck="false"
+                    autocomplete="off"
+                    onkeydown={(e) => { if (e.key === 'Enter') saveProviderBaseUrl($aiProvider); }}
+                  />
+                </div>
+                <div class="api-key-actions">
+                  <button class="key-btn clear-btn" onclick={() => resetProviderBaseUrl($aiProvider)}>
+                    Reset
+                  </button>
+                  <button class="key-btn save-btn" onclick={() => saveProviderBaseUrl($aiProvider)}>
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              <!-- Connection Status Indicator -->
+              <div class="key-status-indicator">
+                {#if providerModelsStatus[$aiProvider] === 'loaded'}
+                  <span class="status-badge success">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <circle cx="6" cy="6" r="5" fill="#10B981" fill-opacity="0.12"/>
+                      <path d="M3.5 6l1.5 1.5 3.5-3.5" stroke="#10B981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Connected — {providerModels[$aiProvider]?.length ?? 0} models found</span>
+                  </span>
+                {:else if providerModelsStatus[$aiProvider] === 'loading'}
+                  <span class="status-badge loading">
+                    <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/>
+                    </svg>
+                    <span>Connecting to server…</span>
+                  </span>
+                {:else if providerModelsStatus[$aiProvider] === 'error'}
+                  <span class="status-badge error">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <circle cx="6" cy="6" r="5" fill="#EF4444" fill-opacity="0.12"/>
+                      <path d="M4 4l4 4M8 4L4 8" stroke="#EF4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Couldn't reach server — is {activeProvider.label} running?</span>
+                  </span>
                 {:else}
-                  No key saved yet.
+                  <span class="status-badge idle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <circle cx="6" cy="6" r="5" fill="var(--text-muted)" fill-opacity="0.12"/>
+                      <circle cx="6" cy="6" r="1.5" fill="var(--text-muted)"/>
+                    </svg>
+                    <span>Save the URL to connect & load your local models</span>
+                  </span>
                 {/if}
-              </span>
+              </div>
             </div>
-            <div class="panel-actions">
-              <button class="panel-btn-cancel" onclick={clearOpenRouterKey}>Clear</button>
-              <button class="panel-btn-save" onclick={saveOpenRouterKey} disabled={!openRouterKeyValue.trim()}>Save</button>
+            {:else}
+
+            <!-- API Key Row -->
+            <div class="detail-row key-section">
+              <div class="detail-row-header">
+                <div class="detail-info">
+                  <span class="detail-label">{activeProvider.keyLabel}</span>
+                  <span class="detail-desc">
+                    Stored locally and encrypted.
+                    <a class="provider-key-link" href={activeProvider.keyUrl} target="_blank" rel="noreferrer">Get a key ↗</a>
+                  </span>
+                </div>
+              </div>
+
+              <div class="api-key-input-wrapper">
+                <div class="input-inner-container">
+                  <span class="input-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                  </span>
+                  <input
+                    class="text-input key-input"
+                    type="password"
+                    bind:value={providerKeyValue[$aiProvider]}
+                    placeholder={providerKeyStatus[$aiProvider] === 'saved' ? '••••••••••••••••••••••••••••••••' : activeProvider.keyPlaceholder}
+                    spellcheck="false"
+                    autocomplete="off"
+                    onkeydown={(e) => { if (e.key === 'Enter' && (providerKeyValue[$aiProvider] ?? '').trim()) saveProviderKey($aiProvider); }}
+                  />
+                </div>
+                <div class="api-key-actions">
+                  {#if providerKeyStatus[$aiProvider] === 'saved'}
+                    <button class="key-btn clear-btn" onclick={() => clearProviderKey($aiProvider)}>
+                      Clear
+                    </button>
+                  {/if}
+                  <button 
+                    class="key-btn save-btn" 
+                    onclick={() => saveProviderKey($aiProvider)} 
+                    disabled={!((providerKeyValue[$aiProvider] ?? '').trim())}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              <!-- Connection/Key Status Indicator -->
+              <div class="key-status-indicator">
+                {#if providerKeyStatus[$aiProvider] === 'saved'}
+                  <span class="status-badge success">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <circle cx="6" cy="6" r="5" fill="#10B981" fill-opacity="0.12"/>
+                      <path d="M3.5 6l1.5 1.5 3.5-3.5" stroke="#10B981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Key configured & active</span>
+                  </span>
+                {:else if providerKeyStatus[$aiProvider] === 'loading'}
+                  <span class="status-badge loading">
+                    <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/>
+                    </svg>
+                    <span>Checking key…</span>
+                  </span>
+                {:else if providerKeyStatus[$aiProvider] === 'error'}
+                  <span class="status-badge error">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <circle cx="6" cy="6" r="5" fill="#EF4444" fill-opacity="0.12"/>
+                      <path d="M4 4l4 4M8 4L4 8" stroke="#EF4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Validation error — click retry or update key</span>
+                  </span>
+                {:else}
+                  <span class="status-badge idle">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <circle cx="6" cy="6" r="5" fill="var(--text-muted)" fill-opacity="0.12"/>
+                      <circle cx="6" cy="6" r="1.5" fill="var(--text-muted)"/>
+                    </svg>
+                    <span>No API key set — using static curated fallbacks</span>
+                  </span>
+                {/if}
+              </div>
             </div>
+            {/if}
+
+            <!-- Model Selection Row -->
+            <div class="detail-row model-section">
+              <div class="model-selector-wrap" bind:this={modelDropdownEl}>
+                <div class="model-label-row">
+                  <div class="detail-info">
+                    <span class="detail-label">Model Selection</span>
+                    <span class="detail-desc">
+                      {#if providerKeyStatus[$aiProvider] !== 'saved'}
+                        {activeProvider.local ? 'Set a server URL to load your local models.' : 'Add a key to load full model list.'}
+                      {:else if providerModelsStatus[$aiProvider] === 'loading'}
+                        Loading live catalog…
+                      {:else if providerModelsStatus[$aiProvider] === 'error'}
+                        Couldn't load live models. <button type="button" class="model-inline-link" onclick={() => loadModels($aiProvider, true)}>Retry</button>
+                      {:else if providerModelsStatus[$aiProvider] === 'loaded'}
+                        Using live provider catalog.
+                      {:else}
+                        Select AI model for voice & commits.
+                      {/if}
+                    </span>
+                  </div>
+
+                  <div class="model-meta-actions">
+                    <!-- Model catalog source indicator -->
+                    {#if providerModelsStatus[$aiProvider] === 'loaded'}
+                      <span class="model-status-pill live" title="Live catalog successfully fetched using your API key">
+                        <span class="pulse-dot"></span> Live
+                      </span>
+                    {:else if providerKeyStatus[$aiProvider] === 'saved' && providerModelsStatus[$aiProvider] === 'loading'}
+                      <span class="model-status-pill loading">
+                        Checking…
+                      </span>
+                    {:else}
+                      <span class="model-status-pill curated" title="Using local curated model defaults">
+                        Curated
+                      </span>
+                    {/if}
+
+                    {#if providerKeyStatus[$aiProvider] === 'saved'}
+                      <button
+                        type="button"
+                        class="model-refresh-btn"
+                        title="Reload models from {activeProvider.label}"
+                        aria-label="Reload models"
+                        onclick={() => loadModels($aiProvider, true)}
+                      >
+                        <svg class:spin={providerModelsStatus[$aiProvider] === 'loading'} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="23 4 23 10 17 10"/>
+                          <polyline points="1 20 1 14 7 14"/>
+                          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="model-trigger"
+                  onclick={() => (modelDropdownOpen = !modelDropdownOpen)}
+                  aria-haspopup="listbox"
+                  aria-expanded={modelDropdownOpen}
+                >
+                  <div class="model-trigger-left">
+                    <span class="model-trigger-badge" data-provider={modelBadge($aiProvider, $currentAiModel)}>
+                      {modelBadge($aiProvider, $currentAiModel)}
+                    </span>
+                    <div class="model-trigger-meta">
+                      <div class="model-trigger-name">
+                        {selectedModel?.label ?? $currentAiModel}
+                      </div>
+                      <div class="model-trigger-desc">
+                        {selectedModel?.description || $currentAiModel}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="model-trigger-right">
+                    {#if selectedModel?.free || $currentAiModel.includes(':free')}
+                      <span class="model-free-badge">Free</span>
+                    {/if}
+                    <svg class="model-chevron" class:open={modelDropdownOpen} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </button>
+
+                {#if modelDropdownOpen}
+                  <div class="model-dropdown" role="listbox">
+                    <div class="model-search-bar">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                      </svg>
+                      <input
+                        class="model-search-input"
+                        type="text"
+                        placeholder="Search {activeProvider.label} models…"
+                        bind:value={modelSearch}
+                        spellcheck="false"
+                        autocomplete="off"
+                        autofocus
+                      />
+                      {#if modelSearch}
+                        <button type="button" class="model-search-clear" onclick={() => (modelSearch = '')} aria-label="Clear search">×</button>
+                      {/if}
+                    </div>
+                    <div class="model-list">
+                      {#if providerModelsStatus[$aiProvider] === 'loading' && activeModels.length === 0}
+                        <div class="model-empty">Loading {activeProvider.label} models…</div>
+                      {:else if filteredModels.length === 0}
+                        <div class="model-empty">No models match “{modelSearch}”.</div>
+                      {:else}
+                        {#each filteredModels as model (model.id)}
+                          <button
+                            type="button"
+                            class="model-option"
+                            class:selected={$currentAiModel === model.id}
+                            role="option"
+                            aria-selected={$currentAiModel === model.id}
+                            onclick={() => { setAiModel($aiProvider, model.id); modelDropdownOpen = false; }}
+                          >
+                            <div class="model-option-left">
+                              <span class="model-option-badge" data-provider={modelBadge($aiProvider, model.id)}>
+                                {modelBadge($aiProvider, model.id)}
+                              </span>
+                              <div class="model-option-body">
+                                <div class="model-option-name">{model.label}</div>
+                                <div class="model-option-desc">{model.description || model.id}</div>
+                              </div>
+                            </div>
+                            <div class="model-option-right">
+                              {#if model.free || model.id.endsWith(':free')}
+                                <span class="model-free-badge">Free</span>
+                              {/if}
+                              {#if $currentAiModel === model.id}
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="checkmark-icon">
+                                  <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                              {/if}
+                            </div>
+                          </button>
+                        {/each}
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -1515,14 +1956,16 @@
 
   .modal-tabs {
     display: flex;
-    gap: 2px;
+    justify-content: space-between;
+    flex-grow: 1;
+    margin-right: 24px;
   }
 
   .modal-tab {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 10px 14px;
+    padding: 10px 0;
     font-size: 12.5px;
     font-weight: 500;
     color: var(--text-muted);
@@ -1800,13 +2243,505 @@
     pointer-events: none;
   }
 
-  /* ── Model selector ───────────────────── */
-  .model-selector {
-    position: relative;
+  /* ── AI feature toggle card ───────────── */
+  .ai-feature-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 14px 16px;
-    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-top: 6px;
+    gap: 16px;
+    box-shadow: var(--shadow-sm);
   }
 
+  .ai-feature-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: rgba(var(--accent-rgb, 99, 102, 241), 0.1);
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* ── Provider grid and cards ──────────── */
+  .provider-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  @media (max-width: 580px) {
+    .provider-grid {
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    }
+  }
+
+  .provider-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 10px;
+    background: var(--bg-primary);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    gap: 10px;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    outline: none;
+    position: relative;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .provider-card-top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .provider-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--text-muted);
+    transition: color 0.2s ease, transform 0.2s ease;
+  }
+
+  .provider-card:hover .provider-card-icon {
+    transform: scale(1.08);
+  }
+
+  .provider-card-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: color 0.2s ease;
+  }
+
+  .provider-card-status {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    transition: all 0.2s ease;
+  }
+
+  .provider-card-status.ready {
+    color: #10B981;
+    background: rgba(16, 185, 129, 0.08);
+    border-color: rgba(16, 185, 129, 0.15);
+  }
+
+  .provider-key-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .provider-card-status.ready .provider-key-dot {
+    background: #10B981;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+  }
+
+  .provider-key-dot.loading {
+    background: #fb923c;
+    box-shadow: 0 0 6px rgba(251, 146, 60, 0.5);
+    animation: blinker 1s linear infinite;
+  }
+
+  /* Provider Card Brand Focus & Selected Styling */
+  .provider-card[data-provider="openai"].selected,
+  .provider-card[data-provider="openai"]:hover {
+    border-color: #10a37f;
+    box-shadow: 0 0 10px rgba(16, 163, 127, 0.12);
+  }
+  .provider-card[data-provider="openai"].selected {
+    background: rgba(16, 163, 127, 0.06);
+  }
+  .provider-card[data-provider="openai"].selected .provider-card-icon {
+    color: #10a37f;
+  }
+  .provider-card[data-provider="openai"].selected .provider-card-name {
+    color: var(--text-primary);
+  }
+
+  .provider-card[data-provider="anthropic"].selected,
+  .provider-card[data-provider="anthropic"]:hover {
+    border-color: #d9775f;
+    box-shadow: 0 0 10px rgba(217, 119, 95, 0.12);
+  }
+  .provider-card[data-provider="anthropic"].selected {
+    background: rgba(217, 119, 95, 0.06);
+  }
+  .provider-card[data-provider="anthropic"].selected .provider-card-icon {
+    color: #d9775f;
+  }
+  .provider-card[data-provider="anthropic"].selected .provider-card-name {
+    color: var(--text-primary);
+  }
+
+  .provider-card[data-provider="google"].selected,
+  .provider-card[data-provider="google"]:hover {
+    border-color: #4285f4;
+    box-shadow: 0 0 10px rgba(66, 133, 244, 0.12);
+  }
+  .provider-card[data-provider="google"].selected {
+    background: rgba(66, 133, 244, 0.06);
+  }
+  .provider-card[data-provider="google"].selected .provider-card-icon {
+    color: #4285f4;
+  }
+  .provider-card[data-provider="google"].selected .provider-card-name {
+    color: var(--text-primary);
+  }
+
+  .provider-card[data-provider="groq"].selected,
+  .provider-card[data-provider="groq"]:hover {
+    border-color: #f55036;
+    box-shadow: 0 0 10px rgba(245, 80, 54, 0.12);
+  }
+  .provider-card[data-provider="groq"].selected {
+    background: rgba(245, 80, 54, 0.06);
+  }
+  .provider-card[data-provider="groq"].selected .provider-card-icon {
+    color: #f55036;
+  }
+  .provider-card[data-provider="groq"].selected .provider-card-name {
+    color: var(--text-primary);
+  }
+
+  .provider-card[data-provider="openrouter"].selected,
+  .provider-card[data-provider="openrouter"]:hover {
+    border-color: #7e22ce;
+    box-shadow: 0 0 10px rgba(126, 34, 206, 0.12);
+  }
+  .provider-card[data-provider="openrouter"].selected {
+    background: rgba(126, 34, 206, 0.06);
+  }
+  .provider-card[data-provider="openrouter"].selected .provider-card-icon {
+    color: #7e22ce;
+  }
+  .provider-card[data-provider="openrouter"].selected .provider-card-name {
+    color: var(--text-primary);
+  }
+
+  /* Local providers (Ollama, LM Studio) share a teal "runs on your machine" hue. */
+  .provider-card[data-provider="ollama"].selected,
+  .provider-card[data-provider="ollama"]:hover,
+  .provider-card[data-provider="lmstudio"].selected,
+  .provider-card[data-provider="lmstudio"]:hover {
+    border-color: #0d9488;
+    box-shadow: 0 0 10px rgba(13, 148, 136, 0.12);
+  }
+  .provider-card[data-provider="ollama"].selected,
+  .provider-card[data-provider="lmstudio"].selected {
+    background: rgba(13, 148, 136, 0.06);
+  }
+  .provider-card[data-provider="ollama"].selected .provider-card-icon,
+  .provider-card[data-provider="lmstudio"].selected .provider-card-icon {
+    color: #0d9488;
+  }
+  .provider-card[data-provider="ollama"].selected .provider-card-name,
+  .provider-card[data-provider="lmstudio"].selected .provider-card-name {
+    color: var(--text-primary);
+  }
+
+  /* ── Active Provider Details Section ── */
+  .provider-details-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .detail-row {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .detail-row.key-section {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+  }
+
+  .detail-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .detail-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .detail-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .detail-desc {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .provider-key-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+    margin-left: 2px;
+  }
+
+  .provider-key-link:hover {
+    text-decoration: underline;
+  }
+
+  /* Inline API Key input box */
+  .api-key-input-wrapper {
+    display: flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    height: 38px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .api-key-input-wrapper:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+
+  .input-inner-container {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    height: 100%;
+    padding-left: 10px;
+  }
+
+  .input-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .key-input {
+    background: transparent !important;
+    border: none !important;
+    color: var(--text-primary);
+    padding: 0 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    width: 100%;
+    height: 100%;
+    outline: none;
+    box-shadow: none !important;
+  }
+
+  .api-key-actions {
+    display: flex;
+    height: 100%;
+    border-left: 1px solid var(--border);
+  }
+
+  .key-btn {
+    padding: 0 16px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    height: 100%;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .save-btn {
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .save-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .save-btn:disabled {
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+
+  .clear-btn {
+    background: transparent;
+    color: var(--error);
+    border-right: 1px solid var(--border);
+  }
+
+  .clear-btn:hover {
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  .key-status-indicator {
+    margin-top: 2px;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+  }
+
+  .status-badge.success {
+    background: rgba(16, 185, 129, 0.08);
+    color: #10B981;
+    border: 1px solid rgba(16, 185, 129, 0.15);
+  }
+
+  .status-badge.loading {
+    background: rgba(245, 158, 11, 0.08);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.15);
+  }
+
+  .status-badge.error {
+    background: rgba(239, 68, 68, 0.08);
+    color: #EF4444;
+    border: 1px solid rgba(239, 68, 68, 0.15);
+  }
+
+  .status-badge.idle {
+    background: rgba(156, 163, 175, 0.08);
+    color: var(--text-muted);
+    border: 1px solid rgba(156, 163, 175, 0.15);
+  }
+
+  /* ── Model Selector dropdown trigger ── */
+  .model-selector-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .model-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    width: 100%;
+  }
+
+  .model-meta-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .model-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2.5px 7px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+  }
+
+  .model-status-pill.live {
+    background: rgba(16, 185, 129, 0.08);
+    color: #10B981;
+    border: 1px solid rgba(16, 185, 129, 0.15);
+  }
+
+  .model-status-pill.curated {
+    background: rgba(156, 163, 175, 0.08);
+    color: var(--text-muted);
+    border: 1px solid rgba(156, 163, 175, 0.15);
+  }
+
+  .model-status-pill.loading {
+    background: rgba(245, 158, 11, 0.08);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.15);
+  }
+
+  .pulse-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #10B981;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+    animation: blinker 1.5s infinite ease-in-out;
+  }
+
+  .model-refresh-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--bg-primary);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .model-refresh-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+
+  .model-inline-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    text-decoration: underline;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+
+  /* Big Model Trigger Button */
   .model-trigger {
     width: 100%;
     display: flex;
@@ -1821,6 +2756,8 @@
     text-align: left;
     color: var(--text-primary);
     transition: border-color 0.15s, background 0.15s;
+    outline: none;
+    box-shadow: var(--shadow-sm);
   }
 
   .model-trigger:hover {
@@ -1838,9 +2775,9 @@
   .model-trigger-badge,
   .model-option-badge {
     flex-shrink: 0;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 7px;
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 2.5px 6.5px;
     border-radius: 5px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -1848,23 +2785,50 @@
 
   .model-trigger-badge[data-provider="Anthropic"],
   .model-option-badge[data-provider="Anthropic"] {
-    background: rgba(139, 92, 246, 0.12);
-    color: #a78bfa;
-    border: 1px solid rgba(139, 92, 246, 0.2);
+    background: rgba(217, 119, 95, 0.12);
+    color: #d9775f;
+    border: 1px solid rgba(217, 119, 95, 0.2);
   }
 
   .model-trigger-badge[data-provider="Google"],
   .model-option-badge[data-provider="Google"] {
-    background: rgba(59, 130, 246, 0.12);
-    color: #60a5fa;
-    border: 1px solid rgba(59, 130, 246, 0.2);
+    background: rgba(66, 133, 244, 0.12);
+    color: #4285f4;
+    border: 1px solid rgba(66, 133, 244, 0.2);
+  }
+
+  .model-trigger-badge[data-provider="OpenAI"],
+  .model-option-badge[data-provider="OpenAI"] {
+    background: rgba(16, 163, 127, 0.12);
+    color: #10a37f;
+    border: 1px solid rgba(16, 163, 127, 0.2);
+  }
+
+  .model-trigger-badge[data-provider="Groq"],
+  .model-option-badge[data-provider="Groq"] {
+    background: rgba(245, 80, 54, 0.12);
+    color: #f55036;
+    border: 1px solid rgba(245, 80, 54, 0.2);
   }
 
   .model-trigger-badge[data-provider="Other"],
   .model-option-badge[data-provider="Other"] {
-    background: rgba(156, 163, 175, 0.12);
-    color: var(--text-muted);
-    border: 1px solid rgba(156, 163, 175, 0.2);
+    background: rgba(126, 34, 206, 0.12);
+    color: #a855f7;
+    border: 1px solid rgba(126, 34, 206, 0.2);
+  }
+
+  .model-trigger-badge[data-provider="Local"],
+  .model-option-badge[data-provider="Local"] {
+    background: rgba(13, 148, 136, 0.12);
+    color: #14b8a6;
+    border: 1px solid rgba(13, 148, 136, 0.2);
+  }
+
+  .model-trigger-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .model-trigger-name {
@@ -1885,6 +2849,13 @@
     margin-top: 1px;
   }
 
+  .model-trigger-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   .model-chevron {
     flex-shrink: 0;
     color: var(--text-muted);
@@ -1895,25 +2866,95 @@
     transform: rotate(180deg);
   }
 
+  .model-free-badge {
+    flex-shrink: 0;
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 5px;
+    letter-spacing: 0.04em;
+    background: rgba(74, 222, 128, 0.12);
+    color: var(--success, #4ade80);
+    border: 1px solid rgba(74, 222, 128, 0.2);
+    text-transform: uppercase;
+  }
+
+  /* Dropdown styling */
   .model-dropdown {
     position: absolute;
-    left: 16px;
-    right: 16px;
-    top: calc(100% - 6px);
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
     z-index: 100;
     background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.85);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1.5px solid var(--border);
     border-radius: 10px;
-    box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.18);
+    box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.25);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 280px;
     animation: modelDropdownIn 0.15s ease;
   }
 
   @keyframes modelDropdownIn {
     from { opacity: 0; transform: translateY(-6px); }
     to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .model-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-primary);
+    color: var(--text-muted);
+    position: relative;
+  }
+
+  .model-search-input {
+    width: 100%;
+    background: transparent !important;
+    border: none !important;
+    color: var(--text-primary);
+    font-size: 12.5px;
+    outline: none;
+    padding: 0;
+  }
+
+  .model-search-clear {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .model-search-clear:hover {
+    color: var(--text-primary);
+  }
+
+  .model-list {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  .model-empty {
+    padding: 20px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
   }
 
   .model-option {
@@ -1968,17 +3009,18 @@
     margin-top: 1px;
   }
 
-  .model-free-badge {
+  .model-option-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-shrink: 0;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 7px;
-    border-radius: 5px;
-    letter-spacing: 0.04em;
-    background: rgba(74, 222, 128, 0.12);
-    color: var(--success, #4ade80);
-    border: 1px solid rgba(74, 222, 128, 0.2);
   }
+
+  .checkmark-icon {
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
 
   /* ── Toggle rows ──────────────────────── */
   .toggle-row, .slider-row {

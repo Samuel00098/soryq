@@ -27,7 +27,7 @@ const defaultLayout: LayoutState = {
   reviewVisible: false,
   httpVisible: false,
   tasksVisible: false,
-  auxPanelWidth: 700,
+  auxPanelWidth: 500,
   auxEditorHeight: 50,
 };
 
@@ -50,8 +50,8 @@ function loadLayout(): LayoutState {
     if ((parsed.sidebarTab as string) === 'runs') {
       parsed.sidebarTab = 'files';
     }
-    if (parsed.auxPanelWidth < 700) {
-      parsed.auxPanelWidth = 700;
+    if (parsed.auxPanelWidth < 180) {
+      parsed.auxPanelWidth = 180;
     }
     return parsed;
   } catch {
@@ -121,6 +121,25 @@ export function setActiveView(view: ActiveView) {
     }
     return { ...l, activeView: view };
   });
+}
+
+/**
+ * Unconditionally switch to the terminal view, hiding any aux panel.
+ * Unlike `setActiveView('terminal')`, this never toggles back to the last aux
+ * view — use it when something (e.g. a "Focus" notification) must reliably land
+ * the user on the terminal.
+ */
+export function showTerminal() {
+  layout.update((l) => ({
+    ...l,
+    activeView: 'terminal',
+    editorVisible: false,
+    previewVisible: false,
+    reviewVisible: false,
+    httpVisible: false,
+    tasksVisible: false,
+    editorSplitPreview: false,
+  }));
 }
 
 export function toggleEditorVisible() {

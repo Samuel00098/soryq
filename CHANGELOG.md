@@ -2,6 +2,39 @@
 
 All notable changes to Soryq will be documented here.
 
+## [0.2.0] - 2026-06-03
+
+### Added
+
+- **Multi-provider AI model support** — the old OpenRouter-only AI flow has been replaced with a provider-based setup that supports OpenRouter, Anthropic, OpenAI, Google Gemini, Groq, Ollama, and LM Studio. Each provider now has its own configuration card in Settings, its own remembered model choice, and its own API-key or local-server configuration path.
+- **Live model catalogues** — Settings can now fetch the live model list exposed by the selected provider instead of relying on a fixed allowlist. Cloud providers load the models your key actually unlocks, while local providers query their own OpenAI-compatible `/models` endpoint.
+- **Local AI providers** — Ollama and LM Studio can now power voice refinement and AI commit-message generation through user-configurable local server URLs, without requiring a cloud API key.
+- **File explorer multi-select** — the tree now supports standard explorer-style multi-selection: plain click selects one item, `Ctrl`/`Cmd` toggles individual items, and `Shift` selects a visible range. Delete actions deduplicate nested selections and remove the whole selection in one pass.
+- **More built-in agent presets** — the prompt bar's spawn list now recognises `Oh My Pi` (`omp`) and `Cursor` (`agent`) alongside the existing agent commands.
+
+### Changed
+
+- **Settings → Models overhauled** — the AI & Voice settings area has been redesigned around provider cards, per-provider readiness states, live/curated catalog status pills, provider-specific key labels, and local-provider server URL management.
+- **Voice refinement and AI commit messages now follow the selected provider** — both features use the active provider/model pair from Settings, retry other curated models from the same provider when appropriate, and no longer silently depend on OpenRouter.
+- **AI key handling generalized** — provider keys are now stored per provider in `localStorage` as the app's primary store, with a best-effort mirror into the OS keychain. Existing OpenRouter keys migrate forward automatically.
+- **Terminal pane titles are smarter** — agent panes now track a dedicated pane title, parse terminal-title escape sequences, and prefer actual response summaries over generic labels when deciding what to show in the floating pill header.
+- **Aux panel sizing relaxed** — the right-hand auxiliary panel now defaults to `500px` wide instead of `700px`, and restored layouts are clamped with a much lower minimum width so compact layouts survive reopen/restore more gracefully.
+- **Agent focus actions are more reliable** — terminal attention/focus actions now use an unconditional terminal-view helper, so jumping back to a waiting agent always lands on the terminal instead of toggling the previous aux panel back open.
+
+### Fixed
+
+- **File explorer click-away dismissal** — inline new-file/new-folder inputs, inline rename inputs, and the file-explorer context menu now dismiss cleanly when you click elsewhere. They no longer linger onscreen or implicitly confirm from a blur.
+- **Agent conversation summaries in pane headers** — when an agent run completes, Soryq now flushes any buffered terminal output before finalizing the command block, summarizes the completed response, and writes that summary back into session state. This fixes panes getting stuck on generic project-folder titles like `Freedom` instead of the agent's actual conversation summary.
+- **Pasted and injected image attachments under CSP** — prompt-bar image chips now decode `data:` URLs locally instead of trying to `fetch(dataUrl)`, which Chromium routed through `connect-src` and blocked. Images inserted from paste or preview capture now attach reliably under the app's CSP.
+- **Source Control AI actions now respect provider configuration** — commit-message generation now shows the correct setup guidance for the selected provider, including missing local server URLs for Ollama and LM Studio.
+- **Explorer selection state is cleaned up correctly across restores/resets** — workspace restore and full-store resets now rebuild and clear the multi-selection set consistently instead of only tracking the single active path.
+
+### Security
+
+- **Provider-aware request validation** — the Rust AI backend now validates provider IDs, local server URLs, and model IDs before sending requests, including stricter safeguards for URL-based local providers and Google models whose IDs are embedded in request paths.
+- **Broader secret redaction** — backend error handling now redacts `sk-`, `sk-ant-`, `AIza`, and `gsk_` style credentials, and provider request errors are stripped of sensitive request URLs before they reach the frontend.
+- **Safer Google provider requests** — Google API keys are now sent via headers instead of query-string URLs, reducing the chance of accidental key leakage through logs or surfaced transport errors.
+
 ## [0.1.9] - 2026-06-02
 
 ### Added

@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 
 function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
   if (typeof window === 'undefined') {
@@ -119,23 +119,234 @@ export const showHidden = persistentWritable('showHidden', false);
 // Notifications
 export const notificationsEnabled = persistentWritable('notificationsEnabled', true);
 
-// Voice Refinement
-export const voiceRefinementModelOptions = [
-  { id: 'anthropic/claude-sonnet-4.5' as const, label: 'Claude Sonnet 4.5', description: 'Best overall quality for prompt rewriting.' },
-  { id: 'anthropic/claude-haiku-4.5' as const, label: 'Claude Haiku 4.5', description: 'Best cheap Claude option.' },
-  { id: 'google/gemini-2.5-flash' as const, label: 'Google Gemini 2.5 Flash', description: 'Best balance of quality and speed.' },
-  { id: 'google/gemini-2.5-flash-lite' as const, label: 'Google Gemini 2.5 Flash Lite', description: 'Cheaper and faster Google fallback.' },
-  { id: 'anthropic/claude-3.5-haiku' as const, label: 'Claude 3.5 Haiku', description: 'Fast, polished rewrites.' },
-  { id: 'qwen/qwen3-30b-a3b-instruct-2507' as const, label: 'Qwen3 30B Instruct', description: 'Very cheap, solid fallback.' },
-  { id: 'qwen/qwen-2.5-7b-instruct' as const, label: 'Qwen 2.5 7B Instruct', description: 'Ultra-cheap fallback.' },
-  { id: 'google/gemma-4-31b-it:free' as const, label: 'Google Gemma 4 31B (free)', description: 'Free Google option.' },
-  { id: 'google/gemma-4-26b-a4b-it:free' as const, label: 'Google Gemma 4 26B A4B (free)', description: 'Free Google fallback.' },
-] as const;
+// ── AI providers & models ──
+// Voice refinement and AI commit messages route through one of several
+// providers. Each provider has its own API key (or, for local providers, a
+// server URL) and its own model list; the model picker in Settings swaps to the
+// selected provider's models. The Rust backend (`commands/secrets.rs`) calls
+// each provider's native API directly.
+//
+// Local providers (Ollama, LM Studio) run on the user's own machine. They need
+// a base URL instead of an API key and expose OpenAI-compatible endpoints, so
+// the backend reuses its OpenAI-compatible request path with no auth header.
+export type AiProviderId =
+  | 'openrouter'
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'groq'
+  | 'ollama'
+  | 'lmstudio';
 
-export type VoiceRefinementModelId = (typeof voiceRefinementModelOptions)[number]['id'];
+export interface AiModelOption {
+  id: string;
+  label: string;
+  description: string;
+  free?: boolean;
+}
+
+export interface AiProviderDef {
+  id: AiProviderId;
+  label: string;
+  /** Label shown above the key field, e.g. "OpenRouter API key". */
+  keyLabel: string;
+  /** Placeholder hinting at the key shape, e.g. "sk-or-...". */
+  keyPlaceholder: string;
+  /** Where the user can create a key (or, for local providers, install docs). */
+  keyUrl: string;
+  defaultModel: string;
+  models: AiModelOption[];
+  /**
+   * Local providers run on the user's own machine and are configured with a
+   * server URL instead of an API key. The model picker, readiness checks and
+   * backend auth all branch on this flag.
+   */
+  local?: boolean;
+  /**
+   * OpenAI-compatible base URL for local providers (root that owns
+   * `/chat/completions` and `/models`), e.g. `http://localhost:11434/v1`.
+   */
+  defaultBaseUrl?: string;
+}
+
+export const aiProviders: AiProviderDef[] = [
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    keyLabel: 'OpenRouter API key',
+    keyPlaceholder: 'sk-or-...',
+    keyUrl: 'https://openrouter.ai/keys',
+    defaultModel: 'google/gemini-2.5-flash',
+    models: [
+      { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Best balance of quality and speed.' },
+      { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', description: 'Cheaper, faster fallback.' },
+      { id: 'anthropic/claude-sonnet-4.5', label: 'Claude Sonnet 4.5', description: 'Best overall quality.' },
+      { id: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5', description: 'Cheap, fast Claude.' },
+      { id: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku', description: 'Fast, polished rewrites.' },
+      { id: 'openai/gpt-4o-mini', label: 'GPT-4o mini', description: 'Cheap OpenAI option.' },
+      { id: 'qwen/qwen3-30b-a3b-instruct-2507', label: 'Qwen3 30B Instruct', description: 'Very cheap fallback.' },
+      { id: 'qwen/qwen-2.5-7b-instruct', label: 'Qwen 2.5 7B Instruct', description: 'Ultra-cheap fallback.' },
+      { id: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B', description: 'Free Google option.', free: true },
+    ],
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    keyLabel: 'Anthropic API key',
+    keyPlaceholder: 'sk-ant-...',
+    keyUrl: 'https://console.anthropic.com/settings/keys',
+    defaultModel: 'claude-3-5-haiku-latest',
+    models: [
+      { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku', description: 'Fast and cheap — great for refinement.' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', description: 'Newest fast Claude.' },
+      { id: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet', description: 'Higher quality, pricier.' },
+    ],
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    keyLabel: 'OpenAI API key',
+    keyPlaceholder: 'sk-...',
+    keyUrl: 'https://platform.openai.com/api-keys',
+    defaultModel: 'gpt-4o-mini',
+    models: [
+      { id: 'gpt-4o-mini', label: 'GPT-4o mini', description: 'Cheap, fast, capable.' },
+      { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini', description: 'Improved mini model.' },
+      { id: 'gpt-4o', label: 'GPT-4o', description: 'Flagship quality.' },
+      { id: 'gpt-4.1', label: 'GPT-4.1', description: 'Highest quality OpenAI option.' },
+    ],
+  },
+  {
+    id: 'google',
+    label: 'Google Gemini',
+    keyLabel: 'Google AI API key',
+    keyPlaceholder: 'AIza...',
+    keyUrl: 'https://aistudio.google.com/app/apikey',
+    defaultModel: 'gemini-2.5-flash',
+    models: [
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Best balance of quality and speed.' },
+      { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', description: 'Cheaper, faster fallback.' },
+      { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash', description: 'Older, very cheap.' },
+    ],
+  },
+  {
+    id: 'groq',
+    label: 'Groq',
+    keyLabel: 'Groq API key',
+    keyPlaceholder: 'gsk_...',
+    keyUrl: 'https://console.groq.com/keys',
+    defaultModel: 'llama-3.1-8b-instant',
+    models: [
+      { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant', description: 'Extremely fast and cheap.' },
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile', description: 'Higher quality, still fast.' },
+    ],
+  },
+  {
+    id: 'ollama',
+    label: 'Ollama',
+    local: true,
+    defaultBaseUrl: 'http://localhost:11434/v1',
+    keyLabel: 'Ollama server URL',
+    keyPlaceholder: 'http://localhost:11434/v1',
+    keyUrl: 'https://ollama.com/download',
+    // Runs entirely on your machine. The model list is read live from your
+    // server; these are common pulls shown until then.
+    defaultModel: 'llama3.1',
+    models: [
+      { id: 'llama3.1', label: 'Llama 3.1', description: 'Meta Llama 3.1, a solid general default.' },
+      { id: 'qwen2.5', label: 'Qwen 2.5', description: 'Strong general-purpose model.' },
+      { id: 'qwen2.5-coder', label: 'Qwen 2.5 Coder', description: 'Tuned for code tasks.' },
+      { id: 'gemma2', label: 'Gemma 2', description: 'Google Gemma 2, lightweight.' },
+      { id: 'phi3', label: 'Phi-3', description: 'Small and fast Microsoft model.' },
+    ],
+  },
+  {
+    id: 'lmstudio',
+    label: 'LM Studio',
+    local: true,
+    defaultBaseUrl: 'http://localhost:1234/v1',
+    keyLabel: 'LM Studio server URL',
+    keyPlaceholder: 'http://localhost:1234/v1',
+    keyUrl: 'https://lmstudio.ai/docs/app/api/endpoints/openai',
+    // The model id is whatever you've loaded in LM Studio's server tab; the
+    // live list reflects your loaded models. `local-model` works as a generic
+    // alias for the currently-loaded model.
+    defaultModel: 'local-model',
+    models: [
+      { id: 'local-model', label: 'Loaded model', description: 'Uses whichever model LM Studio currently has loaded.' },
+    ],
+  },
+];
+
+export function getProviderDef(id: AiProviderId): AiProviderDef {
+  return aiProviders.find((p) => p.id === id) ?? aiProviders[0];
+}
+
 export const voiceRefinementEnabled = persistentWritable('voiceRefinementEnabled', true);
-export const voiceRefinementModel = persistentWritable<VoiceRefinementModelId>('voiceRefinementModel', 'google/gemini-2.5-flash');
- 
+
+// Selected provider + per-provider remembered model choice.
+export const aiProvider = persistentWritable<AiProviderId>('aiProvider', 'openrouter');
+export const aiModelByProvider = persistentWritable<Record<string, string>>('aiModelByProvider', {});
+
+// Per-provider server URL, used only by local providers (Ollama, LM Studio).
+// Empty means "fall back to the provider's defaultBaseUrl".
+export const aiBaseUrlByProvider = persistentWritable<Record<string, string>>('aiBaseUrlByProvider', {});
+
+/** Whether a provider runs locally and is configured by URL rather than key. */
+export function isLocalProvider(id: AiProviderId): boolean {
+  return getProviderDef(id).local === true;
+}
+
+/**
+ * The effective server URL for a local provider: the user's override if set,
+ * otherwise the provider's default. Returns '' for non-local providers.
+ */
+export function getProviderBaseUrl(id: AiProviderId, overrides?: Record<string, string>): string {
+  const def = getProviderDef(id);
+  if (!def.local) return '';
+  const map = overrides ?? get(aiBaseUrlByProvider);
+  const override = map[id];
+  return (override && override.trim()) || def.defaultBaseUrl || '';
+}
+
+export function setProviderBaseUrl(id: AiProviderId, url: string) {
+  aiBaseUrlByProvider.update((map) => ({ ...map, [id]: url.trim() }));
+}
+
+// One-time migration: fold the legacy single OpenRouter model setting into the
+// new per-provider map so existing users keep their chosen model.
+if (typeof localStorage !== 'undefined') {
+  const legacy = localStorage.getItem('forge_setting_voiceRefinementModel');
+  if (legacy) {
+    try {
+      const model = JSON.parse(legacy);
+      if (typeof model === 'string' && model) {
+        aiModelByProvider.update((map) => (map.openrouter ? map : { ...map, openrouter: model }));
+      }
+    } catch {
+      // Ignore malformed legacy value.
+    }
+    localStorage.removeItem('forge_setting_voiceRefinementModel');
+  }
+}
+
+// The active model id, derived from the selected provider and its remembered
+// choice (falling back to the provider's default). The remembered id is trusted
+// as-is: models are now loaded live from each provider, so a valid choice may
+// not appear in the static curated `models` list.
+export const currentAiModel = derived(
+  [aiProvider, aiModelByProvider],
+  ([$provider, $map]) => {
+    const def = getProviderDef($provider);
+    const remembered = $map[$provider];
+    return remembered && remembered.trim() ? remembered : def.defaultModel;
+  }
+);
+
+export function setAiModel(provider: AiProviderId, modelId: string) {
+  aiModelByProvider.update((map) => ({ ...map, [provider]: modelId }));
+}
+
 // UI Scaling
 export const uiZoom = persistentWritable('uiZoom', 100);
 
@@ -295,7 +506,9 @@ export function updateSetting(key: string, value: unknown) {
     case 'vimMode':          vimMode.set(value as boolean); break;
     case 'showHidden':       showHidden.set(value as boolean); break;
     case 'voiceRefinementEnabled': voiceRefinementEnabled.set(value as boolean); break;
-    case 'voiceRefinementModel': voiceRefinementModel.set(value as VoiceRefinementModelId); break;
+    case 'aiProvider': aiProvider.set(value as AiProviderId); break;
+    case 'aiModelByProvider': aiModelByProvider.set(value as Record<string, string>); break;
+    case 'aiBaseUrlByProvider': aiBaseUrlByProvider.set(value as Record<string, string>); break;
     case 'uiZoom':           uiZoom.set(value as number); break;
     case 'formatOnSave':     formatOnSave.set(value as boolean); break;
     case 'appearance':       appearance.set(value as 'system' | 'light' | 'dark'); break;
@@ -315,7 +528,9 @@ export function resetSettingsToDefault() {
   vimMode.set(false);
   showHidden.set(false);
   voiceRefinementEnabled.set(true);
-  voiceRefinementModel.set('google/gemini-2.5-flash');
+  aiProvider.set('openrouter');
+  aiModelByProvider.set({});
+  aiBaseUrlByProvider.set({});
   uiZoom.set(100);
   formatOnSave.set(true);
   userShortcuts.set(defaultShortcuts);

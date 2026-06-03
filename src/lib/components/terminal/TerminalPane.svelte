@@ -18,6 +18,7 @@
     setSessionExecuting,
     setSessionRole,
     setSessionCwd,
+    setSessionPaneTitle,
     appendToCommandBlock,
     finalizeCommandBlockWithExit,
     paneAssignments,
@@ -35,7 +36,7 @@
     terminalShell,
   } from '$lib/stores/settings';
   import { activeTheme } from '$lib/stores/theme';
-  import { layout, setActiveView } from '$lib/stores/layout';
+  import { layout, setActiveView, showTerminal } from '$lib/stores/layout';
   import { activeProject } from '$lib/stores/workspace';
   import { clearProxyTarget, currentUrl, ensureProxyRunning, setPreferredLocalHost, setTargetPort } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
@@ -87,6 +88,7 @@
   let hoveredTerminalLink: string | null = null;
   let currentShellCwd = $state<string | null>(null);
   let currentShell = $state<string | null>(null);
+  let oscSequenceRemainder = $state('');
   let fitRaf: number | null = null;
   let fitTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -171,7 +173,7 @@
       'warning',
       10000,
       true,
-      { label: 'Focus', onClick: () => { activateSessionInPane(sessionId); setActiveView('terminal'); } }
+      { label: 'Focus', onClick: () => { activateSessionInPane(sessionId); showTerminal(); } }
     );
   }
 
@@ -293,7 +295,21 @@
   })());
   let sessionLabel = $derived(sessionInfo ? getSessionLabel(sessionInfo, $sessions) : promptPath);
   let agentName = $derived(getAgentDisplayName(sessionInfo?.agentPreset));
+  let sessionPaneTitle = $derived(sessionInfo?.paneTitle?.trim() || '');
   let sessionTaskSummary = $derived(sessionInfo?.taskSummary?.trim() || '');
+  // The agent-emitted conversation title (paneTitle, from OSC sequences) is the
+  // canonical name the agent gave this session, so it always leads. The scraped
+  // task summary and the static fallbacks fill in only when no title was emitted.
+  // (paneTitle is set exclusively for agent panes — parseOscTitle bails when there
+  // is no agentPreset — so this expression also covers plain shells correctly.)
+  let paneTitleText = $derived(
+    sessionPaneTitle || sessionTaskSummary || (sessionInfo?.role ? sessionLabel : (sessionInfo?.title ?? promptPath))
+  );
+  // When the agent gave a title AND we computed a summary, surface the summary as
+  // the smaller secondary line so both are visible without competing.
+  let paneSecondaryText = $derived(
+    sessionPaneTitle && sessionTaskSummary && sessionPaneTitle !== sessionTaskSummary ? sessionTaskSummary : ''
+  );
   let isDead = $derived(sessionInfo ? !sessionInfo.isRunning : false);
   let isLightTheme = $derived($activeTheme?.type === 'light');
 
@@ -357,14 +373,87 @@
     openUrlInPreview(uri).catch(console.error);
   }
 
-  function parseOSC7Sequence(text: string) {
-    const match = text.match(/\]7;file:\/\/[^\/]+([^]+)/);
-    if (match && match[1]) {
-      let rawPath = match[1];
-      if (rawPath.startsWith('/') && rawPath.charAt(2) === ':') rawPath = rawPath.slice(1);
-      currentShellCwd = decodeURIComponent(rawPath);
-      setSessionCwd(sessionId, currentShellCwd);
+  function parseOsc7Path(value: string) {
+    const rawValue = value.trim();
+    if (!rawValue.startsWith('file://')) return;
+    let rawPath = rawValue.replace(/^file:\/\/[^/]+/, '');
+    if (!rawPath) return;
+    if (rawPath.startsWith('/') && rawPath.charAt(2) === ':') rawPath = rawPath.slice(1);
+    currentShellCwd = decodeURIComponent(rawPath);
+    setSessionCwd(sessionId, currentShellCwd);
+  }
+
+  function normalizePaneTitle(title: string) {
+    return title
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function escapeRegExp(text: string) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function parseOscTitle(value: string) {
+    const info = sessionInfo;
+    if (!info?.agentPreset) return;
+
+    const displayName = getAgentDisplayName(info.agentPreset) ?? info.title;
+    const activeProjectName = $activeProject?.name?.trim() || '';
+    const activeProjectRootName = $activeProject?.root_path?.replace(/[/\\]+$/, '').split(/[/\\]/).pop()?.trim() || '';
+    const cwdBaseName = currentShellCwd?.replace(/[/\\]+$/, '').split(/[/\\]/).pop()?.trim() || '';
+    const cleaned = normalizePaneTitle(value)
+      .replace(new RegExp(`\\s+[·|-]\\s+${escapeRegExp(displayName)}$`, 'i'), '')
+      .trim();
+
+    if (!cleaned) return;
+
+    const genericTitles = new Set(
+      [
+        info.title,
+        info.role,
+        sessionLabel,
+        agentName,
+        displayName,
+        promptPath,
+        activeProjectName,
+        activeProjectRootName,
+        cwdBaseName,
+      ]
+        .filter((entry): entry is string => Boolean(entry?.trim()))
+        .map((entry) => entry.trim().toLowerCase())
+    );
+    const lowered = cleaned.toLowerCase();
+
+    if (genericTitles.has(lowered)) return;
+    if (/^[A-Z]:[\\/]|^\/|^~[\\/]|^file:\/\//i.test(cleaned)) return;
+    if (/^(powershell|pwsh|bash|zsh|cmd|fish|nu|nushell)(\.exe)?$/i.test(cleaned)) return;
+
+    setSessionPaneTitle(sessionId, cleaned);
+  }
+
+  function parseOscSequences(text: string) {
+    const combined = `${oscSequenceRemainder}${text}`;
+    const pattern = /\x1b\](\d+);(.*?)(?:\x07|\x1b\\)/gs;
+    let lastConsumed = 0;
+
+    for (const match of combined.matchAll(pattern)) {
+      const full = match[0];
+      const code = match[1];
+      const value = match[2] ?? '';
+      const idx = match.index ?? 0;
+      lastConsumed = idx + full.length;
+
+      if (code === '7') {
+        parseOsc7Path(value);
+      } else if (code === '0' || code === '1' || code === '2') {
+        parseOscTitle(value);
+      }
     }
+
+    const pendingStart = combined.lastIndexOf('\x1b]');
+    oscSequenceRemainder = pendingStart !== -1 && pendingStart >= lastConsumed
+      ? combined.slice(pendingStart).slice(-1024)
+      : '';
   }
 
   function clearTerminal() {
@@ -509,7 +598,7 @@
         term?.write(bytes);
         try {
           const text = decoder.decode(bytes);
-          parseOSC7Sequence(text);
+          parseOscSequences(text);
           detectDevServerUrl(text);
           detectBuildProcess(text);
           detectAgentNeedsAttention(text);
@@ -690,18 +779,16 @@
     <span
       class="pane-title"
       onclick={openRolePicker}
-      title={sessionTaskSummary ? `${sessionLabel} - ${sessionTaskSummary}` : 'Click to set role'}
+      title={paneTitleText || 'Click to set role'}
     >
       <span class="pane-title-main">
         {#if sessionInfo?.role}
           <span class="role-dot" style="background: {getRoleColor(sessionInfo.role)}"></span>
-          {sessionLabel}{#if agentName}<span class="pane-agent-name"> · {agentName}</span>{/if}
-        {:else}
-          {sessionInfo?.title ?? promptPath}
         {/if}
+        {paneTitleText}
       </span>
-      {#if sessionTaskSummary}
-        <span class="pane-title-summary">{sessionTaskSummary}</span>
+      {#if paneSecondaryText}
+        <span class="pane-title-summary">{paneSecondaryText}</span>
       {/if}
     </span>
 
@@ -811,23 +898,41 @@
     border-color: var(--accent);
   }
 
-  /* ── Plain title bar ── */
+  /* ── Floating pill title bar ── */
   .pane-titlebar {
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 28px;
-    padding: 0 8px;
-    background: transparent;
-    border-bottom: 1px solid var(--border);
+    height: 32px;
+    /* Tighter on the left so the close button sits flush inside the cap. */
+    padding: 0 10px 0 9px;
+    /* Float the pill inside the pane rather than spanning edge-to-edge. */
+    margin: 9px 9px 3px;
+    border-radius: 999px;
+    background: rgba(var(--bg-tertiary-rgb, 32, 32, 40), 0.5);
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    box-shadow:
+      0 2px 8px -2px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     flex-shrink: 0;
     user-select: none;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
   }
 
   .terminal-pane:not(.active) .pane-titlebar {
-    background: transparent;
-    border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
+    background: rgba(var(--bg-tertiary-rgb, 32, 32, 40), 0.32);
+    border-color: color-mix(in srgb, var(--border) 50%, transparent);
+    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.05));
+  }
+
+  .terminal-pane.active .pane-titlebar {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+    box-shadow:
+      0 2px 10px -2px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
+      inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
   .pane-titlebar.draggable {
@@ -842,9 +947,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
     color: var(--text-muted);
     background: transparent;
     border: none;
@@ -867,9 +972,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
     color: var(--text-secondary, #888);
     background: transparent;
     border: none;
@@ -902,7 +1007,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 11.5px;
+    font-size: 12.5px;
     font-weight: 500;
     color: var(--text-muted);
     overflow: hidden;
@@ -915,12 +1020,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .pane-agent-name {
-    font-weight: 400;
-    color: var(--text-muted);
-    opacity: 0.85;
   }
 
   .pane-title-summary {
@@ -1047,8 +1146,8 @@
   /* ── Role picker popover ── */
   .role-picker {
     position: absolute;
-    top: 29px;
-    left: 8px;
+    top: 46px;
+    left: 9px;
     z-index: 50;
     background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.88);
     backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));

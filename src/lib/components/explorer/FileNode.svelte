@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import FileIcon from './FileIcon.svelte';
   import FileNode from './FileNode.svelte';
   import type { FileNode as FileNodeType } from '$lib/types/explorer';
-  import { toggleNode, selectedPath, showContextMenu, renamingPath, renamingValue, confirmRename, cancelRename, creatingPath, creatingType, creatingValue, confirmCreate, cancelCreate } from '$lib/stores/explorer';
+  import { toggleNode, selectedPaths, selectSingle, toggleSelection, selectRangeTo, showContextMenu, renamingPath, renamingValue, confirmRename, cancelRename, creatingPath, creatingType, creatingValue, confirmCreate, cancelCreate } from '$lib/stores/explorer';
 
   export let node: FileNodeType;
   const DRAG_THRESHOLD = 6;
@@ -16,22 +17,39 @@
     | null = null;
   let suppressClick = false;
 
-  async function handleClick() {
+  async function handleClick(e: MouseEvent | KeyboardEvent) {
     if (suppressClick) {
       suppressClick = false;
       return;
     }
+    // Ctrl/Cmd toggles a single item; Shift extends a range. Neither opens or
+    // expands the node — they only adjust the selection (standard explorer UX).
+    if (e.ctrlKey || e.metaKey) {
+      toggleSelection(node.entry.path);
+      return;
+    }
+    if (e.shiftKey) {
+      selectRangeTo(node.entry.path);
+      return;
+    }
+    // Plain click: collapse the selection to this one item, then open/expand it.
+    selectSingle(node.entry.path);
     await toggleNode(node);
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      handleClick();
+      handleClick(e);
     }
   }
 
   function handleContextMenu(e: MouseEvent) {
+    // Right-clicking an item outside the current selection resets the selection
+    // to just that item, so the menu's Delete acts on what the user pointed at.
+    if (!get(selectedPaths).has(node.entry.path)) {
+      selectSingle(node.entry.path);
+    }
     showContextMenu(e, node.entry.path, node.entry.is_dir);
   }
 
@@ -105,7 +123,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="file-node dir"
-    class:selected={$selectedPath === node.entry.path}
+    class:selected={$selectedPaths.has(node.entry.path)}
     class:expanded={node.expanded}
     style="padding-left: {node.depth * 16 + 8}px"
     onclick={handleClick}
@@ -113,7 +131,7 @@
     oncontextmenu={handleContextMenu}
     role="treeitem"
     aria-expanded={node.expanded}
-    aria-selected={$selectedPath === node.entry.path}
+    aria-selected={$selectedPaths.has(node.entry.path)}
     tabindex="0"
   >
     <svg
@@ -137,7 +155,7 @@
         bind:value={$renamingValue}
         autofocus
         onclick={(e) => e.stopPropagation()}
-        onblur={confirmRename}
+        onblur={cancelRename}
         onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmRename(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(); } }}
       />
     {:else}
@@ -149,7 +167,7 @@
   </div>
   {#if $creatingPath === node.entry.path}
     <div class="create-input" style="padding-left: {(node.depth + 1) * 16 + 8}px">
-      {$creatingType === 'file' ? 'File' : 'Dir'}
+      <FileIcon name={$creatingValue} isDir={$creatingType === 'dir'} />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         type="text"
@@ -157,7 +175,7 @@
         bind:value={$creatingValue}
         autofocus
         onclick={(e) => e.stopPropagation()}
-        onblur={confirmCreate}
+        onblur={cancelCreate}
         onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmCreate(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelCreate(); } }}
       />
     </div>
@@ -171,14 +189,14 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="file-node file"
-    class:selected={$selectedPath === node.entry.path}
+    class:selected={$selectedPaths.has(node.entry.path)}
     style="padding-left: {node.depth * 16 + 8}px"
     onclick={handleClick}
     onmousedown={handleMouseDown}
     onkeydown={handleKeydown}
     oncontextmenu={handleContextMenu}
     role="treeitem"
-    aria-selected={$selectedPath === node.entry.path}
+    aria-selected={$selectedPaths.has(node.entry.path)}
     tabindex="0"
   >
     <span class="chevron-placeholder"></span>
@@ -191,7 +209,7 @@
         bind:value={$renamingValue}
         autofocus
         onclick={(e) => e.stopPropagation()}
-        onblur={confirmRename}
+        onblur={cancelRename}
         onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmRename(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(); } }}
       />
     {:else}

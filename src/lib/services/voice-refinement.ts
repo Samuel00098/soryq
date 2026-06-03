@@ -1,20 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
-import { voiceRefinementEnabled, voiceRefinementModel, type VoiceRefinementModelId } from '$lib/stores/settings';
+import {
+  voiceRefinementEnabled,
+  aiProvider,
+  currentAiModel,
+  getProviderDef,
+  isLocalProvider,
+  getProviderBaseUrl,
+} from '$lib/stores/settings';
 import { refineVoiceTranscript } from '$lib/services/voice-input';
 import { get } from 'svelte/store';
-import { getOpenRouterApiKeyLocal } from '$lib/services/openrouter-keychain';
-
-const FALLBACK_MODELS: VoiceRefinementModelId[] = [
-  'google/gemini-2.5-flash',
-  'google/gemini-2.5-flash-lite',
-  'anthropic/claude-haiku-4.5',
-  'anthropic/claude-3.5-haiku',
-  'qwen/qwen3-30b-a3b-instruct-2507',
-  'qwen/qwen-2.5-7b-instruct',
-  'google/gemma-4-31b-it:free',
-  'google/gemma-4-26b-a4b-it:free',
-  'anthropic/claude-sonnet-4.5',
-];
+import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
 
 function normalizeModelOutput(text: string, preserveNewLines: boolean) {
   const trimmed = text.trim();
@@ -31,12 +26,13 @@ function getPreserveNewLines(rawText: string) {
   return rawText.includes('\n');
 }
 
-async function requestOpenRouterRefinement(model: VoiceRefinementModelId, cleanedText: string) {
-  const apiKey = getOpenRouterApiKeyLocal() ?? '';
-  return invoke<string>('openrouter_refine_prompt', {
+async function requestRefinement(provider: string, model: string, apiKey: string, baseUrl: string, cleanedText: string) {
+  return invoke<string>('ai_refine_prompt', {
     text: cleanedText,
+    provider,
     model,
     apiKey,
+    baseUrl: baseUrl || undefined,
   });
 }
 
@@ -51,22 +47,36 @@ export async function refineVoicePrompt(rawText: string): Promise<RefinementResu
     return { text: locallyCleaned, aiRefined: false };
   }
 
-  const primaryModel = get(voiceRefinementModel);
-  const modelsToTry = [primaryModel, ...FALLBACK_MODELS.filter((model) => model !== primaryModel)];
+  const provider = get(aiProvider);
+  const local = isLocalProvider(provider);
+  const apiKey = getProviderApiKeyLocal(provider) ?? '';
+  const baseUrl = local ? getProviderBaseUrl(provider) : '';
+
+  // Not configured for the selected provider (no key for cloud, no server URL
+  // for local) — fall back to local cleanup silently.
+  if (local ? !baseUrl : !apiKey) {
+    return { text: locallyCleaned, aiRefined: false };
+  }
+
+  const def = getProviderDef(provider);
+  const primaryModel = get(currentAiModel);
+  // Try the chosen model first, then the rest of the same provider's models
+  // (they share the same key). We never silently jump to another provider.
+  const modelsToTry = [primaryModel, ...def.models.map((m) => m.id).filter((id) => id !== primaryModel)];
 
   for (const model of modelsToTry) {
     try {
-      const remoteText = await requestOpenRouterRefinement(model, locallyCleaned);
+      const remoteText = await requestRefinement(provider, model, apiKey, baseUrl, locallyCleaned);
       const normalized = normalizeModelOutput(remoteText, preserveNewLines);
       if (normalized) {
         return { text: normalized, aiRefined: true };
       }
     } catch (error) {
       const message = String(error ?? '');
-      if (message.includes('OpenRouter API key is not set')) {
+      if (message.includes('API key is not set')) {
         return { text: locallyCleaned, aiRefined: false };
       }
-      console.warn(`Voice refinement failed with ${model}:`, error);
+      console.warn(`Voice refinement failed with ${provider}/${model}:`, error);
     }
   }
 

@@ -23,8 +23,9 @@ const AI_AGENT_PRESETS: Omit<QuickRun, 'id' | 'projectId'>[] = [
   { name: 'Antigravity', command: 'agy', isPreset: true },
   { name: 'OpenCode', command: 'opencode', isPreset: true },
   { name: 'Pi AI Agent', command: 'pi', isPreset: true },
+  { name: 'Oh My Pi', command: 'omp', isPreset: true },
+  { name: 'Cursor', command: 'agent', isPreset: true },
   { name: 'Dev Server', command: 'npm run dev', isPreset: true },
-  { name: 'GitHub Copilot', command: 'copilot', isPreset: true },
 ];
 
 export function getPresetRuns(projectId: string): QuickRun[] {

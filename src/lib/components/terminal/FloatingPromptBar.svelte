@@ -63,7 +63,7 @@
     isHovered || isFocused || historyOpen || targetPickerOpen || spawnOpen || isListening || isRefining || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag)
   );
 
-  const AI_AGENT_COMMANDS = new Set(['codex', 'claude', 'aider', 'agy', 'opencode', 'pi', 'copilot']);
+  const AI_AGENT_COMMANDS = new Set(['codex', 'claude', 'aider', 'agy', 'opencode', 'pi', 'omp', 'agent']);
   let spawnPresets = $derived(
     $activeProject
       ? getPresetRuns($activeProject.id).filter((r) => AI_AGENT_COMMANDS.has(r.command))
@@ -271,16 +271,28 @@
     }
   }
 
+  // Decode a data: URL into raw bytes locally. We deliberately avoid
+  // `fetch(dataUrl)` here: Chromium routes fetches of data: URLs through the
+  // `connect-src` CSP directive, which doesn't allow `data:` — so fetch throws
+  // and the pasted image is silently dropped before it ever reaches the agent.
+  function dataUrlToBytes(dataUrl: string): Uint8Array {
+    const comma = dataUrl.indexOf(',');
+    if (comma === -1) return new Uint8Array();
+    const meta = dataUrl.slice(0, comma);
+    const body = dataUrl.slice(comma + 1);
+    const raw = meta.includes(';base64') ? atob(body) : decodeURIComponent(body);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return bytes;
+  }
+
   async function saveImageToDisk(img: PastedImage, projectPath: string): Promise<string | null> {
     try {
       // Normalise to forward slashes so the path the agent CLI receives is clean
       // and unambiguous — mixed back/forward slashes can trip up TUI path parsing.
       const root = projectPath.replace(/\\/g, '/').replace(/\/+$/, '');
       const savePath = `${root}/.soryq/attachments/${img.name}`;
-      const response = await fetch(img.dataUrl);
-      const blob = await response.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-      const data = Array.from(new Uint8Array(arrayBuffer));
+      const data = Array.from(dataUrlToBytes(img.dataUrl));
       await invoke('fs_write_binary', { path: savePath, data });
       return savePath;
     } catch (error) {
@@ -700,17 +712,17 @@
     const img = $promptBarImage;
     if (!img) return;
     promptBarImage.set(null);
-    // Convert the dataUrl into an objectUrl so it renders in the chip
-    fetch(img.dataUrl)
-      .then((r) => r.blob())
-      .then((blob) => {
-        const objectUrl = URL.createObjectURL(blob);
-        pastedImages = [...pastedImages, { objectUrl, dataUrl: img.dataUrl, name: img.name }];
-        requestAnimationFrame(() => {
-          inputEl?.focus();
-        });
-      })
-      .catch(() => {/* silently ignore */});
+    // Convert the dataUrl into an objectUrl so it renders in the chip. Decode
+    // locally rather than fetch(dataUrl) — the CSP connect-src blocks data: URLs.
+    try {
+      const mime = img.dataUrl.slice(5, img.dataUrl.indexOf(';')) || 'image/png';
+      const blob = new Blob([dataUrlToBytes(img.dataUrl)], { type: mime });
+      const objectUrl = URL.createObjectURL(blob);
+      pastedImages = [...pastedImages, { objectUrl, dataUrl: img.dataUrl, name: img.name }];
+      requestAnimationFrame(() => {
+        inputEl?.focus();
+      });
+    } catch {/* silently ignore */}
   });
 
   $effect(() => {

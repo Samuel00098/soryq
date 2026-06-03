@@ -5,8 +5,8 @@
   import { showToast } from '$lib/stores/notification';
   import FileIcon from './FileIcon.svelte';
   import { branchInfo, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
-  import { voiceRefinementModel } from '$lib/stores/settings';
-  import { getOpenRouterApiKeyLocal } from '$lib/services/openrouter-keychain';
+  import { aiProvider, currentAiModel, getProviderDef, isLocalProvider, getProviderBaseUrl } from '$lib/stores/settings';
+  import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
 
   interface GitLogEntry {
     graph: string;
@@ -316,17 +316,24 @@
         return;
       }
 
-      const apiKey = getOpenRouterApiKeyLocal() ?? '';
-      const message = await invoke<string>('openrouter_generate_commit_message', {
+      const provider = $aiProvider;
+      const local = isLocalProvider(provider);
+      const apiKey = getProviderApiKeyLocal(provider) ?? '';
+      const baseUrl = local ? getProviderBaseUrl(provider) : '';
+      const message = await invoke<string>('ai_generate_commit_message', {
         diff: context,
-        model: $voiceRefinementModel,
+        provider,
+        model: $currentAiModel,
         apiKey,
+        baseUrl: baseUrl || undefined,
       });
       commitMessage = message;
     } catch (err) {
       const msg = String(err);
       if (msg.includes('API key is not set')) {
-        showToast('Add your OpenRouter API key in Settings to generate commit messages.', 'warning');
+        showToast(`Add your ${getProviderDef($aiProvider).label} API key in Settings → Models to generate commit messages.`, 'warning');
+      } else if (msg.includes('Server URL is not set')) {
+        showToast(`Set your ${getProviderDef($aiProvider).label} server URL in Settings → Models to generate commit messages.`, 'warning');
       } else {
         showToast(msg || 'Failed to generate commit message.', 'error');
       }

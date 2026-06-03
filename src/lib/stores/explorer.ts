@@ -10,6 +10,12 @@ export const projectRootNodes = writable<Map<string, FileNode[]>>(new Map());
 export const loadingProjectRoots = writable<Set<string>>(new Set());
 export const expandedPaths = writable<Set<string>>(new Set());
 export const selectedPath = writable<string | null>(null);
+// Multi-selection: the full set of selected paths. `selectedPath` stays the
+// "active" item (last clicked) — it's what gets persisted and what anchors a
+// shift-range. Highlighting in the tree is driven by this set.
+export const selectedPaths = writable<Set<string>>(new Set());
+// Fixed end of a shift-range selection. Module-local; not persisted.
+let selectionAnchor: string | null = null;
 export const isLoading = writable(false);
 export const contextMenu = writable<ContextMenuState>({
   visible: false,
@@ -116,6 +122,115 @@ export function showContextMenu(e: MouseEvent, path: string, isDir: boolean) {
 
 export function hideContextMenu() {
   contextMenu.set({ visible: false, x: 0, y: 0, path: '', isDir: false });
+}
+
+// ── Selection ──────────────────────────────────────────────────────────────
+
+/** Replace the selection with a single path (plain click). */
+export function selectSingle(path: string) {
+  selectedPaths.set(new Set([path]));
+  selectedPath.set(path);
+  selectionAnchor = path;
+}
+
+/** Add/remove a single path from the selection (Ctrl/Cmd+click). */
+export function toggleSelection(path: string) {
+  selectedPaths.update((set) => {
+    const next = new Set(set);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    return next;
+  });
+  selectionAnchor = path;
+  const set = get(selectedPaths);
+  // Keep `selectedPath` on a member of the selection (or null when empty).
+  selectedPath.set(set.has(path) ? path : (set.size > 0 ? Array.from(set)[set.size - 1] : null));
+}
+
+function flattenVisible(nodes: FileNode[], out: string[]) {
+  for (const node of nodes) {
+    out.push(node.entry.path);
+    if (node.entry.is_dir && node.expanded && node.children) {
+      flattenVisible(node.children, out);
+    }
+  }
+}
+
+/** Visible tree rows in render order — the basis for range selection. */
+function getVisibleOrder(): string[] {
+  const root = get(activeProject)?.root_path;
+  if (!root) return [];
+  const out: string[] = [];
+  flattenVisible(get(projectRootNodes).get(root) ?? [], out);
+  return out;
+}
+
+/** Select every visible row between the anchor and `path` (Shift+click). */
+export function selectRangeTo(path: string) {
+  const anchor = selectionAnchor ?? get(selectedPath);
+  if (!anchor) { selectSingle(path); return; }
+  const order = getVisibleOrder();
+  const a = order.indexOf(anchor);
+  const b = order.indexOf(path);
+  if (a === -1 || b === -1) { selectSingle(path); return; }
+  const [lo, hi] = a <= b ? [a, b] : [b, a];
+  selectedPaths.set(new Set(order.slice(lo, hi + 1)));
+  // The active item follows the click; the anchor stays put for further ranges.
+  selectedPath.set(path);
+}
+
+export function clearSelection() {
+  selectedPaths.set(new Set());
+  selectedPath.set(null);
+  selectionAnchor = null;
+}
+
+/**
+ * Delete every path in `paths`. Any path nested inside another selected path is
+ * dropped first — deleting the ancestor already removes it, and deleting it
+ * again afterwards would error. Each affected parent folder is refreshed once.
+ */
+export async function deletePaths(paths: string[]) {
+  const unique = Array.from(new Set(paths));
+  const top = unique.filter((p) => {
+    const np = normalizePath(p);
+    return !unique.some((other) => {
+      if (other === p) return false;
+      return np.startsWith(`${normalizePath(other)}/`);
+    });
+  });
+  if (top.length === 0) return;
+
+  const { onFileDeleted } = await import('./editor');
+  let failures = 0;
+  for (const path of top) {
+    try {
+      await invoke('fs_delete', { path });
+      onFileDeleted(path);
+    } catch (err: any) {
+      failures += 1;
+      showToast(`Delete failed for "${path.split(/[\\\/]/).pop()}": ${err?.message ?? String(err)}`, 'error');
+    }
+  }
+
+  // Refresh each unique parent folder once.
+  const refreshed = new Set<string>();
+  for (const path of top) {
+    const np = normalizePath(path);
+    const slash = np.lastIndexOf('/');
+    const parentKey = slash >= 0 ? np.slice(0, slash) : np;
+    if (refreshed.has(parentKey)) continue;
+    refreshed.add(parentKey);
+    await refreshParent(path);
+  }
+
+  clearSelection();
+  const deleted = top.length - failures;
+  if (deleted === 1) {
+    showToast(`Deleted "${top[0].split(/[\\\/]/).pop()}"`, 'success');
+  } else if (deleted > 1) {
+    showToast(`Deleted ${deleted} items`, 'success');
+  }
 }
 
 export async function loadDirectory(path: string): Promise<FileEntry[]> {
