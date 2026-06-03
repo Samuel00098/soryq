@@ -99,6 +99,7 @@
     /* Transparent so the parent .auxiliary-panel provides the frosted glass. */
     background: transparent;
     overflow: hidden;
+    container-type: inline-size;
   }
 
   .editor-toolbar {
@@ -130,6 +131,7 @@
     transition: background 0.15s, color 0.15s, border-color 0.15s;
     margin-right: 8px;
     user-select: none;
+    white-space: nowrap;
   }
 
   .markdown-toggle-btn:hover {
@@ -175,5 +177,15 @@
   .placeholder-hint {
     font-size: 12px;
     color: var(--text-muted);
+  }
+
+  @container (max-width: 480px) {
+    .markdown-toggle-btn span {
+      display: none;
+    }
+    .markdown-toggle-btn {
+      padding: 0 6px;
+      margin-right: 4px;
+    }
   }
 </style>

@@ -3,7 +3,7 @@
 All notable changes to Soryq will be documented here.
 
 
-## [0.2.1] - 2026-06-03
+## [v0.2.1] - 2026-06-03
 
 ### Added
 
@@ -13,6 +13,7 @@ All notable changes to Soryq will be documented here.
 
 - **Preview toolbar reorganised into nav groups** — the device-toolbar controls have been split from a single flat `.nav-controls` into three logical groups: main navigation, utility actions, and viewport controls. The viewport divider that previously separated navigation from proxy/device controls has been removed, and the proxy button text is now wrapped in styled `<span>` elements so labels stay readable in cramped layouts. An obsolete `@container (max-width: 480px)` media query for `.preview-tabs` that conflicted with the restructured toolbar has also been removed.
 - **Auxiliary panel default width increased** — the default `auxPanelWidth` has been raised from 500 px to 550 px for a more spacious right-panel experience. The new default is applied consistently across the layout store initial state, sanitisation/clamp bounds in the workspace store, and the project-restore fallback path.
+- **Editor panel markdown toggle responsive layout** — the markdown preview toggle button now uses `white-space: nowrap` to keep its label on one line, and the editor panel has `container-type: inline-size` so a `@container (max-width: 480px)` query hides the button's text label and compacts its padding when the panel is narrow, preventing the toggle from overflowing the toolbar.
 ## [0.2.0] - 2026-06-03
 
 ### Added
