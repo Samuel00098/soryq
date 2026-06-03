@@ -6,6 +6,14 @@ export interface GitBranchInfo {
   current: string;
   local: string[];
   remote: string[];
+  /** Tracking branch (e.g. "origin/main"), or null if the branch isn't published. */
+  upstream: string | null;
+  /** Local commits not yet pushed to the upstream. */
+  ahead: number;
+  /** Upstream commits not yet pulled locally. */
+  behind: number;
+  /** Whether any remote is configured. */
+  has_remote: boolean;
 }
 
 const branchInfoByProject = writable<Record<string, GitBranchInfo>>({});

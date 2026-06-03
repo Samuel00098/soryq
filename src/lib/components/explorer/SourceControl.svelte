@@ -7,6 +7,7 @@
   import { branchInfo, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
   import { aiProvider, currentAiModel, getProviderDef, isLocalProvider, getProviderBaseUrl } from '$lib/stores/settings';
   import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+  import { githubTokenExists, saveGithubToken, createGithubRepo } from '$lib/services/github';
 
   interface GitLogEntry {
     graph: string;
@@ -31,6 +32,69 @@
   let changesExpanded = $state(true);
   let commitsExpanded = $state(true);
 
+  // "Publish to GitHub" — shown when the project has no remote (or isn't a git
+  // repo yet). Creates a repo on the user's account and pushes the first commit.
+  let publishOpen = $state(false);
+  let publishName = $state('');
+  let publishDesc = $state('');
+  let publishPrivate = $state(true);
+  let isPublishing = $state(false);
+  let githubTokenSaved = $state(false);
+  let tokenInput = $state('');
+  let publishError = $state<string | null>(null);
+
+  // True when the status error specifically means "no .git here yet".
+  let notAGitRepo = $derived(!!errorMsg && errorMsg.toLowerCase().includes('not a git repository'));
+  // Offer publishing when there's no remote configured, or no repo at all.
+  let needsPublish = $derived(notAGitRepo || (!!$branchInfo && $branchInfo.has_remote === false));
+
+  async function openPublish() {
+    publishError = null;
+    // Default the repo name to the project folder, sanitised to GitHub's rules.
+    const base = ($activeProject?.name ?? '').trim();
+    publishName = base.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'my-project';
+    githubTokenSaved = await githubTokenExists();
+    publishOpen = true;
+  }
+
+  async function doPublish() {
+    const id = $activeProjectId;
+    const name = publishName.trim();
+    if (!id || !name) return;
+    publishError = null;
+    isPublishing = true;
+    try {
+      if (!githubTokenSaved) {
+        const token = tokenInput.trim();
+        if (!token) {
+          publishError = 'Enter a GitHub personal access token first.';
+          return;
+        }
+        await saveGithubToken(token);
+        githubTokenSaved = true;
+        tokenInput = '';
+      }
+
+      const result = await createGithubRepo(id, name, publishDesc.trim(), publishPrivate);
+      showToast(
+        result.pushed
+          ? `Published to ${result.full_name}!`
+          : `Created ${result.full_name} — commit some files, then push.`,
+        'success'
+      );
+      publishOpen = false;
+      publishDesc = '';
+      if (result.html_url) {
+        invoke('preview_open_in_browser', { url: result.html_url }).catch(() => {});
+      }
+      await refreshAll();
+    } catch (err) {
+      publishError = String(err);
+    } finally {
+      isPublishing = false;
+    }
+  }
+
   // Per-file commit selection. Files appear checked by default; unchecking one
   // excludes it from the next commit. `knownFiles` tracks which paths we've seen
   // so newly-appeared changes default to selected while existing choices persist.
@@ -44,6 +108,14 @@
   );
   let selectedCount = $derived(allChangedFiles.filter((f) => selectedFiles.has(f)).length);
   let allSelected = $derived(allChangedFiles.length > 0 && selectedCount === allChangedFiles.length);
+
+  // Unpushed-commit state, surfaced in the branch bar and on the Push button so
+  // local-only commits are obvious at a glance.
+  let aheadCount = $derived($branchInfo?.ahead ?? 0);
+  let behindCount = $derived($branchInfo?.behind ?? 0);
+  // A branch with no upstream yet may still have local commits to publish.
+  let isUnpublished = $derived(!!$branchInfo && $branchInfo.has_remote && $branchInfo.upstream === null);
+  let hasUnpushed = $derived(aheadCount > 0 || isUnpublished);
 
   function toggleFile(file: string) {
     const next = new Set(selectedFiles);
@@ -117,9 +189,12 @@
   async function refreshAll() {
     const generation = ++refreshGeneration;
     errorMsg = null;
+    const id = $activeProjectId;
     await Promise.all([
       fetchStatus(generation),
-      fetchHistory(generation)
+      fetchHistory(generation),
+      // Keep ahead/behind counts in sync after commit/push/fetch too.
+      id ? refreshBranches(id) : Promise.resolve()
     ]);
   }
 
@@ -386,6 +461,16 @@
       <button class="branch-name-btn" onclick={() => { branchPickerOpen = !branchPickerOpen; branchSearch = ''; }} title="Switch branch">
         {$branchInfo?.current || 'no branch'}
       </button>
+      {#if $branchInfo?.has_remote}
+        {#if isUnpublished}
+          <span class="sync-badge unpublished" title="This branch isn't on the remote yet — Push to publish it">unpublished</span>
+        {:else if aheadCount > 0 || behindCount > 0}
+          <span class="sync-badge" title="{aheadCount} ahead / {behindCount} behind {$branchInfo?.upstream}">
+            {#if aheadCount > 0}<span class="ahead">↑{aheadCount}</span>{/if}
+            {#if behindCount > 0}<span class="behind">↓{behindCount}</span>{/if}
+          </span>
+        {/if}
+      {/if}
       <button class="branch-new-btn" onclick={() => { newBranchMode = true; newBranchName = ''; newBranchFrom = $branchInfo?.current || ''; branchPickerOpen = false; }} title="New branch">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
@@ -456,8 +541,73 @@
     {/if}
   {/if}
 
+  {#snippet publishForm()}
+    <div class="publish-form">
+      <div class="publish-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.5.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 22 12c0-5.52-4.48-10-10-10z"/></svg>
+        Publish to GitHub
+      </div>
+      {#if !githubTokenSaved}
+        <input
+          class="publish-input"
+          type="password"
+          placeholder="Personal access token (ghp_…)"
+          bind:value={tokenInput}
+          autocomplete="off"
+        />
+        <button
+          class="publish-help"
+          onclick={() => invoke('preview_open_in_browser', { url: 'https://github.com/settings/tokens/new?scopes=repo&description=Soryq' }).catch(() => {})}
+        >Create a token with 'repo' scope →</button>
+      {/if}
+      <input class="publish-input" type="text" placeholder="repository-name" bind:value={publishName} autocomplete="off" />
+      <input class="publish-input" type="text" placeholder="Description (optional)" bind:value={publishDesc} autocomplete="off" />
+      <label class="publish-checkbox">
+        <input type="checkbox" bind:checked={publishPrivate} />
+        <span>Private repository</span>
+      </label>
+      {#if publishError}
+        <div class="publish-err-msg">{publishError}</div>
+      {/if}
+      <div class="publish-actions">
+        <button
+          class="publish-create-btn"
+          onclick={doPublish}
+          disabled={isPublishing || !publishName.trim() || (!githubTokenSaved && !tokenInput.trim())}
+        >
+          {#if isPublishing}
+            <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+              <polyline points="21 3 21 8 16 8"/>
+            </svg>
+            <span>Publishing…</span>
+          {:else}
+            <span>Create &amp; Push</span>
+          {/if}
+        </button>
+        <button class="publish-cancel-btn" onclick={() => { publishOpen = false; publishError = null; }}>Cancel</button>
+      </div>
+    </div>
+  {/snippet}
+
   <div class="sc-content">
-    {#if errorMsg}
+    {#if errorMsg && notAGitRepo}
+      <div class="sc-clean">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" style="margin-bottom: 6px;">
+          <line x1="6" y1="3" x2="6" y2="15"/>
+          <circle cx="18" cy="6" r="3"/>
+          <circle cx="6" cy="18" r="3"/>
+          <path d="M18 9a9 9 0 01-9 9"/>
+        </svg>
+        <p>Not on GitHub yet</p>
+        <p class="sub">This folder isn't a Git repository. Publish it to create a repo and push your files.</p>
+        {#if publishOpen}
+          {@render publishForm()}
+        {:else}
+          <button class="publish-cta" onclick={openPublish}>Publish to GitHub</button>
+        {/if}
+      </div>
+    {:else if errorMsg}
       <div class="sc-error">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--error)" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
@@ -483,6 +633,19 @@
       </div>
     {:else}
       {@const totalChanges = gitStatus ? (gitStatus.modified.length + gitStatus.added.length + gitStatus.deleted.length + gitStatus.untracked.length) : 0}
+
+      {#if needsPublish}
+        <div class="publish-banner">
+          {#if publishOpen}
+            {@render publishForm()}
+          {:else}
+            <div class="publish-banner-row">
+              <span class="publish-banner-text">This repo isn't on GitHub yet.</span>
+              <button class="publish-cta small" onclick={openPublish}>Publish to GitHub</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       <!-- Commit Input and Action Buttons -->
       <div class="sc-commit-section">
@@ -533,9 +696,14 @@
 
         <button
           class="sc-action-btn push-btn"
+          class:has-unpushed={hasUnpushed}
           onclick={triggerGitPush}
           disabled={isPushing}
-          title="Push committed changes to remote repository"
+          title={hasUnpushed
+            ? (isUnpublished
+                ? 'Publish this branch to the remote'
+                : `Push ${aheadCount} local commit${aheadCount === 1 ? '' : 's'} to remote`)
+            : 'Push committed changes to remote repository'}
         >
           {#if isPushing}
             <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -544,7 +712,11 @@
             </svg>
             <span>Pushing...</span>
           {:else}
-            <span>Push</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"/>
+              <polyline points="5 12 12 5 19 12"/>
+            </svg>
+            <span>Push{aheadCount > 0 ? ` (${aheadCount})` : ''}</span>
           {/if}
         </button>
       </div>
@@ -1178,6 +1350,141 @@
     border-color: var(--text-muted);
   }
 
+  /* Local commits not yet on the remote: draw attention to the Push button. */
+  .push-btn.has-unpushed {
+    background: color-mix(in srgb, var(--accent) 16%, var(--bg-hover));
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--text-primary);
+  }
+  .push-btn.has-unpushed:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 26%, var(--bg-hover));
+    border-color: var(--accent);
+  }
+
+  /* Publish to GitHub */
+  .publish-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    margin-top: 6px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--button-bg);
+    color: var(--button-text);
+    border: none;
+    transition: background 0.15s;
+  }
+  .publish-cta:hover { background: var(--button-hover-bg); }
+  .publish-cta.small { padding: 5px 10px; font-size: 11px; margin-top: 0; }
+
+  .publish-banner {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--sidebar-bg);
+    flex-shrink: 0;
+  }
+  .publish-banner-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .publish-banner-text { font-size: 11.5px; color: var(--text-secondary); }
+
+  .publish-form {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    width: 100%;
+    text-align: left;
+  }
+  .publish-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+  .publish-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 9px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .publish-input:focus { border-color: var(--accent); }
+  .publish-help {
+    align-self: flex-start;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: -2px 0 2px;
+    color: var(--accent);
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .publish-help:hover { text-decoration: underline; }
+  .publish-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+  }
+  .publish-checkbox input { width: 13px; height: 13px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .publish-err-msg {
+    font-size: 11px;
+    color: var(--error);
+    background: color-mix(in srgb, var(--error) 10%, transparent);
+    border-radius: 5px;
+    padding: 5px 8px;
+    word-break: break-word;
+  }
+  .publish-actions { display: flex; gap: 6px; margin-top: 2px; }
+  .publish-create-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 1;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .publish-create-btn:hover:not(:disabled) { opacity: 0.88; }
+  .publish-create-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .publish-cancel-btn {
+    padding: 0 12px;
+    height: 28px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .publish-cancel-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
   .sc-action-btn:active:not(:disabled) {
     transform: scale(0.98);
   }
@@ -1237,6 +1544,30 @@
     transition: color 0.15s;
   }
   .branch-name-btn:hover { color: var(--accent); }
+  .sync-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    font-family: var(--editor-font-family, monospace);
+  }
+  .sync-badge .ahead { color: var(--accent); }
+  .sync-badge .behind { color: var(--warning); }
+  .sync-badge.unpublished {
+    color: var(--warning);
+    border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 9px;
+  }
   .branch-new-btn {
     display: flex;
     align-items: center;

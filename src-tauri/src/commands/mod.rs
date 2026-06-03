@@ -1,5 +1,6 @@
 pub mod background;
 pub mod file_system;
+pub mod github;
 pub mod preview;
 pub mod secrets;
 pub mod terminal;

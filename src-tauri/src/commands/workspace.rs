@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Strip local path information from git error output before surfacing it to the frontend.
-fn sanitize_git_error(stderr: &str) -> String {
+pub(crate) fn sanitize_git_error(stderr: &str) -> String {
     stderr
         .lines()
         .map(|line| {
@@ -18,6 +18,65 @@ fn sanitize_git_error(stderr: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Turn a failed `git push` stderr into a clear, actionable message. Without this,
+/// auth failures surface as a cryptic blob (or, with prompts disabled, as a silent
+/// "terminal prompts disabled" line) that's easy to miss — the user is left thinking
+/// the push worked when it didn't.
+pub(crate) fn classify_push_error(stderr: &str) -> String {
+    let lower = stderr.to_lowercase();
+
+    if lower.contains("authentication failed")
+        || lower.contains("could not read username")
+        || lower.contains("could not read password")
+        || lower.contains("terminal prompts disabled")
+        || lower.contains("permission denied")
+        || lower.contains("invalid username or password")
+        || lower.contains("403")
+    {
+        return "Authentication failed — your changes were NOT pushed. Sign in to GitHub (Git Credential Manager) or check that your saved credentials / access token are still valid, then push again.".to_string();
+    }
+
+    if lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+        || lower.contains("[rejected]")
+        || lower.contains("tip of your current branch is behind")
+    {
+        return "Push rejected — the remote has commits you don't have locally. Fetch and merge (or pull) first, then push again.".to_string();
+    }
+
+    if lower.contains("no configured push destination")
+        || lower.contains("does not appear to be a git repository")
+        || lower.contains("no such remote")
+        || lower.contains("repository not found")
+    {
+        return "No remote to push to — check that an 'origin' remote is configured for this project.".to_string();
+    }
+
+    if lower.contains("could not resolve host")
+        || lower.contains("failed to connect")
+        || lower.contains("connection timed out")
+    {
+        return "Couldn't reach GitHub — check your internet connection and try again.".to_string();
+    }
+
+    format!("Git push failed:\n{}", sanitize_git_error(stderr))
+}
+
+/// Run a git command in `root` and return its trimmed stdout on success, or None.
+fn git_capture(root: &std::path::Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .ok()?;
+    if out.status.success() {
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        None
+    }
 }
 
 fn validate_relative_path(file_path: &str) -> Result<(), String> {
@@ -172,9 +231,10 @@ pub fn workspace_git_push(
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
 
-    // 2. Push to origin — use "--" separator to prevent branch names starting
-    //    with "-" from being interpreted as git flags.
-    let mut push_args: Vec<&str> = vec!["push", "origin"];
+    // 2. Push to origin and set upstream (-u) so the branch tracks origin/<branch>
+    //    afterward — that's what lets us show ahead/behind counts. The "--"
+    //    separator prevents branch names starting with "-" from being read as flags.
+    let mut push_args: Vec<&str> = vec!["push", "-u", "origin"];
     let branch_owned = branch.clone();
     if !branch_owned.is_empty() {
         push_args.push("--");
@@ -192,9 +252,14 @@ pub fn workspace_git_push(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() {
-        Ok(format!("Successfully pushed to GitHub!\n{}{}", stdout, sanitize_git_error(&stderr)))
+        // git reports a no-op push ("Everything up-to-date") on stderr.
+        if stderr.to_lowercase().contains("everything up-to-date") {
+            Ok("Already up to date — nothing new to push.".to_string())
+        } else {
+            Ok(format!("Successfully pushed to GitHub!\n{}{}", stdout, sanitize_git_error(&stderr)))
+        }
     } else {
-        Err(format!("Git push failed:\n{}{}", sanitize_git_error(&stderr), stdout))
+        Err(classify_push_error(&stderr))
     }
 }
 
@@ -940,6 +1005,15 @@ pub struct GitBranchInfo {
     pub current: String,
     pub local: Vec<String>,
     pub remote: Vec<String>,
+    /// Tracking branch (e.g. "origin/main"), or None if the current branch isn't
+    /// published / has no upstream configured.
+    pub upstream: Option<String>,
+    /// Local commits not yet on the upstream (i.e. waiting to be pushed).
+    pub ahead: usize,
+    /// Upstream commits not yet pulled into the local branch.
+    pub behind: usize,
+    /// Whether any remote is configured at all.
+    pub has_remote: bool,
 }
 
 #[tauri::command]
@@ -970,7 +1044,28 @@ pub fn workspace_git_branches(project_id: String, state: State<AppState>) -> Res
             local.push(name);
         }
     }
-    Ok(GitBranchInfo { current, local, remote })
+
+    // Remote / upstream tracking info. `@{u}` resolves the current branch's
+    // upstream; rev-list --left-right --count prints "<behind>\t<ahead>".
+    let has_remote = git_capture(&root_path, &["remote"])
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    let upstream = git_capture(
+        &root_path,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    )
+    .filter(|s| !s.is_empty());
+    let (mut ahead, mut behind) = (0usize, 0usize);
+    if let Some(ref up) = upstream {
+        let spec = format!("{}...HEAD", up);
+        if let Some(counts) = git_capture(&root_path, &["rev-list", "--left-right", "--count", &spec]) {
+            let mut it = counts.split_whitespace();
+            behind = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            ahead = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        }
+    }
+
+    Ok(GitBranchInfo { current, local, remote, upstream, ahead, behind, has_remote })
 }
 
 #[tauri::command]
