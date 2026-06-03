@@ -70,4 +70,4 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
       - name: Build Tauri app
-        run: npm run tauri build -- --debug --bundles none
+        run: npm run tauri build -- --debug --no-bundle
