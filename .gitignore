@@ -41,3 +41,4 @@ src-tauri/cargo_output*.txt
 
 # Per-project local data (daily notes, tasks) written by the app at runtime
 .soryq/
+/.worktrees/
