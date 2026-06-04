@@ -184,16 +184,64 @@ const sessionOutputDecoders = new Map<number, TextDecoder>();
 const sessionInputBuffers = new Map<number, string>();
 const MAX_SESSION_BUFFER_CHARS = 250000;
 
-const AGENT_COMMAND_PATTERNS: Array<{ preset: string; pattern: RegExp }> = [
-  { preset: 'codex', pattern: /(?:^|\s)(?:codex)(?:\s|$)/i },
-  { preset: 'claude', pattern: /(?:^|\s)(?:claude|claude-code)(?:\s|$)/i },
-  { preset: 'opencode', pattern: /(?:^|\s)(?:opencode)(?:\s|$)/i },
-  { preset: 'pi', pattern: /(?:^|\s)(?:pi)(?:\s|$)/i },
-  { preset: 'antigravity', pattern: /(?:^|\s)(?:antigravity)(?:\s|$)/i },
-  { preset: 'aider', pattern: /(?:^|\s)(?:aider)(?:\s|$)/i },
-  { preset: 'cursor', pattern: /(?:^|\s)(?:agent)(?:\s|$)/i },
-  { preset: 'oh-my-pi', pattern: /(?:^|\s)(?:omp)(?:\s|$)/i },
+// Maps a launched executable (the first real token of a command, basename
+// only) to the agent preset it represents. Detection keys off the executable
+// name — NOT any word appearing in the line — so subcommands/arguments like
+// `omp agent ...` aren't misattributed to Cursor's bare `agent` CLI.
+const AGENT_COMMAND_EXECUTABLES: Array<{ preset: string; names: string[] }> = [
+  { preset: 'codex', names: ['codex'] },
+  { preset: 'claude', names: ['claude', 'claude-code'] },
+  { preset: 'opencode', names: ['opencode'] },
+  { preset: 'oh-my-pi', names: ['omp'] },
+  { preset: 'pi', names: ['pi'] },
+  { preset: 'antigravity', names: ['agy', 'antigravity'] },
+  { preset: 'aider', names: ['aider'] },
+  { preset: 'cursor', names: ['cursor-agent', 'cursor', 'agent'] },
 ];
+
+// Tokens that wrap the real command and should be skipped when locating the
+// executable (e.g. `npx claude`, `sudo aider`, `FOO=bar codex`).
+const COMMAND_LAUNCHER_PREFIXES = new Set([
+  'npx',
+  'bunx',
+  'pnpx',
+  'sudo',
+  'command',
+  'exec',
+  'time',
+  'nice',
+]);
+
+// Extracts the basename of the executable being launched, stripping a leading
+// PowerShell call operator, env-var assignments, launcher prefixes, any path,
+// and a Windows executable extension.
+function extractExecutable(command: string): string | null {
+  const tokens = command
+    .trim()
+    .replace(/^&\s*/, '')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+      i++;
+      continue;
+    }
+    if (COMMAND_LAUNCHER_PREFIXES.has(token.toLowerCase())) {
+      i++;
+      continue;
+    }
+    break;
+  }
+
+  const exe = tokens[i];
+  if (!exe) return null;
+
+  const base = exe.split(/[\\/]/).pop() ?? exe;
+  return base.replace(/\.(exe|cmd|bat|ps1)$/i, '').toLowerCase();
+}
 
 export function getLayoutPaneCount(layout: GridLayout): number {
   if (layout === 'single') return 1;
@@ -332,11 +380,11 @@ export function unregisterExitCallback(id: number) {
 }
 
 function detectAgentPresetFromCommand(command: string): string | null {
-  const normalized = command.trim().toLowerCase();
-  if (!normalized) return null;
+  const executable = extractExecutable(command);
+  if (!executable) return null;
 
-  for (const { preset, pattern } of AGENT_COMMAND_PATTERNS) {
-    if (pattern.test(normalized)) return preset;
+  for (const { preset, names } of AGENT_COMMAND_EXECUTABLES) {
+    if (names.includes(executable)) return preset;
   }
 
   return null;

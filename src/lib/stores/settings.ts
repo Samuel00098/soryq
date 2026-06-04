@@ -473,7 +473,7 @@ export const appearance = persistentWritable<'system' | 'light' | 'dark'>('appea
 // frost/glass opacity of every surface — works with or without a background image,
 // letting the desktop/acrylic (or the image) show through. Default 50 ≈ the
 // app's built-in frosted look.
-export const interfaceTransparency = persistentWritable<number>('interfaceTransparency', 50);
+export const interfaceTransparency = persistentWritable<number>('interfaceTransparency', 0);
 
 // Background image — an optional personalization layer painted behind the frosted UI.
 // The image file lives in the app data dir (managed by the Rust backend); this only
@@ -535,7 +535,7 @@ export function resetSettingsToDefault() {
   formatOnSave.set(true);
   userShortcuts.set(defaultShortcuts);
   appearance.set('system');
-  interfaceTransparency.set(50);
+  interfaceTransparency.set(0);
   backgroundImageEnabled.set(false);
   backgroundImageOpacity.set(100);
   backgroundImageBlur.set(0);

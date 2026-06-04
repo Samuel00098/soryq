@@ -3,6 +3,17 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.2.5] - 2026-06-04
+
+### Changed
+
+- **Interface starts opaque by default** — the `interfaceTransparency` default (used by fresh installs and "Reset to default") is now `0` instead of `50`, so Soryq launches in the solid-background, blur-disabled performance mode out of the box. Existing users keep whatever transparency level they've already set; only new profiles and explicit resets are affected.
+- **Release builds publish on tag push** — the release workflow now triggers automatically on a tag push and is pinned to npm. `bun.lock` was removed so `tauri-action` no longer auto-detects Bun (which the CI runners don't install), and `tauriScript` explicitly invokes npm so the release build matches the `npm ci` / `npm run build` path used everywhere else.
+
+### Fixed
+
+- **Agent detection keys off the executable, not any word in the line** — terminal agent-preset detection no longer regex-scans the whole command for an agent keyword. It now extracts the basename of the executable actually being launched — skipping a leading PowerShell call operator (`&`), env-var assignments (`FOO=bar codex`), and launcher prefixes (`npx`, `bunx`, `pnpx`, `sudo`, `command`, `exec`, `time`, `nice`), then stripping any path and Windows extension (`.exe`/`.cmd`/`.bat`/`.ps1`) — and matches that against each preset's known executable names. This fixes commands like `omp agent …` being misattributed to Cursor's bare `agent` CLI, and adds recognition for the `agy` (Antigravity) and `cursor-agent`/`cursor` executables.
+
 ## [v0.2.4] - 2026-06-03
 
 ### Added
