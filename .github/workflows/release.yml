@@ -6,7 +6,33 @@ on:
       - 'v*'
 
 jobs:
+  # Create the tag in soryq-releases before the matrix builds run,
+  # because tauri-action requires the tag to already exist in the target repo.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create tag in soryq-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          TAG="${{ github.ref_name }}"
+
+          # Get the HEAD SHA of the default branch in soryq-releases
+          SHA=$(curl -sf \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/Samuel00098/soryq-releases/git/ref/heads/main" \
+            | jq -r '.object.sha')
+
+          # Create the tag ref (silently ignore if it already exists)
+          curl -sf -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/Samuel00098/soryq-releases/git/refs" \
+            -d "{\"ref\": \"refs/tags/$TAG\", \"sha\": \"$SHA\"}" \
+            -o /dev/null || echo "Tag may already exist, continuing."
+
   release:
+    needs: prepare
     permissions:
       contents: write
     strategy:
