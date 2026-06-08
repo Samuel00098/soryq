@@ -70,16 +70,18 @@ jobs:
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASES_PAT }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # Pin npm explicitly so tauri-action never auto-detects another package manager
           tauriScript: npm run tauri
+          # Publish the release to the separate public releases repo
+          owner: Samuel00098
+          repo: soryq-releases
           tagName: ${{ github.ref_name }}
           releaseName: 'Soryq ${{ github.ref_name }}'
-          releaseBody: |
-            See [CHANGELOG.md](https://github.com/Samuel00098/soryq/blob/main/CHANGELOG.md) for what's new.
+          releaseBody: 'See the changelog for what is new in this release.'
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
