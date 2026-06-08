@@ -4,6 +4,7 @@ import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
+  onAction,
 } from '@tauri-apps/plugin-notification';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -19,6 +20,7 @@ export const toasts = writable<Toast[]>([]);
 
 // Cached permission state so we don't re-query the OS on every notification.
 let permissionGranted = false;
+let actionHandlerRegistered = false;
 
 /** Call once on app startup to prompt the user for notification permission. */
 export async function requestNotificationPermission() {
@@ -26,6 +28,20 @@ export async function requestNotificationPermission() {
     permissionGranted = await isPermissionGranted();
     if (!permissionGranted) {
       permissionGranted = (await requestPermission()) === 'granted';
+    }
+
+    if (!actionHandlerRegistered) {
+      actionHandlerRegistered = true;
+      onAction(async () => {
+        try {
+          const win = getCurrentWindow();
+          await win.show();
+          await win.unminimize();
+          await win.setFocus();
+        } catch (err) {
+          console.error('Failed to focus window on notification click:', err);
+        }
+      });
     }
   } catch (err) {
     console.error('Failed to initialize notification permission:', err);
@@ -35,12 +51,19 @@ export async function requestNotificationPermission() {
 async function showDesktopNotification(message: string, type: Toast['type']) {
   if (!get(notificationsEnabled)) return;
 
-  // Only raise an OS notification when the app is in the background — if the
-  // window is focused the in-app toast already tells the user everything.
+  // Only raise an OS notification when the app is truly in the background.
+  // Skip if the window is focused OR if it's visible and not minimized (user
+  // can already see the in-app toast).
   try {
-    if (await getCurrentWindow().isFocused()) return;
+    const win = getCurrentWindow();
+    const [focused, visible, minimized] = await Promise.all([
+      win.isFocused(),
+      win.isVisible(),
+      win.isMinimized(),
+    ]);
+    if (focused || (visible && !minimized)) return;
   } catch {
-    // If focus can't be determined, fall through and notify anyway.
+    // If window state can't be determined, fall through and notify anyway.
   }
 
   try {

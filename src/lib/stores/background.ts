@@ -1,18 +1,19 @@
 import { get, writable } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur } from './settings';
 import { showToast } from './notification';
 
-// The current background image as a data URL (held in memory, not persisted in
-// localStorage — the file lives on disk in the app data dir). `null` = none set.
-let currentDataUrl: string | null = null;
+// The current background image as a webview-safe asset URL. The image itself
+// lives on disk in the app config dir; we avoid piping large base64 payloads
+// over IPC for faster set/get performance.
+let currentAssetUrl: string | null = null;
 
 /** Reactive flag for the UI: whether a background image is stored on disk. */
 export const backgroundImagePresent = writable<boolean>(false);
 
-function setCurrent(dataUrl: string | null) {
-  currentDataUrl = dataUrl;
-  backgroundImagePresent.set(dataUrl !== null);
+function setCurrent(filePath: string | null) {
+  currentAssetUrl = filePath ? convertFileSrc(filePath) : null;
+  backgroundImagePresent.set(filePath !== null);
 }
 
 /** Load saved settings on startup: apply the global frost, then any stored image. */
@@ -67,7 +68,7 @@ export async function removeBackgroundImage(): Promise<void> {
 
 /** True when an image is present (regardless of the enabled toggle). */
 export function hasBackgroundImage(): boolean {
-  return currentDataUrl !== null;
+  return currentAssetUrl !== null;
 }
 
 /**
@@ -78,10 +79,10 @@ export function hasBackgroundImage(): boolean {
 export function applyBackgroundImage(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const active = get(backgroundImageEnabled) && currentDataUrl !== null;
+  const active = get(backgroundImageEnabled) && currentAssetUrl !== null;
 
   if (active) {
-    root.style.setProperty('--user-bg-image', `url("${currentDataUrl}")`);
+    root.style.setProperty('--user-bg-image', `url("${currentAssetUrl}")`);
     root.classList.add('has-bg-image');
   } else {
     root.style.removeProperty('--user-bg-image');

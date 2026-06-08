@@ -6,6 +6,7 @@ mod state;
 mod theme;
 mod workspace;
 
+use std::io;
 use state::AppState;
 use tauri::Manager;
 
@@ -15,7 +16,8 @@ pub fn run() {
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let config_dir = base_config_dir.join("soryq");
 
-    std::fs::create_dir_all(&config_dir).ok();
+    std::fs::create_dir_all(&config_dir)
+        .expect("failed to create soryq config directory");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -24,8 +26,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            let window = app.get_webview_window("main").unwrap();
-
+            let Some(window) = app.get_webview_window("main") else {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "main webview window not found").into());
+            };
             #[cfg(target_os = "macos")]
             let _ = window_vibrancy::apply_vibrancy(&window, window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground, None, None);
 
@@ -48,18 +51,25 @@ pub fn run() {
             commands::background::background_image_set,
             commands::background::background_image_get,
             commands::background::background_image_clear,
+            commands::secrets::provider_api_key_get,
             commands::secrets::provider_api_key_exists,
             commands::secrets::provider_api_key_set,
             commands::secrets::provider_api_key_delete,
             commands::secrets::ai_refine_prompt,
+            commands::secrets::ai_transcribe_audio,
+            commands::secrets::ai_complete,
             commands::secrets::ai_generate_commit_message,
             commands::secrets::list_provider_models,
+            commands::secrets::check_local_provider_online,
+            commands::secrets::tts_speak,
+            commands::http::http_send_request,
             commands::workspace::workspace_open_project,
             commands::workspace::workspace_get_active,
             commands::workspace::workspace_set_active,
             commands::workspace::workspace_list_projects,
             commands::workspace::workspace_get_recent,
             commands::workspace::workspace_clear_recent,
+            commands::workspace::workspace_get_recent_daily_notes,
             commands::workspace::workspace_git_push,
             commands::workspace::workspace_git_commit,
             commands::workspace::workspace_git_fetch,
@@ -74,10 +84,14 @@ pub fn run() {
             commands::workspace::workspace_git_checkout,
             commands::workspace::workspace_git_branch_create,
             commands::workspace::workspace_git_branch_delete,
+            commands::workspace::workspace_git_worktree_create,
+            commands::workspace::workspace_git_worktree_remove,
             commands::github::github_token_set,
             commands::github::github_token_exists,
             commands::github::github_token_delete,
             commands::github::workspace_github_create_repo,
+            commands::db::db_list_tables,
+            commands::db::db_execute_query,
             commands::file_system::fs_read_dir,
             commands::file_system::fs_create_file,
             commands::file_system::fs_create_dir,

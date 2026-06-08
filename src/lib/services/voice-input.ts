@@ -1,8 +1,20 @@
+import { invoke } from '@tauri-apps/api/core';
+import { get } from 'svelte/store';
+import {
+  currentVoiceInputModel,
+  getDefaultVoiceInputModel,
+  getProviderDef,
+  voiceInputProvider,
+  voiceInputUsesModelTranscription,
+} from '$lib/stores/settings';
+import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+
 export type VoiceInputCallbacks = {
   onStart?: () => void;
   onResult: (transcript: string) => void;
   onEnd?: () => void;
   onError?: (message: string) => void;
+  onProcessingStart?: (message: string) => void;
 };
 
 export type VoiceInputSession = {
@@ -29,9 +41,18 @@ type BrowserSpeechRecognition = {
   stop: () => void;
 };
 
+type AudioContextCtor = new () => AudioContext;
+const GOOGLE_VAD_RMS_THRESHOLD = 0.015;
+const GOOGLE_VAD_SILENCE_MS = 900;
+
 function getSpeechRecognitionCtor() {
   if (typeof window === 'undefined') return null;
   return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+}
+
+function getAudioContextCtor(): AudioContextCtor | null {
+  if (typeof window === 'undefined') return null;
+  return (window as any).AudioContext || (window as any).webkitAudioContext || null;
 }
 
 function getPreferredSpeechLanguage() {
@@ -156,6 +177,15 @@ export function mergeVoiceTranscript(base: string, transcript: string, separator
 }
 
 async function verifyMicrophoneAccess(): Promise<string | null> {
+  const stream = await requestMicrophoneStream();
+  if (typeof stream === 'string') {
+    return stream;
+  }
+  stream.getTracks().forEach((track) => track.stop());
+  return null;
+}
+
+async function requestMicrophoneStream(): Promise<MediaStream | string> {
   if (typeof window === 'undefined') {
     return 'Voice input is only available in the browser.';
   }
@@ -189,9 +219,7 @@ async function verifyMicrophoneAccess(): Promise<string | null> {
   }
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((track) => track.stop());
-    return null;
+    return await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err: any) {
     if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
       return 'Microphone access denied. Enable microphone permissions and try again.';
@@ -204,6 +232,43 @@ async function verifyMicrophoneAccess(): Promise<string | null> {
     }
     return 'Could not access the microphone.';
   }
+}
+
+function pcmToWavBytes(chunks: Float32Array[], sampleRate: number) {
+  const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const buffer = new ArrayBuffer(44 + totalSamples * 2);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + totalSamples * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, totalSamples * 2, true);
+
+  let offset = 44;
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length; i += 1) {
+      const sample = Math.max(-1, Math.min(1, chunk[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+
+  return new Uint8Array(buffer);
 }
 
 function mapRecognitionError(code: string | undefined) {
@@ -227,14 +292,166 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
   let recognition: BrowserSpeechRecognition | null = null;
   let starting = false;
   let stopRequested = false;
+  let transcriptionPending = false;
+  let captureStream: MediaStream | null = null;
+  let captureContext: AudioContext | null = null;
+  let captureSource: MediaStreamAudioSourceNode | null = null;
+  let captureProcessor: ScriptProcessorNode | null = null;
+  let capturedChunks: Float32Array[] = [];
+  let captureSampleRate = 16_000;
+  let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  let speechDetected = false;
+
+  function clearSilenceTimer() {
+    if (silenceTimer) {
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+    }
+  }
+
+  function clearCaptureState() {
+    clearSilenceTimer();
+    captureProcessor?.disconnect();
+    captureSource?.disconnect();
+    if (captureContext && captureContext.state !== 'closed') {
+      void captureContext.close().catch(() => undefined);
+    }
+    captureStream?.getTracks().forEach((track) => track.stop());
+    captureProcessor = null;
+    captureSource = null;
+    captureContext = null;
+    captureStream = null;
+    capturedChunks = [];
+    speechDetected = false;
+  }
+
+  function autoStopAfterSilence() {
+    if (stopRequested || transcriptionPending || (!captureStream && !captureContext)) return;
+    stopRequested = true;
+    void finishGoogleTranscription();
+  }
+
+  async function finishGoogleTranscription() {
+    if (transcriptionPending) return;
+    transcriptionPending = true;
+    clearSilenceTimer();
+    callbacks.onProcessingStart?.('Transcribing with Google…');
+
+    if (capturedChunks.length === 0) {
+      clearCaptureState();
+      transcriptionPending = false;
+      stopRequested = false;
+      callbacks.onEnd?.();
+      return;
+    }
+
+    const bytes = pcmToWavBytes(capturedChunks, captureSampleRate);
+    clearCaptureState();
+
+    try {
+      const provider = get(voiceInputProvider);
+      const providerDef = getProviderDef(provider === 'webspeech' ? 'google' : provider);
+      const apiKey = getProviderApiKeyLocal(providerDef.id) ?? '';
+      if (!apiKey) {
+        throw new Error(`${providerDef.label} API key is missing. Add it in Settings to use voice mode.`);
+      }
+      const model = get(currentVoiceInputModel) || getDefaultVoiceInputModel(provider as 'google' | 'openrouter');
+      const transcript = await invoke<string>('ai_transcribe_audio', {
+        audioBytes: Array.from(bytes),
+        mimeType: 'audio/wav',
+        provider,
+        model,
+        apiKey,
+      });
+      callbacks.onResult(transcript.trim());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      callbacks.onError?.(message || 'Google transcription failed.');
+    } finally {
+      transcriptionPending = false;
+      stopRequested = false;
+      callbacks.onEnd?.();
+    }
+  }
 
   return {
     isSupported() {
+      const provider = get(voiceInputProvider);
+      if (voiceInputUsesModelTranscription(provider)) {
+        return !!getAudioContextCtor() && typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+      }
       return !!getSpeechRecognitionCtor();
     },
 
     async start() {
-      if (starting) return;
+      if (starting || recognition) return;
+      if (captureStream || transcriptionPending) return;
+      const provider = get(voiceInputProvider);
+
+      if (voiceInputUsesModelTranscription(provider)) {
+        const AudioContextClass = getAudioContextCtor();
+        if (!AudioContextClass) {
+          callbacks.onError?.('Voice input is not supported in this runtime.');
+          return;
+        }
+
+        starting = true;
+        stopRequested = false;
+        const streamOrError = await requestMicrophoneStream();
+        if (typeof streamOrError === 'string') {
+          starting = false;
+          callbacks.onError?.(streamOrError);
+          return;
+        }
+        if (stopRequested) {
+          starting = false;
+          streamOrError.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        try {
+          captureStream = streamOrError;
+          captureContext = new AudioContextClass();
+          captureSampleRate = captureContext.sampleRate;
+          captureSource = captureContext.createMediaStreamSource(streamOrError);
+          captureProcessor = captureContext.createScriptProcessor(4096, 1, 1);
+          capturedChunks = [];
+          speechDetected = false;
+          clearSilenceTimer();
+
+          captureProcessor.onaudioprocess = (event: AudioProcessingEvent) => {
+            if (stopRequested) return;
+            const input = event.inputBuffer.getChannelData(0);
+            capturedChunks.push(new Float32Array(input));
+            let sumSquares = 0;
+            for (let i = 0; i < input.length; i += 1) {
+              sumSquares += input[i] * input[i];
+            }
+            const rms = Math.sqrt(sumSquares / Math.max(input.length, 1));
+            if (rms >= GOOGLE_VAD_RMS_THRESHOLD) {
+              speechDetected = true;
+              clearSilenceTimer();
+              return;
+            }
+            if (!speechDetected || silenceTimer) return;
+            silenceTimer = setTimeout(() => {
+              silenceTimer = null;
+              autoStopAfterSilence();
+            }, GOOGLE_VAD_SILENCE_MS);
+          };
+
+          captureSource.connect(captureProcessor);
+          captureProcessor.connect(captureContext.destination);
+          starting = false;
+          callbacks.onStart?.();
+        } catch {
+          starting = false;
+          clearCaptureState();
+          callbacks.onError?.('Could not start voice input.');
+        }
+        return;
+      }
+
       const SpeechRecognition = getSpeechRecognitionCtor();
       if (!SpeechRecognition) {
         callbacks.onError?.('Voice input is not supported in this runtime.');
@@ -277,7 +494,7 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
 
       recognizer.onerror = (event: any) => {
         starting = false;
-        if (stopRequested && event?.error === 'aborted') {
+        if (event?.error === 'aborted') {
           return;
         }
         callbacks.onError?.(mapRecognitionError(event?.error));
@@ -285,8 +502,11 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
 
       recognizer.onend = () => {
         starting = false;
+        if (recognition === recognizer) {
+          recognition = null;
+        }
+        stopRequested = false;
         callbacks.onEnd?.();
-        recognition = null;
       };
 
       try {
@@ -299,6 +519,10 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
 
     stop() {
       stopRequested = true;
+      if (captureStream || captureContext) {
+        void finishGoogleTranscription();
+        return;
+      }
       recognition?.stop();
       recognition = null;
     },

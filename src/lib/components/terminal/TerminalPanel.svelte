@@ -16,6 +16,7 @@
     killSession,
     activateSessionInPane,
     registerMosaicGrow,
+    registerMosaicClose,
   } from '$lib/stores/terminal';
   import { activeProject, openProjectIds } from '$lib/stores/workspace';
   import { activeFile } from '$lib/stores/editor';
@@ -246,26 +247,65 @@
     return nextIdx;
   }
 
-  onMount(() => {
-    registerMosaicGrow(addTiledPane);
-    return () => registerMosaicGrow(null);
-  });
+  // Called by killSession when a terminal is torn down outside of closePane
+  // (e.g. orchestrator agent teardown). Removes the mosaic cell so surrounding
+  // terminals resize to fill the space. Idempotent: no-op if cell already gone.
+  function mosaicClosePane(paneIndex: number) {
+    const totalCells = columns.reduce((sum, col) => sum + col.cells.length, 0);
+    const position = findPanePosition(paneIndex);
+    if (!position) return; // cell already removed (called from closePane) or never existed
 
-  // Close a pane: kill its session (if any) AND drop its cell from the mosaic so
-  // the surrounding terminals reclaim the freed space — no lingering "Open
-  // terminal" placeholder left in the background. The very last pane is the one
-  // exception: it's kept and reset to an empty placeholder so the grid is never
-  // left with zero panes. Used by every close affordance (pane titlebar button,
-  // empty-pane ✕, and the session tab ✕ via closeSession).
-  function closePane(paneIndex: number) {
-    const sessionId = $paneAssignments[paneIndex];
-    if (sessionId !== null && sessionId !== undefined) {
-      killSession(sessionId);
+    if (totalCells > 1) {
+      const { colIdx, cellIdx } = position;
+      columns[colIdx].cells.splice(cellIdx, 1);
+
+      if (columns[colIdx].cells.length === 0) {
+        columns.splice(colIdx, 1);
+        colWidths.splice(colIdx, 1);
+        cellHeights.splice(colIdx, 1);
+        const C = columns.length;
+        colWidths = Array(C).fill(100 / C);
+      } else {
+        const n = columns[colIdx].cells.length;
+        cellHeights[colIdx] = Array(n).fill(100 / n);
+      }
+
+      columns = [...columns];
+      colWidths = [...colWidths];
+      cellHeights = [...cellHeights];
     }
 
+    activePaneIndex.update((active) => {
+      if (active !== paneIndex) return active;
+      const survivor = columns.flatMap((col) => col.cells).find((cell) => cell.index !== paneIndex);
+      return survivor?.index ?? Math.max(0, paneIndex - 1);
+    });
+
+    if (maximizedPaneIndex === paneIndex) {
+      setMaximizedPaneIndex(null);
+    }
+
+    document.dispatchEvent(new CustomEvent('pane-resize-end'));
+  }
+
+  onMount(() => {
+    registerMosaicGrow(addTiledPane);
+    registerMosaicClose(mosaicClosePane);
+    return () => { registerMosaicGrow(null); registerMosaicClose(null); };
+  });
+
+  // Close a pane: drop its cell from the mosaic FIRST so that when killSession
+  // fires its mosaicClosePaneFn callback the cell is already gone (no-op),
+  // then kill the session. This order is required to avoid double-cleanup.
+  // The very last pane is the one exception: it's kept as an empty placeholder
+  // so the grid is never left with zero panes. Used by every close affordance
+  // (pane titlebar button, empty-pane ✕, and the session tab ✕ via closeSession).
+  function closePane(paneIndex: number) {
     const totalCells = columns.reduce((sum, col) => sum + col.cells.length, 0);
     const position = findPanePosition(paneIndex);
 
+    // Remove the mosaic cell before calling killSession so the registered
+    // mosaicClosePaneFn finds no cell there and becomes a no-op.
     if (totalCells > 1 && position) {
       const { colIdx, cellIdx } = position;
       columns[colIdx].cells.splice(cellIdx, 1);
@@ -288,7 +328,16 @@
       cellHeights = [...cellHeights];
     }
 
-    // Clear the slot's assignment so the reconcile effect won't re-add a cell.
+    // Now kill the session (teardown PTY + null pane assignment). Because the
+    // mosaic cell is already removed above, killSession's mosaicClosePaneFn
+    // call will be a no-op (findPanePosition returns null for this index).
+    const sessionId = $paneAssignments[paneIndex];
+    if (sessionId !== null && sessionId !== undefined) {
+      killSession(sessionId);
+    }
+
+    // Redundantly clear the slot — killSession already nulled it, but this
+    // ensures correctness for the empty-pane case (no session to kill).
     paneAssignments.update((panes) => {
       const copy = [...panes];
       if (paneIndex >= 0 && paneIndex < copy.length) copy[paneIndex] = null;

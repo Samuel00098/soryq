@@ -11,14 +11,22 @@
   import ReviewPanel from '$lib/components/review/ReviewPanel.svelte';
   import TasksPanel from '$lib/components/workspace/TasksPanel.svelte';
   import SnapshotsPanel from '$lib/components/layout/SnapshotsPanel.svelte';
+  import TerminalSnippetsPanel from '$lib/components/explorer/TerminalSnippetsPanel.svelte';
+  import AgentCommandCenter from '$lib/components/terminal/AgentCommandCenter.svelte';
+  import { agentCenterOpen } from '$lib/stores/orchestrator';
   import HttpClientPanel from '$lib/components/http/HttpClientPanel.svelte';
   import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
-  import FloatingNotepad from '$lib/components/workspace/FloatingNotepad.svelte';
   import UpdateBanner from '$lib/components/shared/UpdateBanner.svelte';
+  import DbExplorerPanel from '$lib/components/db/DbExplorerPanel.svelte';
+  // Developer workspace panels
+  import ToolboxPanel from '$lib/components/toolbox/ToolboxPanel.svelte';
   import { checkForUpdate } from '$lib/stores/updater';
   import { fly } from 'svelte/transition';
 
-  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, setSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, openQuickCapture } from '$lib/stores/layout';
+  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, toggleSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, toggleDbVisible, toggleToolboxVisible, openQuickCapture } from '$lib/stores/layout';
+  import { initNavigationHistory } from '$lib/stores/navigation';
+  import SketchCanvas from '$lib/components/workspace/SketchCanvas.svelte';
+  import { sketchCanvasOpen, toggleSketchCanvas } from '$lib/stores/sketch';
   import { openDailyNote } from '$lib/stores/dailyNote';
   import { activeProject, openProject, activeWorkspaceId, newWorkspacePromptOpen, isProjectSwitching } from '$lib/stores/workspace';
   import SourceControl from '$lib/components/explorer/SourceControl.svelte';
@@ -26,8 +34,7 @@
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
   import { startProxy, stopProxy } from '$lib/stores/preview';
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
-  import { createTerminalSession, killAllSessions } from '$lib/stores/terminal';
-  import { floatingNoteOpen, toggleFloatingNote } from '$lib/stores/notes';
+  import { createTerminalSession, killAllSessions, focusPromptBar, launchPromptBarVoiceMode } from '$lib/stores/terminal';
 
   // Sidebar resize state
   let sidebarResizing = $state(false);
@@ -52,14 +59,10 @@
   let auxStartY = 0;
   let auxStartHeight = 0;
 
-  // Collapse threshold scales with zoom so at zoom-in the sidebar collapses more eagerly
-  const BASE_COLLAPSE_THRESHOLD = 120;
+  // Aux panel tabs collapse to icon-only when the panel is too narrow for labels
+  let auxTabsNarrow = $derived(auxPanelWidth < 300);
 
-  let effectiveCollapseThreshold = $derived(BASE_COLLAPSE_THRESHOLD * ($uiZoom / 100));
-
-  let tabsCollapsed = $derived($layout.sidebarWidth < effectiveCollapseThreshold);
-
-  const sidebarTabsList = ['files', 'git', 'snapshots'];
+  const sidebarTabsList = ['files', 'git', 'snapshots', 'snippets'];
   let activeTabIdx = $derived(sidebarTabsList.indexOf($layout.sidebarTab));
 
   let visiblePanels = $derived([
@@ -67,28 +70,29 @@
     { id: 'preview', visible: $layout.previewVisible },
     { id: 'review', visible: $layout.reviewVisible },
     { id: 'http', visible: $layout.httpVisible },
-    { id: 'tasks', visible: $layout.tasksVisible }
+    { id: 'tasks', visible: $layout.tasksVisible },
+    { id: 'db', visible: $layout.dbVisible },
+    { id: 'toolbox', visible: $layout.toolboxVisible },
   ].filter(p => p.visible));
 
   let firstPanelId = $derived(visiblePanels[0]?.id);
   let secondPanelId = $derived(visiblePanels[1]?.id);
   let thirdPanelId = $derived(visiblePanels[2]?.id);
 
-  // Adjust sidebar width dynamically when screen size changes, and collapse if very narrow screen
+  // Adjust sidebar width dynamically when screen size changes, and close panel if very narrow screen
   $effect(() => {
     const zoom = $uiZoom;
-    // At higher zoom, the effective viewport is smaller, so we need more aggressive collapsing
     const effectiveWindowWidth = windowWidth / (zoom / 100);
     if (effectiveWindowWidth < 640) {
-      if ($layout.sidebarWidth >= effectiveCollapseThreshold) {
-        layout.update((l) => ({ ...l, sidebarWidth: 48 }));
+      if ($layout.sidebarVisible) {
+        layout.update((l) => ({ ...l, sidebarVisible: false }));
       }
     } else {
-      const maxAllowedWidth = Math.min(600, effectiveWindowWidth - 250);
+      const maxAllowedWidth = Math.min(600, effectiveWindowWidth - 250 - 48);
       if ($layout.sidebarWidth > maxAllowedWidth) {
         layout.update((l) => ({
           ...l,
-          sidebarWidth: Math.max(48, maxAllowedWidth),
+          sidebarWidth: Math.max(180, maxAllowedWidth),
         }));
       }
     }
@@ -97,22 +101,13 @@
   // Clamp auxiliary panel width dynamically when screen size, zoom, or sidebar changes
   $effect(() => {
     const zoom = $uiZoom / 100;
-    const currentSidebarWidth = $layout.sidebarVisible ? (tabsCollapsed ? 48 : $layout.sidebarWidth) : 0;
+    const currentSidebarWidth = 48 + ($layout.sidebarVisible ? $layout.sidebarWidth : 0);
     const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
     
-    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible) && auxPanelWidth > maxAllowedWidth) {
+    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible) && auxPanelWidth > maxAllowedWidth) {
       auxPanelWidth = Math.max(200, maxAllowedWidth);
     }
   });
-
-  function openSidebarTab(tab: 'files' | 'git') {
-    layout.update((l) => ({
-      ...l,
-      sidebarVisible: true,
-      sidebarWidth: l.sidebarWidth < effectiveCollapseThreshold ? 220 : l.sidebarWidth,
-      sidebarTab: tab
-    }));
-  }
 
   function onSidebarMouseDown(e: MouseEvent) {
     sidebarResizing = true;
@@ -142,15 +137,15 @@
     const zoom = $uiZoom / 100;
     if (sidebarResizing) {
       const delta = (e.clientX - sidebarStartX) / zoom;
-      const maxAllowedWidth = Math.min(600, (windowWidth / zoom) - 250);
+      const maxAllowedWidth = Math.min(600, (windowWidth / zoom) - 250 - 48);
       layout.update((l) => ({
         ...l,
-        sidebarWidth: Math.max(48, Math.min(maxAllowedWidth, sidebarStartWidth + delta)),
+        sidebarWidth: Math.max(180, Math.min(maxAllowedWidth, sidebarStartWidth + delta)),
       }));
     } else if (auxResizing) {
       const delta = (e.clientX - auxStartX) / zoom;
       const nextWidth = auxStartWidth - delta;
-      const currentSidebarWidth = $layout.sidebarVisible ? (tabsCollapsed ? 48 : $layout.sidebarWidth) : 0;
+      const currentSidebarWidth = 48 + ($layout.sidebarVisible ? $layout.sidebarWidth : 0);
       const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
       auxPanelWidth = Math.max(200, Math.min(maxAllowedWidth, nextWidth));
     } else if (auxRowResizing) {
@@ -228,14 +223,20 @@
         case 'stopProxy':
           stopProxy();
           break;
-        case 'toggleNotepad':
-          toggleFloatingNote();
-          break;
         case 'quickCapture':
           openQuickCapture();
           break;
         case 'openDailyNote':
           if ($activeProject) openDailyNote($activeProject, true).catch(() => {});
+          break;
+        case 'toggleSketch':
+          toggleSketchCanvas();
+          break;
+        case 'openPromptBar':
+          focusPromptBar();
+          break;
+        case 'launchVoiceMode':
+          launchPromptBarVoiceMode();
           break;
       }
     }
@@ -277,192 +278,223 @@
       {#if sidebarResizing || auxResizing || auxRowResizing}
         <div class="resize-overlay" class:row-resize={auxRowResizing}></div>
       {/if}
-      <!-- Sidebar with view tabs above explorer -->
+      <!-- Left Activity Bar (always visible) -->
+      <div class="activity-bar bento-card">
+        <div class="activity-bar-tabs">
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.sidebarVisible && $layout.sidebarTab === 'files'}
+            onclick={() => toggleSidebarTab('files')}
+            title="Files"
+            aria-label="Files"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7a2 2 0 0 1 2-2h3.586a2 2 0 0 1 1.414.586L11.414 7H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.sidebarVisible && $layout.sidebarTab === 'git'}
+            onclick={() => toggleSidebarTab('git')}
+            title="Source Control"
+            aria-label="Source Control"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="18" cy="18" r="3"/>
+              <circle cx="6" cy="6" r="3"/>
+              <circle cx="6" cy="18" r="3"/>
+              <path d="M18 15V9a4 4 0 0 0-4-4H9"/>
+              <line x1="6" y1="9" x2="6" y2="15"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.sidebarVisible && $layout.sidebarTab === 'snapshots'}
+            onclick={() => toggleSidebarTab('snapshots')}
+            title="Workspace Snapshots"
+            aria-label="Workspace Snapshots"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+              <circle cx="12" cy="10" r="3"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.sidebarVisible && $layout.sidebarTab === 'snippets'}
+            onclick={() => toggleSidebarTab('snippets')}
+            title="Shell Snippets"
+            aria-label="Shell Snippets"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 17l6-6-6-6M12 19h8"/>
+            </svg>
+          </button>
+          <div class="svt-separator"></div>
+
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.editorVisible}
+            onclick={toggleEditorVisible}
+            title="Editor"
+            aria-label="Editor"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.activeView === 'terminal'}
+            onclick={toggleTerminal}
+            title="Terminal"
+            aria-label="Terminal"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="18" rx="3"/>
+              <polyline points="8,9 4,12 8,15"/>
+              <line x1="12" y1="15" x2="20" y2="15"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.previewVisible}
+            onclick={togglePreviewVisible}
+            title="Preview"
+            aria-label="Preview"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+              <path d="M2 12h20"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.reviewVisible}
+            onclick={toggleReviewVisible}
+            title="Code Review"
+            aria-label="Code Review"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="18" cy="18" r="3"/>
+              <circle cx="6" cy="6" r="3"/>
+              <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+              <path d="M11 18H8a2 2 0 0 1-2-2V9"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.httpVisible}
+            onclick={toggleHttpVisible}
+            title="HTTP Client"
+            aria-label="HTTP Client"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.tasksVisible}
+            onclick={toggleTasksVisible}
+            title="Tasks"
+            aria-label="Tasks"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="5" height="18" rx="1"/>
+              <rect x="10" y="3" width="5" height="12" rx="1"/>
+              <rect x="17" y="3" width="5" height="8" rx="1"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.dbVisible}
+            onclick={toggleDbVisible}
+            title="Database Explorer"
+            aria-label="Database Explorer"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+              <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.toolboxVisible}
+            onclick={toggleToolboxVisible}
+            title="Dev Toolbox"
+            aria-label="Dev Toolbox"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="activity-bar-bottom">
+          <button
+            class="svt-btn"
+            class:svt-active={$sketchCanvasOpen}
+            onclick={toggleSketchCanvas}
+            title="Toggle Sketch Canvas (Ctrl+Shift+N)"
+            aria-label="Sketch Canvas"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+          {#if $activeProject}
+            <button
+              class="svt-btn"
+              onclick={() => openDailyNote($activeProject!, true).catch(() => {})}
+              title="Open Today's Note (Ctrl+Shift+D)"
+              aria-label="Open Daily Note"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+                <line x1="8" y1="15" x2="16" y2="15"/>
+              </svg>
+            </button>
+          {/if}
+          <button
+            class="svt-btn"
+            onclick={openSettings}
+            title="Settings (Ctrl+,)"
+            aria-label="Settings"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Collapsible Sidebar Panel -->
       {#if $layout.sidebarVisible}
         <div
-          class="sidebar"
-          class:collapsed={tabsCollapsed}
-          style="width: {tabsCollapsed ? 48 : $layout.sidebarWidth}px; min-width: {tabsCollapsed ? 48 : $layout.sidebarWidth}px;"
+          class="sidebar bento-card"
+          style="width: {$layout.sidebarWidth}px; min-width: 180px;"
         >
-          <!-- Project tabs (hide when very narrow) -->
-          {#if !tabsCollapsed}
-            <ProjectSwitcher />
-          {/if}
-
-          <!-- View Tabs: icons-only when narrow, icon+label when wide -->
-          <div class="sidebar-view-tabs" class:tabs-icon-only={tabsCollapsed}>
-            {#if tabsCollapsed}
-              <button
-                class="svt-btn"
-                class:svt-active={$layout.sidebarTab === 'files'}
-                onclick={() => openSidebarTab('files')}
-                title="Files"
-                aria-label="Files"
-              >
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 7a2 2 0 0 1 2-2h3.586a2 2 0 0 1 1.414.586L11.414 7H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-                </svg>
-              </button>
-              <button
-                class="svt-btn"
-                class:svt-active={$layout.sidebarTab === 'git'}
-                onclick={() => openSidebarTab('git')}
-                title="Source Control"
-                aria-label="Source Control"
-              >
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="18" cy="18" r="3"/>
-                  <circle cx="6" cy="6" r="3"/>
-                  <circle cx="6" cy="18" r="3"/>
-                  <path d="M18 15V9a4 4 0 0 0-4-4H9"/>
-                  <line x1="6" y1="9" x2="6" y2="15"/>
-                </svg>
-              </button>
-              <div class="svt-separator"></div>
+          <div class="sidebar-content">
+            {#if $layout.sidebarTab === 'files'}
+              <FileExplorer />
+            {:else if $layout.sidebarTab === 'git'}
+              <SourceControl />
+            {:else if $layout.sidebarTab === 'snapshots'}
+              <SnapshotsPanel />
+            {:else if $layout.sidebarTab === 'snippets'}
+              <TerminalSnippetsPanel />
             {/if}
-
-            <button
-              class="svt-btn"
-              class:svt-active={$layout.editorVisible}
-              onclick={toggleEditorVisible}
-              title="Editor"
-              aria-label="Editor"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-            </button>
-            <button
-              class="svt-btn"
-              class:svt-active={$layout.activeView === 'terminal'}
-              onclick={toggleTerminal}
-              title="Terminal"
-              aria-label="Terminal"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="3" width="20" height="18" rx="3"/>
-                <polyline points="8,9 4,12 8,15"/>
-                <line x1="12" y1="15" x2="20" y2="15"/>
-              </svg>
-            </button>
-            <button
-              class="svt-btn"
-              class:svt-active={$layout.previewVisible}
-              onclick={togglePreviewVisible}
-              title="Preview"
-              aria-label="Preview"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
-                <path d="M2 12h20"/>
-              </svg>
-            </button>
-            <button
-              class="svt-btn"
-              class:svt-active={$layout.reviewVisible}
-              onclick={toggleReviewVisible}
-              title="Code Review"
-              aria-label="Code Review"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="18" cy="18" r="3"/>
-                <circle cx="6" cy="6" r="3"/>
-                <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
-                <path d="M11 18H8a2 2 0 0 1-2-2V9"/>
-              </svg>
-            </button>
-            <button
-              class="svt-btn"
-              class:svt-active={$layout.httpVisible}
-              onclick={toggleHttpVisible}
-              title="HTTP Client"
-              aria-label="HTTP Client"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-              </svg>
-            </button>
-            <button
-              class="svt-btn"
-              class:svt-active={$layout.tasksVisible}
-              onclick={toggleTasksVisible}
-              title="Tasks"
-              aria-label="Tasks"
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="5" height="18" rx="1"/>
-                <rect x="10" y="3" width="5" height="12" rx="1"/>
-                <rect x="17" y="3" width="5" height="8" rx="1"/>
-              </svg>
-            </button>
           </div>
-
-          <!-- Section Header (hide when very narrow) -->
-          {#if !tabsCollapsed}
-            <div class="sidebar-header-wrapper">
-              <WorkspaceSwitcher />
-              {#if $activeProject}
-                <div class="sidebar-subheader">
-                  <span class="sidebar-subheader-label">Active: {$activeProject.name}</span>
-                </div>
-              {/if}
-            </div>
-
-            <div class="sidebar-header-tabs" style="position: relative;">
-               <div class="active-tab-pill" style="transform: translateX(calc({activeTabIdx} * 100%));"></div>
-               <button
-                class="sidebar-tab"
-                class:active={$layout.sidebarTab === 'files'}
-                onclick={() => setSidebarTab('files')}
-                title="Files"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 7a2 2 0 012-2h3.586a2 2 0 011.414.586L11.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
-                </svg>
-              </button>
-              <button
-                class="sidebar-tab"
-                class:active={$layout.sidebarTab === 'git'}
-                onclick={() => setSidebarTab('git')}
-                title="Source Control"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="18" cy="18" r="3"/>
-                  <circle cx="6" cy="6" r="3"/>
-                  <circle cx="6" cy="18" r="3"/>
-                  <path d="M18 15V9a4 4 0 0 0-4-4H9"/>
-                  <line x1="6" y1="9" x2="6" y2="15"/>
-                </svg>
-              </button>
-              <button
-                class="sidebar-tab"
-                class:active={$layout.sidebarTab === 'snapshots'}
-                onclick={() => setSidebarTab('snapshots')}
-                title="Workspace Snapshots"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2" y="3" width="20" height="14" rx="2"/>
-                  <path d="M8 21h8M12 17v4"/>
-                  <circle cx="12" cy="10" r="3"/>
-                </svg>
-              </button>
-            </div>
-          {/if}
-
-          <!-- File Tree / Source Control (hide when icon-only) -->
-          {#if !tabsCollapsed}
-            <div class="sidebar-content">
-              {#if $layout.sidebarTab === 'files'}
-                <FileExplorer />
-              {:else if $layout.sidebarTab === 'git'}
-                <SourceControl />
-              {:else if $layout.sidebarTab === 'snapshots'}
-                <SnapshotsPanel />
-              {/if}
-            </div>
-          {/if}
         </div>
 
         <!-- Resize Handle -->
@@ -479,16 +511,15 @@
       <!-- Main Content Area -->
         <div class="main-content" class:pointer-none={sidebarResizing || auxResizing || auxRowResizing}>
           <!-- Left Pane: Terminal Panel (always visible, resizing dynamically) -->
-          <div class="terminal-container">
+          <div class="terminal-container bento-card" class:active-glow={$layout.activeView === 'terminal'}>
             <TerminalPanel />
-            <FloatingPromptBar />
             {#if $isProjectSwitching}
               <div class="project-switch-overlay"></div>
             {/if}
           </div>
 
         <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
-        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible}
+        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible}
           <!-- Vertical Resize Handle between Terminal and Auxiliary Panel -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
@@ -501,7 +532,8 @@
 
           <!-- Right Auxiliary Panel -->
           <div 
-            class="auxiliary-panel" 
+            class="auxiliary-panel bento-card" 
+            class:active-glow={$layout.activeView !== 'terminal'}
             style="width: {auxPanelWidth}px; min-width: 200px;"
             transition:fly={{ x: 150, duration: 220 }}
           >
@@ -519,7 +551,7 @@
             </button>
 
             <!-- Auxiliary Sidebar Tabs -->
-            <div class="aux-tabs-bar">
+            <div class="aux-tabs-bar" class:icon-only={auxTabsNarrow}>
               <button
                 class="aux-tab"
                 class:active={$layout.editorVisible}
@@ -580,6 +612,30 @@
                 </svg>
                 <span>Tasks</span>
               </button>
+              <button
+                class="aux-tab"
+                class:active={$layout.dbVisible}
+                onclick={() => setActiveView('db')}
+                title="Database Explorer"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                  <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path>
+                </svg>
+                <span>Database</span>
+              </button>
+              <button
+                class="aux-tab"
+                class:active={$layout.toolboxVisible}
+                onclick={() => setActiveView('toolbox')}
+                title="Dev Toolbox"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+                </svg>
+                <span>Toolbox</span>
+              </button>
             </div>
 
             <div class="aux-content-area">
@@ -596,6 +652,10 @@
                     <HttpClientPanel />
                   {:else if firstPanelId === 'tasks'}
                     <TasksPanel />
+                  {:else if firstPanelId === 'db'}
+                    <DbExplorerPanel />
+                  {:else if firstPanelId === 'toolbox'}
+                    <ToolboxPanel />
                   {/if}
                 </div>
                 <div class="aux-separator-line"></div>
@@ -610,6 +670,10 @@
                     <HttpClientPanel />
                   {:else if secondPanelId === 'tasks'}
                     <TasksPanel />
+                  {:else if secondPanelId === 'db'}
+                    <DbExplorerPanel />
+                  {:else if secondPanelId === 'toolbox'}
+                    <ToolboxPanel />
                   {/if}
                 </div>
                 <div class="aux-separator-line"></div>
@@ -624,6 +688,10 @@
                     <HttpClientPanel />
                   {:else if thirdPanelId === 'tasks'}
                     <TasksPanel />
+                  {:else if thirdPanelId === 'db'}
+                    <DbExplorerPanel />
+                  {:else if thirdPanelId === 'toolbox'}
+                    <ToolboxPanel />
                   {/if}
                 </div>
               {:else if visiblePanels.length === 2}
@@ -639,6 +707,10 @@
                     <HttpClientPanel />
                   {:else if firstPanelId === 'tasks'}
                     <TasksPanel />
+                  {:else if firstPanelId === 'db'}
+                    <DbExplorerPanel />
+                  {:else if firstPanelId === 'toolbox'}
+                    <ToolboxPanel />
                   {/if}
                 </div>
 
@@ -663,6 +735,10 @@
                     <HttpClientPanel />
                   {:else if secondPanelId === 'tasks'}
                     <TasksPanel />
+                  {:else if secondPanelId === 'db'}
+                    <DbExplorerPanel />
+                  {:else if secondPanelId === 'toolbox'}
+                    <ToolboxPanel />
                   {/if}
                 </div>
               {:else if visiblePanels.length === 1}
@@ -678,6 +754,10 @@
                     <HttpClientPanel />
                   {:else if firstPanelId === 'tasks'}
                     <TasksPanel />
+                  {:else if firstPanelId === 'db'}
+                    <DbExplorerPanel />
+                  {:else if firstPanelId === 'toolbox'}
+                    <ToolboxPanel />
                   {/if}
                 </div>
               {/if}
@@ -685,6 +765,11 @@
           </div>
         {/if}
 
+        {#if $sketchCanvasOpen}
+          <SketchCanvas />
+        {/if}
+
+        <FloatingPromptBar />
       </div>
     </div>
 
@@ -699,8 +784,8 @@
   {/if}
   </div>
 
-  {#if $floatingNoteOpen}
-    <FloatingNotepad />
+  {#if $agentCenterOpen}
+    <AgentCommandCenter />
   {/if}
 
   <StatusBar />
@@ -739,6 +824,9 @@
     overflow: hidden;
     position: relative;
     min-height: 0;
+    padding: var(--bento-padding, 12px);
+    padding-top: 4px; /* Air under Custom Title Bar */
+    gap: var(--bento-gap, 12px);
   }
 
   /* Prevent iframe/canvas stealing events during resize */
@@ -754,11 +842,6 @@
 
   /* ─── Sidebar ─────────────────────────── */
   .sidebar {
-    background: rgba(var(--sidebar-bg-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    border-right: 1px solid var(--sidebar-border);
-    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -768,42 +851,59 @@
     transition: none; /* no transition during drag */
   }
 
-  /* View Tabs above the file explorer */
-  .sidebar-view-tabs {
+  /* ─── Activity Bar ─────────────────────────── */
+  .activity-bar {
+    width: 48px;
+    min-width: 48px;
     display: flex;
+    flex-direction: column;
+    justify-content: space-between;
     align-items: center;
-    gap: 2px;
-    padding: 5px 6px;
-    border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
-    background: transparent;
+    padding: 8px 0;
     overflow: hidden;
   }
 
-  /* Icon-only mode: center icons vertically */
-  .sidebar-view-tabs.tabs-icon-only {
+  .activity-bar-tabs {
+    display: flex;
     flex-direction: column;
-    padding: 6px 4px;
-    gap: 4px;
-    border-bottom: none;
-    border-right: none;
     align-items: center;
+    gap: 4px;
+    width: 100%;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .activity-bar-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .activity-bar-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
   }
 
   .svt-btn {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 7px;
     border-radius: 6px;
-    font-size: 11.5px;
-    font-weight: 500;
     color: var(--text-muted);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    white-space: nowrap;
-    flex-shrink: 0;
-    min-width: 0;
     position: relative;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
   }
 
   /* Left border indicator for active panel view */
@@ -814,39 +914,14 @@
     top: 50%;
     transform: translateY(-50%) scaleY(0);
     width: 2.5px;
-    height: 12px;
+    height: 14px;
     background: var(--accent);
     border-radius: 0 3px 3px 0;
     transition: transform 0.2s;
   }
 
-  /* Adjust indicator for icon-only mode */
-  .tabs-icon-only .svt-btn::before {
-    left: 0;
-    height: 14px;
-  }
-
   .svt-btn.svt-active::before {
     transform: translateY(-50%) scaleY(1);
-  }
-
-  /* Icon-only: square buttons */
-  .tabs-icon-only .svt-btn {
-    padding: 7px;
-    width: 34px;
-    height: 34px;
-    justify-content: center;
-  }
-
-  .sidebar-view-tabs:not(.tabs-icon-only) .svt-btn {
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .sidebar-view-tabs:not(.tabs-icon-only) .svt-btn::before {
-    display: none;
   }
 
   .svt-btn:hover {
@@ -867,85 +942,7 @@
     flex-shrink: 0;
   }
 
-  .sidebar-header-wrapper {
-    display: flex;
-    flex-direction: column;
-    padding: 8px 14px 6px;
-    flex-shrink: 0;
-    background: transparent;
-  }
 
-  .sidebar-subheader {
-    font-size: 9.5px;
-    color: var(--text-muted);
-    margin-top: 4px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .sidebar-subheader-label {
-    opacity: 0.7;
-  }
-
-  .sidebar-header-tabs {
-    display: flex;
-    align-items: center;
-    border-bottom: 1px solid var(--border-subtle);
-    background: transparent;
-    padding: 0 4px;
-    height: 32px;
-    flex-shrink: 0;
-    gap: 1px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .sidebar-header-tabs::-webkit-scrollbar { display: none; }
-
-  .sidebar-tab {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 1;
-    min-width: 0;
-    height: 26px;
-    border-radius: 5px;
-    color: var(--text-muted);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    transition: color 0.15s;
-    flex-shrink: 0;
-    position: relative;
-    z-index: 1;
-  }
-
-  .sidebar-tab:hover {
-    color: var(--text-secondary);
-  }
-
-  .sidebar-tab.active {
-    color: var(--text-primary);
-    font-weight: 550;
-  }
-
-  .active-tab-pill {
-    position: absolute;
-    top: 3px;
-    left: 4px;
-    bottom: 3px;
-    background: var(--bg-active);
-    border-radius: 5px;
-    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    z-index: 0;
-    border: 1px solid var(--border);
-    pointer-events: none;
-    width: calc((100% - 8px) / 3);
-  }
 
   .sidebar-content {
     flex: 1;
@@ -957,10 +954,10 @@
 
   /* Resize handle */
   .sidebar-resize-handle {
-    width: 3px;
+    width: var(--bento-gap, 12px);
+    margin: 0 calc(-0.5 * var(--bento-gap, 12px));
     cursor: col-resize;
     background: transparent;
-    transition: background-color 0.15s;
     flex-shrink: 0;
     z-index: 20;
     position: relative;
@@ -969,18 +966,25 @@
   .sidebar-resize-handle::after {
     content: '';
     position: absolute;
-    left: 1px;
-    top: 0;
-    width: 1px;
-    height: 100%;
-    background: var(--border);
-    transition: background-color 0.15s, box-shadow 0.15s;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 25px;
+    bottom: 25px;
+    width: 2px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+    transition: background-color 0.18s ease, box-shadow 0.18s ease, width 0.18s ease;
+  }
+
+  :root.light-theme .sidebar-resize-handle::after {
+    background: rgba(0, 0, 0, 0.06);
   }
 
   .sidebar-resize-handle:hover::after,
   .sidebar-resize-handle.resizing::after {
     background: var(--accent);
-    box-shadow: 0 0 6px var(--accent);
+    width: 3px;
+    box-shadow: 0 0 10px var(--accent);
   }
 
   /* ─── Main Content (Split Workspace Layout) ─── */
@@ -992,6 +996,7 @@
     background: transparent;
     min-width: 0;
     position: relative;
+    gap: var(--bento-gap, 12px);
   }
 
   .terminal-container {
@@ -1024,28 +1029,37 @@
 
   /* Auxiliary Panel col resize handle */
   .aux-resize-handle {
-    width: 1px;
+    width: var(--bento-gap, 12px);
+    margin: 0 calc(-0.5 * var(--bento-gap, 12px));
     cursor: col-resize;
-    background: var(--border);
+    background: transparent;
     flex-shrink: 0;
     z-index: 10;
     position: relative;
-    transition: background-color 0.15s;
   }
 
   .aux-resize-handle::before {
     content: '';
     position: absolute;
-    left: -5px;
-    top: 0;
-    width: 11px;
-    height: 100%;
-    cursor: col-resize;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 25px;
+    bottom: 25px;
+    width: 2px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+    transition: background-color 0.18s ease, box-shadow 0.18s ease, width 0.18s ease;
   }
 
-  .aux-resize-handle:hover,
-  .aux-resize-handle.resizing {
+  :root.light-theme .aux-resize-handle::before {
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  .aux-resize-handle:hover::before,
+  .aux-resize-handle.resizing::before {
     background: var(--accent);
+    width: 3px;
+    box-shadow: 0 0 10px var(--accent);
   }
 
   /* Auxiliary Panel right side container */
@@ -1054,11 +1068,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    border-left: 1px solid var(--border);
-    box-shadow: inset 1px 0 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     flex-shrink: 0;
     position: relative;
   }
@@ -1145,31 +1154,14 @@
     cursor: row-resize;
   }
 
-  @media (max-width: 640px) {
-    .sidebar {
-      width: 48px !important;
-      min-width: 48px !important;
-    }
-    .sidebar-header-wrapper,
-    .sidebar-header-tabs,
-    .sidebar-content {
-      display: none !important;
-    }
-    .sidebar-view-tabs {
-      flex-direction: column;
-      padding: 6px 4px;
-      gap: 4px;
-      border-bottom: none;
-      align-items: center;
-    }
-  }
+
 
   /* Auxiliary Panel Tabs Navigation Header */
   .aux-tabs-bar {
     display: flex;
     align-items: center;
     background: transparent;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     height: 38px;
     padding: 0 8px;
     padding-right: 44px;
@@ -1177,6 +1169,34 @@
     flex-shrink: 0;
     user-select: none;
     -webkit-user-select: none;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  :root.light-theme .aux-tabs-bar {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .aux-tabs-bar::-webkit-scrollbar { display: none; }
+
+  /* Icon-only mode when panel is narrow */
+  .aux-tabs-bar.icon-only {
+    padding: 0 4px;
+    padding-right: 34px;
+    gap: 2px;
+    justify-content: space-around;
+  }
+
+  .aux-tabs-bar.icon-only .aux-tab {
+    padding: 0 7px;
+    gap: 0;
+    min-width: 28px;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .aux-tabs-bar.icon-only .aux-tab span {
+    display: none;
   }
 
   .aux-tab {
@@ -1203,8 +1223,14 @@
 
   .aux-tab.active {
     color: var(--text-primary);
-    background: var(--editor-bg);
-    border-color: var(--border);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow-sm);
+  }
+
+  :root.light-theme .aux-tab.active {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.04);
     box-shadow: var(--shadow-sm);
   }
 

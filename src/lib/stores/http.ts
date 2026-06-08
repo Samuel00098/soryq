@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { loadJson } from '$lib/utils/storage';
+import { invoke } from '@tauri-apps/api/core';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export type BodyType = 'none' | 'json' | 'text' | 'form';
@@ -145,21 +146,19 @@ export async function sendRequest(req: HttpRequest): Promise<void> {
     }
     if (req.bodyType === 'json' && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
 
-    const init: RequestInit = { method: req.method, headers };
+    let requestBody: string | null = null;
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.bodyType !== 'none' && req.body) {
-      init.body = req.body;
+      requestBody = req.body;
     }
 
-    const res = await fetch(url, init);
-    const duration = Date.now() - start;
-    const resHeaders: Record<string, string> = {};
-    res.headers.forEach((v, k) => { resHeaders[k] = v; });
-    const body = await res.text();
-    httpResponse.set({
-      status: res.status, statusText: res.statusText,
-      headers: resHeaders, body, duration,
-      size: new Blob([body]).size, ok: res.ok,
+    const response = await invoke<HttpResponse>('http_send_request', {
+      method: req.method,
+      url,
+      headers,
+      body: requestBody,
     });
+
+    httpResponse.set(response);
   } catch (e: any) {
     httpError.set(e.message || 'Request failed');
   } finally {

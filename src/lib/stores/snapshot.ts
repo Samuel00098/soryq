@@ -120,6 +120,7 @@ export async function restoreSnapshot(snapshot: WorkspaceSnapshot) {
     reviewVisible: safeView === 'review',
     httpVisible: safeView === 'http',
     tasksVisible: safeView === 'tasks',
+    orchestratorVisible: false,
     editorSplitPreview: false,
   }));
 

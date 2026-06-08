@@ -59,6 +59,10 @@
     onResult: (transcript) => {
       voiceDraftText = transcript;
     },
+    onProcessingStart: () => {
+      isListening = false;
+      isRefining = true;
+    },
     onEnd: () => {
       isListening = false;
       isRefining = true;

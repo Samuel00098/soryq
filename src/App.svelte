@@ -20,6 +20,8 @@
   import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted, backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur } from '$lib/stores/settings';
   import { initBackground, applyBackgroundImage, applyInterfaceFrost, applyBackgroundAppearance } from '$lib/stores/background';
   import OnboardingWalkthrough from '$lib/components/workspace/OnboardingWalkthrough.svelte';
+  import { initNavigationHistory } from '$lib/stores/navigation';
+  import { initApiKeyCache } from '$lib/services/ai-keychain';
 
   const ZOOM_LEVELS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const;
 
@@ -38,11 +40,13 @@
   }
 
   onMount(() => {
+    initApiKeyCache();
     loadThemes();
     initBackground();
     initializeWorkspaces();
     initDefaultCommands();
     requestNotificationPermission();
+    initNavigationHistory();
 
     // Live-apply the global interface transparency as the slider moves, and the
     // image layer when toggled. Skip the initial synchronous fire — startup is

@@ -2,6 +2,19 @@
   import { onMount } from 'svelte';
   import { activeTheme, availableThemes, switchTheme, saveTheme } from '$lib/stores/theme';
   import type { Theme } from '$lib/types/theme';
+  import Dropdown, { type DropdownOption } from '$lib/components/shared/Dropdown.svelte';
+
+  let themeOptions = $derived<DropdownOption[]>(
+    $availableThemes.map(t => ({
+      value: t.id,
+      label: t.name
+    }))
+  );
+
+  const themeTypeOptions: DropdownOption[] = [
+    { value: 'dark', label: 'Dark' },
+    { value: 'light', label: 'Light' }
+  ];
 
   let currentTheme = $state<Theme | null>(null);
   let isCustom = $derived(currentTheme?.id.startsWith('custom-') ?? false);
@@ -101,16 +114,12 @@
   {#if currentTheme}
     <div class="customizer-section selection-section">
       <label for="theme-select" class="section-label">Active Theme</label>
-      <select
-        id="theme-select"
-        value={$activeTheme?.id}
-        onchange={(e) => switchTheme((e.target as HTMLSelectElement).value)}
-        class="customizer-select"
-      >
-        {#each $availableThemes as t}
-          <option value={t.id}>{t.name}</option>
-        {/each}
-      </select>
+      <Dropdown
+        options={themeOptions}
+        value={$activeTheme?.id ?? ''}
+        onChange={switchTheme}
+        ariaLabel="Active Theme"
+      />
     </div>
 
     <div class="customizer-section details-section">
@@ -128,14 +137,14 @@
       </div>
       <div class="form-group">
         <span class="form-label">Type</span>
-        <select
-          bind:value={currentTheme.type}
-          class="customizer-select"
-          disabled={!isCustom}
-        >
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-        </select>
+        <div style="width: 100px;">
+          <Dropdown
+            options={themeTypeOptions}
+            bind:value={currentTheme.type}
+            disabled={!isCustom}
+            ariaLabel="Theme Type"
+          />
+        </div>
       </div>
     </div>
 

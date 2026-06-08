@@ -1,14 +1,15 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { activeProject, closeProject, activeProjectId, activeWorkspaceId, activeWorkspace, clearAllStores, saveProjectState } from '$lib/stores/workspace';
-  import { openSettings, layout, toggleSidebar, setSidebarTab, toggleEditorVisible, toggleTerminal, openQuickCapture } from '$lib/stores/layout';
-  import { openDailyNote } from '$lib/stores/dailyNote';
-  import { floatingNoteOpen, toggleFloatingNote } from '$lib/stores/notes';
+  import { layout, toggleSidebar, toggleEditorVisible, toggleTerminal, openQuickCapture } from '$lib/stores/layout';
   import { isOpen as paletteOpen, search as paletteSearch, toggleCommandPalette } from '$lib/stores/commandpalette';
   import { get } from 'svelte/store';
   import { invoke } from '@tauri-apps/api/core';
   import { showToast } from '$lib/stores/notification';
   import { openFile, jumpToLine } from '$lib/stores/editor';
+  import { canGoBack, canGoForward, navigateBack, navigateForward } from '$lib/stores/navigation';
+  import WorkspaceSwitcher from '$lib/components/workspace/WorkspaceSwitcher.svelte';
+  import ProjectSwitcher from '$lib/components/workspace/ProjectSwitcher.svelte';
 
   const win = getCurrentWindow();
 
@@ -17,21 +18,10 @@
   // We detect the platform to hide our custom controls so they don't double up.
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
-  // Git state
-  function handleGitButtonClick() {
-    if ($layout.sidebarVisible && $layout.sidebarTab === 'git') {
-      layout.update((l) => ({ ...l, sidebarVisible: false }));
-    } else {
-      layout.update((l) => ({ ...l, sidebarVisible: true, sidebarTab: 'git' }));
-    }
-  }
+
 
   function handleToggleAuxPanel() {
-    if ($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible) {
-      toggleTerminal();
-    } else {
-      toggleEditorVisible();
-    }
+    toggleTerminal();
   }
 
   // Codebase search state
@@ -150,8 +140,8 @@
     activeWorkspaceId.set(null);
   }
 
-  function goBack() { window.history.back(); }
-  function goForward() { window.history.forward(); }
+  async function goBack() { await navigateBack(); }
+  async function goForward() { await navigateForward(); }
 </script>
 
 <svelte:window onclick={handleWindowClick} />
@@ -187,12 +177,12 @@
         <path d="M9 21V12h6v9"/>
       </svg>
     </button>
-    <button class="nav-btn tb-collapse-2" onclick={goBack} aria-label="Go back" title="Back">
+    <button class="nav-btn tb-collapse-2" onclick={goBack} disabled={!$canGoBack} aria-label="Go back" title="Back">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="15 18 9 12 15 6"/>
       </svg>
     </button>
-    <button class="nav-btn tb-collapse-2" onclick={goForward} aria-label="Go forward" title="Forward">
+    <button class="nav-btn tb-collapse-2" onclick={goForward} disabled={!$canGoForward} aria-label="Go forward" title="Forward">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="9 18 15 12 9 6"/>
       </svg>
@@ -214,37 +204,18 @@
   </div>
 
   <!-- Centre breadcrumb (drag region) -->
-  <div class="titlebar-center" data-tauri-drag-region>
+  <div class="titlebar-center" class:left-align={$activeWorkspace} data-tauri-drag-region>
     {#if $activeWorkspace}
-      <span class="titlebar-project">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 7a2 2 0 012-2h3.586a2 2 0 011.414.586L11.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
-        </svg>
-        <span class="titlebar-project-text"
-          >{$activeWorkspace.name}{$activeProject ? ` - ${$activeProject.name}` : ''}</span
-        >
-      </span>
-      {:else}
-      <span class="titlebar-no-project">Soryq</span>
+      <div class="titlebar-controls-container" style="display: flex; align-items: center; gap: 8px; pointer-events: auto; -webkit-app-region: no-drag; app-region: no-drag;">
+        <WorkspaceSwitcher />
+        <div class="tb-divider" style="width: 1px; height: 16px; background: var(--titlebar-border, rgba(255, 255, 255, 0.08)); margin: 0 4px;"></div>
+        <ProjectSwitcher />
+      </div>
     {/if}
   </div>
 
   <!-- Right side: Search + Settings + Window controls -->
   <div class="titlebar-right">
-    <!-- GitHub Button connected to Source Control panel -->
-    {#if $activeProjectId}
-      <button
-        class="github-push-btn tb-collapse-2"
-        class:active={$layout.sidebarVisible && $layout.sidebarTab === 'git'}
-        onclick={handleGitButtonClick}
-        title="Source Control"
-        aria-label="Source Control"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-        </svg>
-      </button>
-    {/if}
 
     <!-- Codebase Search bar — opens command palette -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -328,7 +299,7 @@
     {#if $activeWorkspaceId}
       <button
         class="icon-btn"
-        class:active={$layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible}
+        class:active={$layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible}
         onclick={handleToggleAuxPanel}
         aria-label="Toggle Right Panel"
         title="Toggle Right Panel"
@@ -336,24 +307,6 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
           <line x1="15" y1="3" x2="15" y2="21"/>
-        </svg>
-      </button>
-    {/if}
-
-    <!-- Daily Note button -->
-    {#if $activeProject}
-      <button
-        class="icon-btn tb-collapse-1"
-        onclick={() => openDailyNote($activeProject!, true).catch(() => {})}
-        aria-label="Open Daily Note"
-        title="Open Today's Note (Ctrl+Shift+D)"
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="4" width="18" height="18" rx="2"/>
-          <line x1="16" y1="2" x2="16" y2="6"/>
-          <line x1="8" y1="2" x2="8" y2="6"/>
-          <line x1="3" y1="10" x2="21" y2="10"/>
-          <line x1="8" y1="15" x2="16" y2="15"/>
         </svg>
       </button>
     {/if}
@@ -368,31 +321,6 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
         <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-      </svg>
-    </button>
-
-    <!-- Scratchpad button -->
-    <button
-      class="icon-btn tb-collapse-1"
-      class:active={$floatingNoteOpen}
-      onclick={toggleFloatingNote}
-      aria-label="Scratchpad"
-      title="Toggle Scratchpad (Ctrl+Shift+N)"
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/>
-        <line x1="16" y1="13" x2="8" y2="13"/>
-        <line x1="16" y1="17" x2="8" y2="17"/>
-        <polyline points="10 9 9 9 8 9"/>
-      </svg>
-    </button>
-
-    <!-- Settings button -->
-    <button class="icon-btn" onclick={openSettings} aria-label="Settings" title="Settings (Ctrl+,)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
       </svg>
     </button>
 
@@ -423,15 +351,10 @@
     display: flex;
     align-items: center;
     height: 38px;
-    background: rgba(var(--titlebar-bg-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    border-bottom: 1px solid var(--titlebar-border);
-    /* Glass rim: a hairline highlight along the top edge of the window */
-    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+    background: transparent;
     user-select: none;
     flex-shrink: 0;
-    z-index: 100;
+    z-index: 995; /* Elevate titlebar above panel toolbars (z-index: 100) so search dropdown fits on top, but below main overlays like command palette (z-index: 9999) */
   }
 
   /* Brand */
@@ -495,7 +418,7 @@
     opacity: 0.8;
     transition: background 0.15s, color 0.15s, opacity 0.15s;
   }
-  .nav-btn:hover {
+  .nav-btn:hover:not(:disabled) {
     background: var(--bg-hover);
     color: var(--titlebar-text);
     opacity: 1;
@@ -504,6 +427,11 @@
     color: var(--accent);
     background: var(--accent-light);
     opacity: 1;
+  }
+  .nav-btn:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+    cursor: default;
   }
 
   /* Center — a real flex item so it shrinks and truncates between the nav and
@@ -520,28 +448,11 @@
     pointer-events: none;
   }
 
-  .titlebar-project {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    min-width: 0;
-    max-width: 100%;
-    font-size: 11px;
-    color: var(--text-secondary);
-    pointer-events: auto;
-    -webkit-app-region: no-drag;
+  .titlebar-center.left-align {
+    justify-content: flex-start;
   }
 
-  .titlebar-project svg {
-    flex-shrink: 0;
-  }
 
-  .titlebar-project-text {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   .titlebar-no-project {
     font-size: 11.5px;
@@ -649,17 +560,25 @@
     right: 0;
     width: 320px;
     max-height: 380px;
-    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.7);
-    backdrop-filter: blur(20px);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-surface, 0.72));
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 1px 1px 0 var(--border) inset;
+    border-radius: 12px;
+    box-shadow: var(--glass-shadow, 0 16px 36px rgba(0, 0, 0, 0.45)), 
+                inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
     z-index: 1000;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
     cursor: default;
+  }
+
+  :root.solid-theme .search-results-dropdown {
+    background: var(--bg-secondary) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 
   @keyframes fadeIn {
@@ -686,28 +605,30 @@
   .dropdown-results-list {
     display: flex;
     flex-direction: column;
-    padding: 4px;
-    gap: 2px;
+    padding: 6px;
+    gap: 3px;
   }
 
   .dropdown-result-item {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
     padding: 8px 10px;
     border-radius: 6px;
     background: transparent;
     border: 1px solid transparent;
+    border-left: 3px solid transparent;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     width: 100%;
     color: inherit;
   }
 
   .dropdown-result-item:hover {
-    background: var(--bg-hover);
+    background: var(--accent-light);
     border-color: var(--border);
+    border-left-color: var(--accent);
   }
 
   .result-meta {
@@ -746,11 +667,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    opacity: 0.8;
-    background: var(--bg-tertiary);
+    opacity: 0.85;
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.45);
     padding: 3px 6px;
     border-radius: 4px;
     border: 1px solid var(--border);
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dropdown-result-item:hover .result-snippet {
+    background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.7);
+    border-color: rgba(var(--accent-rgb, 6, 182, 212), 0.25);
   }
 
   /* Icon button (settings) */

@@ -1,16 +1,33 @@
 import { invoke } from '@tauri-apps/api/core';
 import {
   voiceRefinementEnabled,
-  aiProvider,
-  currentAiModel,
+  voiceInputProvider,
+  voiceInputUsesModelTranscription,
+  voiceAiProvider,
+  voiceAiModelByProvider,
   getProviderDef,
   isLocalProvider,
   getProviderBaseUrl,
+  type AiProviderId,
 } from '$lib/stores/settings';
 import { refineVoiceTranscript } from '$lib/services/voice-input';
 import { get } from 'svelte/store';
 import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
 
+const VOICE_FALLBACK_PROVIDERS: AiProviderId[] = ['groq', 'ollama', 'lmstudio', 'openrouter'];
+
+export function buildVoiceProviderOrder(preferredProvider: AiProviderId): AiProviderId[] {
+  return [preferredProvider, ...VOICE_FALLBACK_PROVIDERS].filter(
+    (provider, index, all) => all.indexOf(provider) === index
+  );
+}
+
+function getCandidateModels(provider: AiProviderId, rememberedModels: Record<string, string>) {
+  const def = getProviderDef(provider);
+  const primary = rememberedModels[provider]?.trim() || def.defaultModel;
+  const curated = def.models.map((m) => m.id).filter((id) => id !== primary);
+  return [primary, ...curated];
+}
 function normalizeModelOutput(text: string, preserveNewLines: boolean) {
   const trimmed = text.trim();
   if (!trimmed) return '';
@@ -37,46 +54,48 @@ async function requestRefinement(provider: string, model: string, apiKey: string
 }
 
 export type RefinementResult = { text: string; aiRefined: boolean };
+export type RefineVoicePromptOptions = {
+  aiRefinement?: boolean;
+};
 
-export async function refineVoicePrompt(rawText: string): Promise<RefinementResult> {
+export async function refineVoicePrompt(
+  rawText: string,
+  options: RefineVoicePromptOptions = {}
+): Promise<RefinementResult> {
+  const { aiRefinement = true } = options;
   const preserveNewLines = getPreserveNewLines(rawText);
   const locallyCleaned = refineVoiceTranscript(rawText, { allowNewLines: preserveNewLines });
 
   if (!locallyCleaned) return { text: '', aiRefined: false };
-  if (!get(voiceRefinementEnabled)) {
+  if (voiceInputUsesModelTranscription(get(voiceInputProvider))) {
+    return { text: locallyCleaned, aiRefined: false };
+  }
+  if (!aiRefinement || !get(voiceRefinementEnabled)) {
     return { text: locallyCleaned, aiRefined: false };
   }
 
-  const provider = get(aiProvider);
-  const local = isLocalProvider(provider);
-  const apiKey = getProviderApiKeyLocal(provider) ?? '';
-  const baseUrl = local ? getProviderBaseUrl(provider) : '';
+  const preferredProvider = get(voiceAiProvider);
+  const rememberedVoiceModels = get(voiceAiModelByProvider);
 
-  // Not configured for the selected provider (no key for cloud, no server URL
-  // for local) — fall back to local cleanup silently.
-  if (local ? !baseUrl : !apiKey) {
-    return { text: locallyCleaned, aiRefined: false };
-  }
+  for (const provider of buildVoiceProviderOrder(preferredProvider)) {
+    const local = isLocalProvider(provider);
+    const apiKey = getProviderApiKeyLocal(provider) ?? '';
+    const baseUrl = local ? getProviderBaseUrl(provider) : '';
 
-  const def = getProviderDef(provider);
-  const primaryModel = get(currentAiModel);
-  // Try the chosen model first, then the rest of the same provider's models
-  // (they share the same key). We never silently jump to another provider.
-  const modelsToTry = [primaryModel, ...def.models.map((m) => m.id).filter((id) => id !== primaryModel)];
+    if (local ? !baseUrl : !apiKey) {
+      continue;
+    }
 
-  for (const model of modelsToTry) {
-    try {
-      const remoteText = await requestRefinement(provider, model, apiKey, baseUrl, locallyCleaned);
-      const normalized = normalizeModelOutput(remoteText, preserveNewLines);
-      if (normalized) {
-        return { text: normalized, aiRefined: true };
+    for (const model of getCandidateModels(provider, rememberedVoiceModels)) {
+      try {
+        const remoteText = await requestRefinement(provider, model, apiKey, baseUrl, locallyCleaned);
+        const normalized = normalizeModelOutput(remoteText, preserveNewLines);
+        if (normalized) {
+          return { text: normalized, aiRefined: true };
+        }
+      } catch {
+        // Fall through to the next model/provider pair.
       }
-    } catch (error) {
-      const message = String(error ?? '');
-      if (message.includes('API key is not set')) {
-        return { text: locallyCleaned, aiRefined: false };
-      }
-      console.warn(`Voice refinement failed with ${provider}/${model}:`, error);
     }
   }
 

@@ -111,8 +111,8 @@
 {#if def.icon === 'folder'}
   <!-- Folder icon -->
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="flex-shrink:0" aria-hidden="true">
-    <path d="M3 7a2 2 0 012-2h3.586a2 2 0 011.414.586L11.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" fill="{def.color}" opacity="0.85"/>
-    <path d="M3 9h18" stroke="{def.color}" stroke-width="0.5" opacity="0.3"/>
+    <path d="M3 7a2 2 0 012-2h3.586a2 2 0 011.414.586L11.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" fill="{def.color}" opacity="1.0"/>
+    <path d="M3 9h18" stroke="{def.color}" stroke-width="0.5" opacity="0.5"/>
   </svg>
 
 {:else if def.icon === 'typescript'}

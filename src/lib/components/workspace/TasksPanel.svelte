@@ -49,6 +49,10 @@
         showToast('Listening for To Do task...', 'info');
       },
       onResult: (transcript) => { voiceDraftInputs.todo = transcript; },
+      onProcessingStart: () => {
+        listeningStatus.todo = false;
+        refiningStatus.todo = true;
+      },
       onEnd: () => {
         listeningStatus.todo = false;
         refiningStatus.todo = true;
@@ -80,6 +84,10 @@
         showToast('Listening for In Progress task...', 'info');
       },
       onResult: (transcript) => { voiceDraftInputs.doing = transcript; },
+      onProcessingStart: () => {
+        listeningStatus.doing = false;
+        refiningStatus.doing = true;
+      },
       onEnd: () => {
         listeningStatus.doing = false;
         refiningStatus.doing = true;
@@ -111,6 +119,10 @@
         showToast('Listening for Done task...', 'info');
       },
       onResult: (transcript) => { voiceDraftInputs.done = transcript; },
+      onProcessingStart: () => {
+        listeningStatus.done = false;
+        refiningStatus.done = true;
+      },
       onEnd: () => {
         listeningStatus.done = false;
         refiningStatus.done = true;

@@ -19,6 +19,21 @@ function persistentWritable<T>(key: string, defaultValue: T): import('svelte/sto
       // Ignore JSON parse errors
     }
   }
+  // Restore the original frosted look for profiles created while the temporary
+  // opaque-default experiment was active.
+  if (key === 'interfaceTransparency' && stored !== null) {
+    try {
+      const parsed = JSON.parse(stored);
+      const transparencyMigrationKey = 'forge_setting_interfaceTransparency_migrated_v1';
+      if (!localStorage.getItem(transparencyMigrationKey) && parsed === 0) {
+        localStorage.setItem('forge_setting_interfaceTransparency', JSON.stringify(50));
+        localStorage.setItem(transparencyMigrationKey, '1');
+        stored = JSON.stringify(50);
+      }
+    } catch (e) {
+      // Ignore JSON parse errors
+    }
+  }
   let initialValue: T;
   try {
     initialValue = stored !== null ? JSON.parse(stored) : defaultValue;
@@ -138,6 +153,8 @@ export type AiProviderId =
   | 'ollama'
   | 'lmstudio';
 
+export type VoiceInputProviderId = 'webspeech' | 'google' | 'openrouter';
+
 export interface AiModelOption {
   id: string;
   label: string;
@@ -156,6 +173,7 @@ export interface AiProviderDef {
   keyUrl: string;
   defaultModel: string;
   models: AiModelOption[];
+  ttsSupport?: 'native' | 'self-hosted' | 'none';
   /**
    * Local providers run on the user's own machine and are configured with a
    * server URL instead of an API key. The model picker, readiness checks and
@@ -177,6 +195,7 @@ export const aiProviders: AiProviderDef[] = [
     keyPlaceholder: 'sk-or-...',
     keyUrl: 'https://openrouter.ai/keys',
     defaultModel: 'google/gemini-2.5-flash',
+    ttsSupport: 'native',
     models: [
       { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Best balance of quality and speed.' },
       { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', description: 'Cheaper, faster fallback.' },
@@ -196,6 +215,7 @@ export const aiProviders: AiProviderDef[] = [
     keyPlaceholder: 'sk-ant-...',
     keyUrl: 'https://console.anthropic.com/settings/keys',
     defaultModel: 'claude-3-5-haiku-latest',
+    ttsSupport: 'none',
     models: [
       { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku', description: 'Fast and cheap — great for refinement.' },
       { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', description: 'Newest fast Claude.' },
@@ -209,6 +229,7 @@ export const aiProviders: AiProviderDef[] = [
     keyPlaceholder: 'sk-...',
     keyUrl: 'https://platform.openai.com/api-keys',
     defaultModel: 'gpt-4o-mini',
+    ttsSupport: 'native',
     models: [
       { id: 'gpt-4o-mini', label: 'GPT-4o mini', description: 'Cheap, fast, capable.' },
       { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini', description: 'Improved mini model.' },
@@ -223,6 +244,7 @@ export const aiProviders: AiProviderDef[] = [
     keyPlaceholder: 'AIza...',
     keyUrl: 'https://aistudio.google.com/app/apikey',
     defaultModel: 'gemini-2.5-flash',
+    ttsSupport: 'native',
     models: [
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Best balance of quality and speed.' },
       { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', description: 'Cheaper, faster fallback.' },
@@ -236,6 +258,7 @@ export const aiProviders: AiProviderDef[] = [
     keyPlaceholder: 'gsk_...',
     keyUrl: 'https://console.groq.com/keys',
     defaultModel: 'llama-3.1-8b-instant',
+    ttsSupport: 'native',
     models: [
       { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant', description: 'Extremely fast and cheap.' },
       { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile', description: 'Higher quality, still fast.' },
@@ -249,6 +272,7 @@ export const aiProviders: AiProviderDef[] = [
     keyLabel: 'Ollama server URL',
     keyPlaceholder: 'http://localhost:11434/v1',
     keyUrl: 'https://ollama.com/download',
+    ttsSupport: 'self-hosted',
     // Runs entirely on your machine. The model list is read live from your
     // server; these are common pulls shown until then.
     defaultModel: 'llama3.1',
@@ -268,6 +292,7 @@ export const aiProviders: AiProviderDef[] = [
     keyLabel: 'LM Studio server URL',
     keyPlaceholder: 'http://localhost:1234/v1',
     keyUrl: 'https://lmstudio.ai/docs/app/api/endpoints/openai',
+    ttsSupport: 'self-hosted',
     // The model id is whatever you've loaded in LM Studio's server tab; the
     // live list reflects your loaded models. `local-model` works as a generic
     // alias for the currently-loaded model.
@@ -282,9 +307,238 @@ export function getProviderDef(id: AiProviderId): AiProviderDef {
   return aiProviders.find((p) => p.id === id) ?? aiProviders[0];
 }
 
+export function getProviderTtsBadge(id: AiProviderId): string | null {
+  const support = getProviderDef(id).ttsSupport ?? 'none';
+  switch (support) {
+    case 'native':
+      return 'TTS';
+    case 'self-hosted':
+      return 'Self-hosted TTS';
+    default:
+      return null;
+  }
+}
+
+export interface TtsVoiceOption {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export const groqTtsVoiceOptions: TtsVoiceOption[] = [
+  { id: 'austin', label: 'Austin', description: 'Male voice' },
+  { id: 'daniel', label: 'Daniel', description: 'Male voice' },
+  { id: 'troy', label: 'Troy', description: 'Male voice' },
+  { id: 'autumn', label: 'Autumn', description: 'Female voice' },
+  { id: 'diana', label: 'Diana', description: 'Female voice' },
+  { id: 'hannah', label: 'Hannah', description: 'Female voice' },
+];
+
+export const openAiTtsVoiceOptions: TtsVoiceOption[] = [
+  { id: 'alloy', label: 'Alloy', description: 'OpenAI built-in voice' },
+  { id: 'ash', label: 'Ash', description: 'OpenAI built-in voice' },
+  { id: 'ballad', label: 'Ballad', description: 'OpenAI built-in voice' },
+  { id: 'coral', label: 'Coral', description: 'OpenAI built-in voice' },
+  { id: 'echo', label: 'Echo', description: 'OpenAI built-in voice' },
+  { id: 'fable', label: 'Fable', description: 'OpenAI built-in voice' },
+  { id: 'onyx', label: 'Onyx', description: 'OpenAI built-in voice' },
+  { id: 'nova', label: 'Nova', description: 'OpenAI built-in voice' },
+  { id: 'sage', label: 'Sage', description: 'OpenAI built-in voice' },
+  { id: 'shimmer', label: 'Shimmer', description: 'OpenAI built-in voice' },
+  { id: 'verse', label: 'Verse', description: 'OpenAI built-in voice' },
+  { id: 'marin', label: 'Marin', description: 'OpenAI built-in voice' },
+  { id: 'cedar', label: 'Cedar', description: 'OpenAI built-in voice' },
+];
+
+export const googleTtsVoiceOptions: TtsVoiceOption[] = [
+  { id: 'Zephyr', label: 'Zephyr', description: 'Bright' },
+  { id: 'Puck', label: 'Puck', description: 'Upbeat' },
+  { id: 'Charon', label: 'Charon', description: 'Informative' },
+  { id: 'Kore', label: 'Kore', description: 'Firm' },
+  { id: 'Fenrir', label: 'Fenrir', description: 'Excitable' },
+  { id: 'Leda', label: 'Leda', description: 'Youthful' },
+  { id: 'Orus', label: 'Orus', description: 'Firm' },
+  { id: 'Aoede', label: 'Aoede', description: 'Breezy' },
+  { id: 'Callirrhoe', label: 'Callirrhoe', description: 'Easy-going' },
+  { id: 'Autonoe', label: 'Autonoe', description: 'Bright' },
+  { id: 'Enceladus', label: 'Enceladus', description: 'Breathy' },
+  { id: 'Iapetus', label: 'Iapetus', description: 'Clear' },
+  { id: 'Umbriel', label: 'Umbriel', description: 'Easy-going' },
+  { id: 'Algieba', label: 'Algieba', description: 'Smooth' },
+  { id: 'Despina', label: 'Despina', description: 'Smooth' },
+  { id: 'Erinome', label: 'Erinome', description: 'Clear' },
+  { id: 'Algenib', label: 'Algenib', description: 'Gravelly' },
+  { id: 'Rasalgethi', label: 'Rasalgethi', description: 'Informative' },
+  { id: 'Laomedeia', label: 'Laomedeia', description: 'Upbeat' },
+  { id: 'Achernar', label: 'Achernar', description: 'Soft' },
+  { id: 'Alnilam', label: 'Alnilam', description: 'Firm' },
+  { id: 'Schedar', label: 'Schedar', description: 'Even' },
+  { id: 'Gacrux', label: 'Gacrux', description: 'Mature' },
+  { id: 'Pulcherrima', label: 'Pulcherrima', description: 'Forward' },
+  { id: 'Achird', label: 'Achird', description: 'Friendly' },
+  { id: 'Zubenelgenubi', label: 'Zubenelgenubi', description: 'Casual' },
+  { id: 'Vindemiatrix', label: 'Vindemiatrix', description: 'Gentle' },
+  { id: 'Sadachbia', label: 'Sadachbia', description: 'Lively' },
+  { id: 'Sadaltager', label: 'Sadaltager', description: 'Knowledgeable' },
+  { id: 'Sulafat', label: 'Sulafat', description: 'Warm' },
+];
+
+export const openRouterVoiceInputModels: AiModelOption[] = [
+  { id: 'openai/whisper-1', label: 'OpenAI Whisper 1', description: 'Stable OpenRouter STT default.' },
+  { id: 'openai/whisper-large-v3', label: 'OpenAI Whisper Large v3', description: 'Higher-accuracy OpenRouter transcription.' },
+];
+
+export function getVoiceInputModelOptions(provider: VoiceInputProviderId): AiModelOption[] {
+  switch (provider) {
+    case 'google':
+      return getProviderDef('google').models.filter((model) => model.id.startsWith('gemini'));
+    case 'openrouter':
+      return openRouterVoiceInputModels;
+    default:
+      return [];
+  }
+}
+
+export function getDefaultVoiceInputModel(provider: VoiceInputProviderId): string {
+  switch (provider) {
+    case 'google':
+      return getProviderDef('google').defaultModel;
+    case 'openrouter':
+      return 'openai/whisper-1';
+    default:
+      return '';
+  }
+}
+
+export function getTtsVoiceOptions(provider: AiProviderId): TtsVoiceOption[] {
+  switch (provider) {
+    case 'openrouter':
+      return openAiTtsVoiceOptions;
+    case 'groq':
+      return groqTtsVoiceOptions;
+    case 'openai':
+      return openAiTtsVoiceOptions;
+    case 'google':
+      return googleTtsVoiceOptions;
+    default:
+      return [];
+  }
+}
+
+export function getDefaultTtsModel(provider: AiProviderId): string {
+  switch (provider) {
+    case 'openrouter':
+      return 'openai/gpt-4o-mini-tts-2025-12-15';
+    case 'groq':
+      return 'canopylabs/orpheus-v1-english';
+    case 'openai':
+      return 'gpt-4o-mini-tts';
+    case 'google':
+      return 'gemini-2.5-flash-preview-tts';
+    default:
+      return 'local-tts-model';
+  }
+}
+
+export function getDefaultTtsVoice(provider: AiProviderId): string {
+  switch (provider) {
+    case 'openrouter':
+      return 'alloy';
+    case 'groq':
+      return 'austin';
+    case 'openai':
+      return 'alloy';
+    case 'google':
+      return 'Kore';
+    default:
+      return 'default';
+  }
+}
+
+export function providerSupportsReplyTts(provider: AiProviderId): boolean {
+  return provider === 'openrouter' || provider === 'groq' || provider === 'openai' || provider === 'google' || isLocalProvider(provider);
+}
+
 export const voiceRefinementEnabled = persistentWritable('voiceRefinementEnabled', true);
+export const voiceInputProvider = persistentWritable<VoiceInputProviderId>('voiceInputProvider', 'webspeech');
+export const voiceInputModelByProvider = persistentWritable<Record<string, string>>('voiceInputModelByProvider', {});
+export const voiceAiProvider = persistentWritable<AiProviderId>('voiceAiProvider', 'groq');
+export const voiceAiModelByProvider = persistentWritable<Record<string, string>>('voiceAiModelByProvider', {});
+export const voiceConversationAiProvider = persistentWritable<AiProviderId>('voiceConversationAiProvider', 'openrouter');
+export const voiceConversationAiModelByProvider = persistentWritable<Record<string, string>>('voiceConversationAiModelByProvider', {});
+export const voiceConversationTtsModelByProvider = persistentWritable<Record<string, string>>('voiceConversationTtsModelByProvider', {});
+export const voiceConversationTtsVoiceByProvider = persistentWritable<Record<string, string>>('voiceConversationTtsVoiceByProvider', {});
+export const ttsVoice = persistentWritable<string>('ttsVoice', 'austin');
+
+export const currentVoiceInputModel = derived(
+  [voiceInputProvider, voiceInputModelByProvider],
+  ([$provider, $map]) => {
+    if ($provider === 'webspeech') return '';
+    const remembered = $map[$provider];
+    return remembered && remembered.trim() ? remembered : getDefaultVoiceInputModel($provider);
+  }
+);
+
+export function setVoiceInputModel(provider: Exclude<VoiceInputProviderId, 'webspeech'>, modelId: string) {
+  voiceInputModelByProvider.update((map) => ({ ...map, [provider]: modelId.trim() }));
+}
+
+export function voiceInputUsesModelTranscription(provider: VoiceInputProviderId): boolean {
+  return provider === 'google' || provider === 'openrouter';
+}
+
+export const currentVoiceAiModel = derived(
+  [voiceAiProvider, voiceAiModelByProvider],
+  ([$provider, $map]) => {
+    const def = getProviderDef($provider);
+    const remembered = $map[$provider];
+    return remembered && remembered.trim() ? remembered : def.defaultModel;
+  }
+);
+
+export function setVoiceAiModel(provider: AiProviderId, modelId: string) {
+  voiceAiModelByProvider.update((map) => ({ ...map, [provider]: modelId }));
+}
+
+export const currentVoiceConversationAiModel = derived(
+  [voiceConversationAiProvider, voiceConversationAiModelByProvider],
+  ([$provider, $map]) => {
+    const def = getProviderDef($provider);
+    const remembered = $map[$provider];
+    return remembered && remembered.trim() ? remembered : def.defaultModel;
+  }
+);
+
+export function setVoiceConversationAiModel(provider: AiProviderId, modelId: string) {
+  voiceConversationAiModelByProvider.update((map) => ({ ...map, [provider]: modelId }));
+}
+
+export const currentVoiceConversationTtsModel = derived(
+  [voiceConversationAiProvider, voiceConversationTtsModelByProvider],
+  ([$provider, $map]) => {
+    const remembered = $map[$provider];
+    return remembered && remembered.trim() ? remembered : getDefaultTtsModel($provider);
+  }
+);
+
+export const currentVoiceConversationTtsVoice = derived(
+  [voiceConversationAiProvider, voiceConversationTtsVoiceByProvider],
+  ([$provider, $map]) => {
+    const remembered = $map[$provider];
+    return remembered && remembered.trim() ? remembered : getDefaultTtsVoice($provider);
+  }
+);
+
+export function setVoiceConversationTtsModel(provider: AiProviderId, modelId: string) {
+  voiceConversationTtsModelByProvider.update((map) => ({ ...map, [provider]: modelId.trim() }));
+}
+
+export function setVoiceConversationTtsVoice(provider: AiProviderId, voiceId: string) {
+  voiceConversationTtsVoiceByProvider.update((map) => ({ ...map, [provider]: voiceId.trim() }));
+}
 
 // Selected provider + per-provider remembered model choice.
+
 export const aiProvider = persistentWritable<AiProviderId>('aiProvider', 'openrouter');
 export const aiModelByProvider = persistentWritable<Record<string, string>>('aiModelByProvider', {});
 
@@ -313,21 +567,78 @@ export function setProviderBaseUrl(id: AiProviderId, url: string) {
   aiBaseUrlByProvider.update((map) => ({ ...map, [id]: url.trim() }));
 }
 
-// One-time migration: fold the legacy single OpenRouter model setting into the
-// new per-provider map so existing users keep their chosen model.
+// One-time migration: fold the legacy single voice model into the new
+// voice-specific provider + model stores so existing users keep their choice.
 if (typeof localStorage !== 'undefined') {
   const legacy = localStorage.getItem('forge_setting_voiceRefinementModel');
   if (legacy) {
     try {
       const model = JSON.parse(legacy);
       if (typeof model === 'string' && model) {
-        aiModelByProvider.update((map) => (map.openrouter ? map : { ...map, openrouter: model }));
+        if (!localStorage.getItem('forge_setting_voiceAiProvider')) {
+          voiceAiProvider.set('openrouter');
+        }
+        voiceAiModelByProvider.update((map) => (map.openrouter ? map : { ...map, openrouter: model }));
       }
     } catch {
       // Ignore malformed legacy value.
     }
     localStorage.removeItem('forge_setting_voiceRefinementModel');
   }
+
+  if (!localStorage.getItem('forge_setting_voiceConversationAiProvider')) {
+    const legacyProvider = localStorage.getItem('forge_setting_aiProvider');
+    if (legacyProvider) {
+      try {
+        const provider = JSON.parse(legacyProvider);
+        if (typeof provider === 'string' && provider) {
+          voiceConversationAiProvider.set(provider as AiProviderId);
+        }
+      } catch {
+        // Ignore malformed legacy value.
+      }
+    }
+  }
+
+  if (!localStorage.getItem('forge_setting_voiceConversationAiModelByProvider')) {
+    const legacyModelMap = localStorage.getItem('forge_setting_aiModelByProvider');
+    if (legacyModelMap) {
+      try {
+        const modelMap = JSON.parse(legacyModelMap);
+        if (modelMap && typeof modelMap === 'object' && !Array.isArray(modelMap)) {
+          voiceConversationAiModelByProvider.set(modelMap as Record<string, string>);
+        }
+      } catch {
+        // Ignore malformed legacy value.
+      }
+    }
+  }
+
+  const legacyTtsVoice = localStorage.getItem('forge_setting_ttsVoice');
+  if (legacyTtsVoice) {
+    try {
+      const voice = JSON.parse(legacyTtsVoice);
+      if (!localStorage.getItem('forge_setting_voiceConversationTtsVoiceByProvider')) {
+        const nextVoice = voice === 'Arista-PlayAI' ? 'austin' : voice;
+        if (typeof nextVoice === 'string' && nextVoice) {
+          voiceConversationTtsVoiceByProvider.set({ groq: nextVoice });
+        }
+      }
+      if (voice === 'Arista-PlayAI') {
+        ttsVoice.set('austin');
+      }
+    } catch {
+      // Ignore malformed legacy value.
+    }
+  }
+
+  voiceConversationTtsModelByProvider.update((map) => {
+    if (map.google !== 'gemini-3.1-flash-tts-preview') return map;
+    return {
+      ...map,
+      google: 'gemini-2.5-flash-preview-tts',
+    };
+  });
 }
 
 // The active model id, derived from the selected provider and its remembered
@@ -384,9 +695,14 @@ export const shortcutActions: ShortcutAction[] = [
   { id: 'zoomIn',         label: 'Zoom In',         category: 'Window' },
   { id: 'zoomOut',        label: 'Zoom Out',        category: 'Window' },
   { id: 'resetZoom',      label: 'Reset Zoom',      category: 'Window' },
-  { id: 'toggleNotepad',  label: 'Toggle Scratchpad', category: 'View' },
   { id: 'quickCapture',  label: 'Quick Capture',     category: 'Workspace' },
   { id: 'openDailyNote', label: 'Open Daily Note',   category: 'Workspace' },
+  { id: 'toggleSketch',   label: 'Toggle Sketch Canvas', category: 'View' },
+  { id: 'openPromptBar',  label: 'Open Floating Bar', category: 'View' },
+  { id: 'launchVoiceMode', label: 'Launch Voice Mode', category: 'Voice' },
+  { id: 'canvasZoomIn',   label: 'Canvas Zoom In', category: 'Canvas' },
+  { id: 'canvasZoomOut',  label: 'Canvas Zoom Out', category: 'Canvas' },
+  { id: 'canvasResetZoom', label: 'Canvas Reset Zoom', category: 'Canvas' },
 ];
 
 export const defaultShortcuts: KeyboardShortcut[] = [
@@ -407,9 +723,14 @@ export const defaultShortcuts: KeyboardShortcut[] = [
   { id: 'zoomIn',         label: 'Zoom In',         keys: 'Ctrl+=' },
   { id: 'zoomOut',        label: 'Zoom Out',        keys: 'Ctrl+-' },
   { id: 'resetZoom',      label: 'Reset Zoom',      keys: 'Ctrl+0' },
-  { id: 'toggleNotepad',  label: 'Toggle Scratchpad', keys: 'Ctrl+Shift+N' },
   { id: 'quickCapture',  label: 'Quick Capture',     keys: 'Ctrl+Shift+Space' },
   { id: 'openDailyNote', label: 'Open Daily Note',   keys: 'Ctrl+Shift+D' },
+  { id: 'toggleSketch',   label: 'Toggle Sketch Canvas', keys: 'Ctrl+Shift+N' },
+  { id: 'openPromptBar',  label: 'Open Floating Bar', keys: 'Ctrl+Shift+L' },
+  { id: 'launchVoiceMode', label: 'Launch Voice Mode', keys: 'Ctrl+Shift+M' },
+  { id: 'canvasZoomIn',   label: 'Canvas Zoom In', keys: 'Alt+=' },
+  { id: 'canvasZoomOut',  label: 'Canvas Zoom Out', keys: 'Alt+-' },
+  { id: 'canvasResetZoom', label: 'Canvas Reset Zoom', keys: 'Alt+0' },
 ];
 
 export const userShortcuts = persistentWritable<KeyboardShortcut[]>('userShortcuts', defaultShortcuts);
@@ -473,7 +794,7 @@ export const appearance = persistentWritable<'system' | 'light' | 'dark'>('appea
 // frost/glass opacity of every surface — works with or without a background image,
 // letting the desktop/acrylic (or the image) show through. Default 50 ≈ the
 // app's built-in frosted look.
-export const interfaceTransparency = persistentWritable<number>('interfaceTransparency', 0);
+export const interfaceTransparency = persistentWritable<number>('interfaceTransparency', 50);
 
 // Background image — an optional personalization layer painted behind the frosted UI.
 // The image file lives in the app data dir (managed by the Rust backend); this only
@@ -506,6 +827,14 @@ export function updateSetting(key: string, value: unknown) {
     case 'vimMode':          vimMode.set(value as boolean); break;
     case 'showHidden':       showHidden.set(value as boolean); break;
     case 'voiceRefinementEnabled': voiceRefinementEnabled.set(value as boolean); break;
+    case 'voiceInputProvider': voiceInputProvider.set(value as VoiceInputProviderId); break;
+    case 'voiceInputModelByProvider': voiceInputModelByProvider.set(value as Record<string, string>); break;
+    case 'voiceAiProvider': voiceAiProvider.set(value as AiProviderId); break;
+    case 'voiceAiModelByProvider': voiceAiModelByProvider.set(value as Record<string, string>); break;
+    case 'voiceConversationAiProvider': voiceConversationAiProvider.set(value as AiProviderId); break;
+    case 'voiceConversationAiModelByProvider': voiceConversationAiModelByProvider.set(value as Record<string, string>); break;
+    case 'voiceConversationTtsModelByProvider': voiceConversationTtsModelByProvider.set(value as Record<string, string>); break;
+    case 'voiceConversationTtsVoiceByProvider': voiceConversationTtsVoiceByProvider.set(value as Record<string, string>); break;
     case 'aiProvider': aiProvider.set(value as AiProviderId); break;
     case 'aiModelByProvider': aiModelByProvider.set(value as Record<string, string>); break;
     case 'aiBaseUrlByProvider': aiBaseUrlByProvider.set(value as Record<string, string>); break;
@@ -528,6 +857,15 @@ export function resetSettingsToDefault() {
   vimMode.set(false);
   showHidden.set(false);
   voiceRefinementEnabled.set(true);
+  voiceInputProvider.set('webspeech');
+  voiceInputModelByProvider.set({});
+  voiceAiProvider.set('groq');
+  voiceAiModelByProvider.set({});
+  voiceConversationAiProvider.set('openrouter');
+  voiceConversationAiModelByProvider.set({});
+  voiceConversationTtsModelByProvider.set({});
+  voiceConversationTtsVoiceByProvider.set({});
+  ttsVoice.set('austin');
   aiProvider.set('openrouter');
   aiModelByProvider.set({});
   aiBaseUrlByProvider.set({});
@@ -535,7 +873,7 @@ export function resetSettingsToDefault() {
   formatOnSave.set(true);
   userShortcuts.set(defaultShortcuts);
   appearance.set('system');
-  interfaceTransparency.set(0);
+  interfaceTransparency.set(50);
   backgroundImageEnabled.set(false);
   backgroundImageOpacity.set(100);
   backgroundImageBlur.set(0);

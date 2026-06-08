@@ -1,16 +1,23 @@
 use std::time::Duration;
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use keyring::{Entry, Error as KeyringError};
+use serde::Serialize;
 use serde_json::json;
 
 const KEYCHAIN_SERVICE: &str = "com.samue.soryq";
 const APP_TITLE: &str = "Soryq";
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_AUDIO_TRANSCRIPT_URL: &str = "https://openrouter.ai/api/v1/audio/transcriptions";
+const OPENROUTER_TTS_URL: &str = "https://openrouter.ai/api/v1/audio/speech";
 const OPENAI_URL: &str = "https://api.openai.com/v1/chat/completions";
+const OPENAI_TTS_URL: &str = "https://api.openai.com/v1/audio/speech";
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_TTS_URL: &str = "https://api.groq.com/openai/v1/audio/speech";
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+const GOOGLE_AUDIO_TRANSCRIPTION_PROMPT: &str = "Transcribe this speech into clean, accurate text. Keep the speaker's exact technical terms, code words, file paths, flags, package names, and URLs. Use natural punctuation and paragraph breaks when they are obvious from the audio. Return only the transcript.";
 
 const OPENROUTER_SYSTEM_PROMPT: &str = "Hey! You're a voice-to-text helper living inside a developer's productivity app. The person talking to you is a developer — they might be firing off a quick prompt to an AI coding agent, describing a bug, jotting down a task, or just thinking out loud while their hands are busy.\n\nYour job is to take their raw spoken words and turn them into clean, natural text — the kind of thing they'd have typed themselves if they weren't busy being a developer. Keep it human, keep it theirs.\n\nHere's how to do it well:\n\n1. DROP THE FILLER — quietly remove \"um\", \"uh\", \"like\", \"you know\", \"basically\", \"kind of\", \"sort of\", \"I mean\", false starts, and repeated words. Don't mention you did it, just clean it up.\n\n2. SPOKEN SYMBOLS → REAL SYMBOLS — when the developer says punctuation out loud, swap it in:\n   comma → ,   period / full stop → .   colon → :   semicolon → ;   exclamation / bang → !   question mark → ?   open paren / left paren → (   close paren / right paren → )   open bracket → [   close bracket → ]   open brace / left curly → {   close brace / right curly → }   equals → =   double equals → ==   triple equals → ===   fat arrow / arrow → =>   pipe → |   double pipe → ||   ampersand → &   double ampersand → &&   bang equals → !=   less than → <   greater than → >   slash → /   backslash → \\   dot → .   underscore → _   dash / hyphen → -   hash / pound → #   at sign → @   backtick → `   tilde → ~   star / asterisk → *   double star → **   caret → ^   percent → %   new line / next line → line break.\n\n3. DON'T TOUCH THE TECH STUFF — variable names, function names, file paths, CLI flags, package names, API names, URLs, config keys, environment variables — leave all of that exactly as spoken. When in doubt, keep it verbatim.\n\n4. TIDY UP THE SPEECH — casual, run-on spoken sentences should become clean written ones. Keep the developer's natural voice and directness though — don't make it stiff or formal. \"can you make it so that the button kind of changes colour when you hover over it\" → \"Make the button change colour on hover.\"\n\n5. KEEP THEIR VIBE — if they sound urgent, keep that urgency. If they're being casual, stay casual. If they're frustrated, that's fine too. Don't sanitise their personality out of the text.\n\n6. NUMBERS — use digits in technical contexts (port 8000, version 3, 12 files). Keep words for conversational mentions.\n\n7. STRUCTURE IT IF THEY SIGNAL IT — if they say \"first\", \"second\", \"also\", \"next\", \"new line\", shape it into a list or use line breaks naturally.\n\n8. NOTHING LOST, NOTHING ADDED — every idea they expressed should survive. Don't summarise, don't expand, don't add your own thoughts.\n\nJust output the cleaned-up text — no intro, no explanation, no quotes around it.";
 const COMMIT_SYSTEM_PROMPT: &str = "You are an expert software engineer writing a git commit message. Analyse the diff thoroughly and write a high-quality commit message that clearly explains WHAT changed and WHY. Follow this structure:\n\n1. A short subject line (50–72 chars) using conventional commits when the type is clear (feat, fix, refactor, chore, docs, style, test, perf).\n2. A blank line.\n3. A body (one or more paragraphs) that describes the changes in detail — what was added, removed, or modified, and the reasoning or motivation behind the change. Mention any non-obvious decisions, trade-offs, or context a future reader would benefit from.\n\nOutput only the commit message — no preamble, no explanation, no markdown fences, no quotes.";
@@ -214,6 +221,39 @@ fn safe_request_error(context: &str, err: reqwest::Error) -> String {
     format!("{context}: {}", redact_secrets(&stripped.to_string()))
 }
 
+fn extract_google_text(payload: &serde_json::Value) -> String {
+    payload
+        .get("candidates")
+        .and_then(|c| c.get(0))
+        .and_then(|cand| cand.get("content"))
+        .and_then(|content| content.get("parts"))
+        .and_then(|parts| parts.get(0))
+        .and_then(|part| part.get("text"))
+        .and_then(|t| t.as_str())
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn audio_mime_type_is_safe(mime_type: &str) -> bool {
+    matches!(
+        mime_type,
+        "audio/wav" | "audio/mp3" | "audio/aiff" | "audio/aac" | "audio/ogg" | "audio/flac"
+    )
+}
+
+fn audio_format_from_mime_type(mime_type: &str) -> Option<&'static str> {
+    match mime_type {
+        "audio/wav" => Some("wav"),
+        "audio/mp3" => Some("mp3"),
+        "audio/aiff" => Some("aiff"),
+        "audio/aac" => Some("aac"),
+        "audio/ogg" => Some("ogg"),
+        "audio/flac" => Some("flac"),
+        _ => None,
+    }
+}
+
 fn keychain_username(provider: &str) -> String {
     format!("{provider}_api_key")
 }
@@ -221,6 +261,22 @@ fn keychain_username(provider: &str) -> String {
 fn keychain_entry(provider: &str) -> Result<Entry, String> {
     Entry::new(KEYCHAIN_SERVICE, &keychain_username(provider))
         .map_err(|err| format!("Failed to access the system keychain: {err}"))
+}
+
+#[tauri::command]
+pub fn provider_api_key_get(provider: String) -> Result<Option<String>, String> {
+    if !is_known_provider(&provider) {
+        return Err("Unknown provider".to_string());
+    }
+    let entry = keychain_entry(&provider)?;
+    match entry.get_password() {
+        Ok(password) => {
+            let trimmed = password.trim().to_string();
+            Ok(if trimmed.is_empty() { None } else { Some(trimmed) })
+        }
+        Err(KeyringError::NoEntry) => Ok(None),
+        Err(err) => Err(format!("Failed to read the API key: {err}")),
+    }
 }
 
 #[tauri::command]
@@ -354,17 +410,7 @@ async fn run_completion(
                 .await
                 .map_err(|err| format!("Google returned an invalid response: {err}"))?;
 
-            let content = payload
-                .get("candidates")
-                .and_then(|c| c.get(0))
-                .and_then(|cand| cand.get("content"))
-                .and_then(|content| content.get("parts"))
-                .and_then(|parts| parts.get(0))
-                .and_then(|part| part.get("text"))
-                .and_then(|t| t.as_str())
-                .map(str::trim)
-                .unwrap_or("");
-            Ok(content.to_string())
+            Ok(extract_google_text(&payload))
         }
         // OpenAI-compatible: openrouter, openai, groq, ollama, lmstudio.
         _ => {
@@ -484,6 +530,191 @@ pub async fn ai_refine_prompt(
 }
 
 #[tauri::command]
+pub async fn ai_transcribe_audio(
+    audio_bytes: Vec<u8>,
+    mime_type: String,
+    provider: String,
+    model: String,
+    api_key: String,
+) -> Result<String, String> {
+    if provider != "google" && provider != "openrouter" {
+        return Err("Selected provider does not support transcription yet.".to_string());
+    }
+
+    let api_key = api_key.trim().to_string();
+    if api_key.is_empty() {
+        return Err(format!("{} API key is not set.", provider));
+    }
+
+    let model = model.trim().to_string();
+    if !model_id_is_safe(&model) {
+        return Err("Invalid transcription model id".to_string());
+    }
+
+    let mime_type = mime_type.trim().to_ascii_lowercase();
+    if !audio_mime_type_is_safe(&mime_type) {
+        return Err("Unsupported audio format".to_string());
+    }
+    let audio_format = audio_format_from_mime_type(&mime_type)
+        .ok_or_else(|| "Unsupported audio format".to_string())?;
+
+    if audio_bytes.is_empty() {
+        return Ok(String::new());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|err| format!("Failed to prepare the request: {err}"))?;
+
+    let audio_b64 = STANDARD.encode(audio_bytes);
+
+    match provider.as_str() {
+        "google" => {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            );
+
+            let response = client
+                .post(url)
+                .header("x-goog-api-key", api_key)
+                .json(&json!({
+                    "contents": [{
+                        "role": "user",
+                        "parts": [
+                            { "text": GOOGLE_AUDIO_TRANSCRIPTION_PROMPT },
+                            {
+                                "inlineData": {
+                                    "mimeType": mime_type,
+                                    "data": audio_b64
+                                }
+                            }
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "maxOutputTokens": 2048
+                    }
+                }))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact Google transcription", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("Google transcription failed ({status}): {preview}"));
+            }
+
+            let payload: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|err| format!("Google transcription returned an invalid response: {err}"))?;
+
+            Ok(extract_google_text(&payload))
+        }
+        "openrouter" => {
+            let response = client
+                .post(OPENROUTER_AUDIO_TRANSCRIPT_URL)
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
+                .header("HTTP-Referer", "https://soryq.app")
+                .header("X-Title", APP_TITLE)
+                .json(&json!({
+                    "model": model,
+                    "input_audio": {
+                        "data": audio_b64,
+                        "format": audio_format,
+                    }
+                }))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact OpenRouter transcription", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("OpenRouter transcription failed ({status}): {preview}"));
+            }
+
+            let payload: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|err| format!("OpenRouter transcription returned an invalid response: {err}"))?;
+
+            Ok(payload
+                .get("text")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string())
+        }
+        _ => Err("Selected provider does not support transcription yet.".to_string()),
+    }
+}
+
+/// Generic single-shot completion with a caller-supplied system prompt. Powers
+/// the agent orchestrator "brain" (routing a natural-language request to the
+/// right terminal agent). Shares the same provider plumbing as the other AI
+/// commands; the caller is responsible for the system prompt's contract.
+#[tauri::command]
+pub async fn ai_complete(
+    system_prompt: String,
+    user_text: String,
+    provider: String,
+    model: String,
+    api_key: String,
+    base_url: Option<String>,
+) -> Result<String, String> {
+    if !is_known_provider(&provider) {
+        return Err("Unknown provider".to_string());
+    }
+    let api_key = api_key.trim().to_string();
+    if !is_local_provider(&provider) && api_key.is_empty() {
+        return Err("API key is not set.".to_string());
+    }
+    let base_url = resolve_base_url(&provider, &base_url)?;
+    if !model_id_is_safe(&model) {
+        return Err("Invalid model id".to_string());
+    }
+
+    const MAX_TEXT_LEN: usize = 32_000;
+
+    let user_text = user_text.trim().to_string();
+    if user_text.is_empty() {
+        return Ok(String::new());
+    }
+    if user_text.chars().count() > MAX_TEXT_LEN {
+        return Err("Input text exceeds maximum length".to_string());
+    }
+
+    let system_prompt = system_prompt.trim();
+    let system_prompt = if system_prompt.is_empty() {
+        OPENROUTER_SYSTEM_PROMPT
+    } else {
+        system_prompt
+    };
+
+    let content = run_completion(
+        &provider,
+        &model,
+        &api_key,
+        base_url.as_deref(),
+        system_prompt,
+        &user_text,
+        0.3,
+        1024,
+    )
+    .await?;
+
+    if content.is_empty() {
+        return Err("The model returned an empty response.".to_string());
+    }
+    Ok(content)
+}
+
+#[tauri::command]
 pub async fn ai_generate_commit_message(
     diff: String,
     provider: String,
@@ -552,8 +783,9 @@ pub async fn list_provider_models(
     }
     let base_url = resolve_base_url(&provider, &base_url)?;
 
+    let timeout_secs = if is_local_provider(&provider) { 2 } else { 20 };
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(timeout_secs))
         .build()
         .map_err(|err| format!("Failed to prepare the request: {err}"))?;
 
@@ -708,6 +940,324 @@ pub async fn list_provider_models(
     Ok(models)
 }
 
+fn tts_voice_is_safe(voice: &str) -> bool {
+    !voice.is_empty()
+        && voice.len() <= 64
+        && voice
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.')
+}
+
+const GROQ_TTS_MODEL_ENGLISH: &str = "canopylabs/orpheus-v1-english";
+const OPENAI_TTS_MODEL: &str = "gpt-4o-mini-tts";
+const GOOGLE_TTS_MODEL: &str = "gemini-2.5-flash-preview-tts";
+const OPENROUTER_TTS_MODEL: &str = "openai/gpt-4o-mini-tts-2025-12-15";
+
+#[derive(Serialize)]
+pub struct TtsAudioPayload {
+    pub bytes: Vec<u8>,
+    pub mime_type: String,
+}
+
+fn pcm_s16le_to_wav_bytes(pcm: &[u8], channels: u16, sample_rate: u32, bits_per_sample: u16) -> Vec<u8> {
+    let byte_rate = sample_rate * channels as u32 * bits_per_sample as u32 / 8;
+    let block_align = channels * bits_per_sample / 8;
+    let data_len = pcm.len() as u32;
+    let chunk_size = 36 + data_len;
+
+    let mut out = Vec::with_capacity(44 + pcm.len());
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&chunk_size.to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&bits_per_sample.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    out.extend_from_slice(pcm);
+    out
+}
+
+/// Synthesise speech from text using the selected provider's TTS endpoint.
+/// Returns WAV bytes so the frontend can play them without a disk write.
+#[tauri::command]
+pub async fn tts_speak(
+    text: String,
+    provider: String,
+    model: String,
+    voice: String,
+    api_key: String,
+    base_url: Option<String>,
+) -> Result<TtsAudioPayload, String> {
+    if !is_known_provider(&provider) {
+        return Err("Unknown provider".to_string());
+    }
+    let local = is_local_provider(&provider);
+    let api_key = api_key.trim().to_string();
+    if !local && api_key.is_empty() {
+        return Err(format!("{} API key is not set.", provider));
+    }
+    let base_url = resolve_base_url(&provider, &base_url)?;
+    let model = model.trim().to_string();
+    if !model_id_is_safe(&model) {
+        return Err("Invalid TTS model id".to_string());
+    }
+    if !tts_voice_is_safe(&voice) {
+        return Err("Invalid voice id".to_string());
+    }
+
+    const MAX_TTS_LEN: usize = 4_096;
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Ok(TtsAudioPayload {
+            bytes: Vec::new(),
+            mime_type: "audio/wav".to_string(),
+        });
+    }
+    let text: String = text.chars().take(MAX_TTS_LEN).collect();
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|err| format!("Failed to prepare the request: {err}"))?;
+
+    match provider.as_str() {
+        "openrouter" => {
+            let response = client
+                .post(OPENROUTER_TTS_URL)
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
+                .header("HTTP-Referer", "https://soryq.app")
+                .header("X-Title", APP_TITLE)
+                .json(&json!({
+                    "model": if model.is_empty() { OPENROUTER_TTS_MODEL } else { &model },
+                    "input": text,
+                    "voice": voice,
+                    "response_format": "mp3",
+                }))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact OpenRouter TTS", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("OpenRouter TTS failed ({status}): {preview}"));
+            }
+
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|err| format!("Failed to read TTS audio: {err}"))?;
+            Ok(TtsAudioPayload {
+                bytes: bytes.to_vec(),
+                mime_type: "audio/mpeg".to_string(),
+            })
+        }
+        "groq" => {
+            let response = client
+                .post(GROQ_TTS_URL)
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
+                .json(&json!({
+                    "model": if model.is_empty() { GROQ_TTS_MODEL_ENGLISH } else { &model },
+                    "input": text,
+                    "voice": voice,
+                    "response_format": "wav",
+                }))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact Groq TTS", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("Groq TTS failed ({status}): {preview}"));
+            }
+
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|err| format!("Failed to read TTS audio: {err}"))?;
+            Ok(TtsAudioPayload {
+                bytes: bytes.to_vec(),
+                mime_type: "audio/wav".to_string(),
+            })
+        }
+        "openai" => {
+            let response = client
+                .post(OPENAI_TTS_URL)
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
+                .json(&json!({
+                    "model": if model.is_empty() { OPENAI_TTS_MODEL } else { &model },
+                    "input": text,
+                    "voice": voice,
+                    "response_format": "wav",
+                }))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact OpenAI TTS", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("OpenAI TTS failed ({status}): {preview}"));
+            }
+
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|err| format!("Failed to read TTS audio: {err}"))?;
+            Ok(TtsAudioPayload {
+                bytes: bytes.to_vec(),
+                mime_type: "audio/wav".to_string(),
+            })
+        }
+        "google" => {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+                if model.is_empty() { GOOGLE_TTS_MODEL } else { &model }
+            );
+            let response = client
+                .post(url)
+                .header("x-goog-api-key", api_key)
+                .json(&json!({
+                    "contents": [{ "parts": [{ "text": text }] }],
+                    "generationConfig": {
+                        "responseModalities": ["AUDIO"],
+                        "speechConfig": {
+                            "voiceConfig": {
+                                "prebuiltVoiceConfig": {
+                                    "voiceName": voice
+                                }
+                            }
+                        }
+                    },
+                    "model": if model.is_empty() { GOOGLE_TTS_MODEL } else { &model },
+                }))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact Google TTS", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("Google TTS failed ({status}): {preview}"));
+            }
+
+            let payload: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|err| format!("Google TTS returned an invalid response: {err}"))?;
+
+            let audio_b64 = payload
+                .get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|cand| cand.get("content"))
+                .and_then(|content| content.get("parts"))
+                .and_then(|parts| parts.get(0))
+                .and_then(|part| part.get("inlineData"))
+                .and_then(|data| data.get("data"))
+                .and_then(|data| data.as_str())
+                .unwrap_or("");
+
+            if audio_b64.is_empty() {
+                return Err("Google TTS returned no audio.".to_string());
+            }
+
+            let pcm = STANDARD
+                .decode(audio_b64)
+                .map_err(|err| format!("Failed to decode Google TTS audio: {err}"))?;
+            Ok(TtsAudioPayload {
+                bytes: pcm_s16le_to_wav_bytes(&pcm, 1, 24_000, 16),
+                mime_type: "audio/wav".to_string(),
+            })
+        }
+        p if is_local_provider(p) => {
+            let Some(base) = base_url.as_deref() else {
+                return Err("Server URL is not set.".to_string());
+            };
+            let response = client
+                .post(local_endpoint(base, "/audio/speech"))
+                .json(&json!({
+                    "model": model,
+                    "input": text,
+                    "voice": voice,
+                    "response_format": "wav",
+                }))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact local TTS provider", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("Local TTS failed ({status}): {preview}"));
+            }
+
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|err| format!("Failed to read TTS audio: {err}"))?;
+            Ok(TtsAudioPayload {
+                bytes: bytes.to_vec(),
+                mime_type: "audio/wav".to_string(),
+            })
+        }
+        _ => Err("Selected provider does not support voice replies yet.".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn check_local_provider_online(
+    provider: String,
+    base_url: String,
+) -> Result<bool, String> {
+    if !is_local_provider(&provider) {
+        return Ok(false);
+    }
+    if !base_url_is_safe(&base_url) {
+        return Ok(false);
+    }
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Ok(false),
+    };
+
+    let endpoint = local_endpoint(&base_url, "models");
+    let response = client.get(&endpoint).send().await;
+    match response {
+        Ok(res) => Ok(res.status().is_success()),
+        Err(_) => {
+            // Fallback for Ollama: if v1 endpoint fails, check native api/tags
+            if provider == "ollama" {
+                let base_trimmed = base_url.trim_end_matches('/');
+                let ollama_api = if base_trimmed.ends_with("/v1") && base_trimmed.len() >= 3 {
+                    format!("{}/api/tags", &base_trimmed[..base_trimmed.len() - 3])
+                } else {
+                    format!("{}/api/tags", base_trimmed)
+                };
+                if let Ok(res) = client.get(&ollama_api).send().await {
+                    return Ok(res.status().is_success());
+                }
+            }
+            Ok(false)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -748,6 +1298,21 @@ mod tests {
         assert!(is_known_provider("groq"));
         assert!(is_known_provider("ollama"));
         assert!(is_known_provider("lmstudio"));
+    }
+
+    #[test]
+    fn debug_print_keyring() {
+        let entry = keyring::Entry::new("com.samue.soryq", "groq_api_key");
+        match entry.and_then(|e| e.get_password()) {
+            Ok(pwd) => println!("KEYRING_DEBUG_GROQ_KEY: len={}, starts_with_gsk={}", pwd.trim().len(), pwd.trim().starts_with("gsk_")),
+            Err(e) => println!("KEYRING_DEBUG_GROQ_KEY: error={}", e),
+        }
+        
+        let openrouter_entry = keyring::Entry::new("com.samue.soryq", "openrouter_api_key");
+        match openrouter_entry.and_then(|e| e.get_password()) {
+            Ok(pwd) => println!("KEYRING_DEBUG_OPENROUTER_KEY: len={}", pwd.trim().len()),
+            Err(e) => println!("KEYRING_DEBUG_OPENROUTER_KEY: error={}", e),
+        }
     }
 
     #[test]

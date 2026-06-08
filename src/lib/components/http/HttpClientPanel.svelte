@@ -4,11 +4,18 @@
            type HttpRequest, type HttpMethod, type BodyType } from '$lib/stores/http';
   import { activeProject } from '$lib/stores/workspace';
 
+  import Dropdown, { type DropdownOption } from '$lib/components/shared/Dropdown.svelte';
+
   const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
   const METHOD_COLORS: Record<HttpMethod, string> = {
     GET: '#4ade80', POST: '#f97316', PUT: '#facc15', PATCH: '#a78bfa',
     DELETE: '#f87171', HEAD: '#60a5fa', OPTIONS: '#94a3b8',
   };
+  const methodOptions: DropdownOption[] = METHODS.map((m) => ({
+    value: m,
+    label: m,
+    color: METHOD_COLORS[m]
+  }));
 
   let activeTab = $state<'params' | 'headers' | 'body' | 'auth'>('headers');
   let responseTab = $state<'body' | 'headers'>('body');
@@ -130,12 +137,9 @@
         <input class="req-name-input" type="text" value={activeReq.name} oninput={(e) => patch({ name: (e.target as HTMLInputElement).value })} placeholder="Request name…" />
       </div>
       <div class="url-bar">
-        <select class="method-select" value={activeReq.method} onchange={(e) => patch({ method: (e.target as HTMLSelectElement).value as HttpMethod })}
-          style="color: {METHOD_COLORS[activeReq.method]}">
-          {#each METHODS as m}
-            <option value={m}>{m}</option>
-          {/each}
-        </select>
+        <div style="width: 100px; flex-shrink: 0;">
+          <Dropdown options={methodOptions} value={activeReq.method} onChange={(val) => patch({ method: val as HttpMethod })} ariaLabel="HTTP Method" />
+        </div>
         <input class="url-input" type="text" value={activeReq.url} oninput={(e) => patch({ url: (e.target as HTMLInputElement).value })} placeholder="https://api.example.com/endpoint" spellcheck="false" />
         <button class="send-btn" onclick={() => sendRequest(activeReq!)} disabled={$httpLoading}>
           {#if $httpLoading}

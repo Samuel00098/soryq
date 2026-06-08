@@ -18,7 +18,7 @@
     setSessionExecuting,
     setSessionRole,
     setSessionCwd,
-    setSessionPaneTitle,
+    applyOscPaneTitle,
     appendToCommandBlock,
     finalizeCommandBlockWithExit,
     paneAssignments,
@@ -43,6 +43,7 @@
   import { clearProxyTarget, currentUrl, ensureProxyRunning, setPreferredLocalHost, setTargetPort } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
   import { appendRunOutput, finalizeRunEntry, activeRunIds } from '$lib/stores/runHistory';
+  import { AGENT_ATTENTION_PATTERN } from '$lib/services/orchestrator/agent-signals';
 
   let {
     sessionId,
@@ -158,9 +159,8 @@
   // Only active on terminals with an agentPreset. Rate-limited to avoid spam.
   let lastAgentAttentionAt = 0;
   const AGENT_ATTENTION_COOLDOWN = 12_000;
-  // Patterns that indicate an AI agent is waiting for user input or confirmation.
-  const AGENT_ATTENTION_PATTERN =
-    /\[y\/n\]|\[Y\/n\]|\[n\/Y\]|\(y\/n\)|\(Y\/n\)|\(yes\/no\)|\[yes\/no\]|do you want to|would you like to|shall i\b|please (confirm|review|choose|select)|press enter to continue|awaiting (your )?input|waiting for (your )?response|needs? your (input|attention|review)/i;
+  // Pattern that indicates an AI agent is waiting for user input or confirmation
+  // (shared with the orchestrator's turn watcher — see agent-signals.ts).
 
   function detectAgentNeedsAttention(text: string) {
     const info = get(sessions).find((s) => s.id === sessionId);
@@ -296,7 +296,13 @@
     return parts[parts.length - 1] || 'shell';
   })());
   let sessionLabel = $derived(sessionInfo ? getSessionLabel(sessionInfo, $sessions) : promptPath);
-  let agentName = $derived(getAgentDisplayName(sessionInfo?.agentPreset));
+  // Badge shows the orchestrator-assigned assistant name (e.g. "Iris"), falling
+  // back to the agent CLI's product name. The main title is driven by the CLI's
+  // OSC title (what it reports it's doing) — the two no longer share a field, so
+  // both stay visible at once.
+  let agentName = $derived(
+    sessionInfo?.agentName?.trim() || getAgentDisplayName(sessionInfo?.agentPreset)
+  );
   let paneTitleText = $derived(
     sessionInfo ? getSessionPaneDisplayTitle(sessionInfo, $sessions) : promptPath
   );
@@ -421,7 +427,7 @@
     if (/^[A-Z]:[\\/]|^\/|^~[\\/]|^file:\/\//i.test(cleaned)) return;
     if (/^(powershell|pwsh|bash|zsh|cmd|fish|nu|nushell)(\.exe)?$/i.test(cleaned)) return;
 
-    setSessionPaneTitle(sessionId, cleaned);
+    applyOscPaneTitle(sessionId, cleaned);
   }
 
   function parseOscSequences(text: string) {
@@ -866,19 +872,27 @@
     flex-direction: column;
     /* Frosted glass surface — the xterm background is transparent and reads
        over this translucent layer + the ambient backdrop behind the window. */
-    background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-surface, 0.72));
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%),
+      rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-surface, 0.72));
     backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     overflow: hidden;
     position: relative;
-    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-    box-shadow: inset 0 0 0 1px transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--bento-radius, 12px);
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07)),
+      var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65));
     transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s, filter 0.15s;
   }
 
   .terminal-pane.active {
     border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
+      inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+      var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65));
   }
 
   .terminal-pane.dead {
@@ -886,7 +900,7 @@
   }
 
   .terminal-pane:not(.active):not(.dead) {
-    opacity: 0.92;
+    opacity: 0.96;
   }
 
   .terminal-pane.maximized {
@@ -907,7 +921,7 @@
     /* Float the pill inside the pane rather than spanning edge-to-edge. */
     margin: 9px 9px 3px;
     border-radius: 999px;
-    background: rgba(var(--bg-tertiary-rgb, 32, 32, 40), 0.5);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
     border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     box-shadow:
       0 2px 8px -2px rgba(0, 0, 0, 0.35),
@@ -920,7 +934,7 @@
   }
 
   .terminal-pane:not(.active) .pane-titlebar {
-    background: rgba(var(--bg-tertiary-rgb, 32, 32, 40), 0.32);
+    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), calc(var(--frost-chrome, 0.62) * 0.82));
     border-color: color-mix(in srgb, var(--border) 50%, transparent);
     box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.05));
   }
@@ -1086,12 +1100,15 @@
     overflow: hidden;
     min-height: 0;
     padding: 6px 6px 8px 6px;
+    background:
+      radial-gradient(140% 120% at 0% 0%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 48%),
+      transparent;
     transition: opacity 0.15s, filter 0.15s;
   }
 
   .terminal-pane:not(.active):not(.dead) .xterm-container {
-    opacity: 0.88;
-    filter: saturate(0.94);
+    opacity: 0.96;
+    filter: saturate(0.98);
   }
 
   .xterm-container :global(.xterm) {
@@ -1172,7 +1189,9 @@
     top: 46px;
     left: 9px;
     z-index: 50;
-    background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.88);
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%),
+      rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
     backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
     border: 1px solid var(--border);

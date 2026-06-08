@@ -7,7 +7,12 @@ export type TerminalSessionInfo = {
   id: number;
   projectId: string;
   title: string;
+  // Title driven by the agent CLI's OSC escape sequences (what the tool reports
+  // it is doing). Shown as the pane's main heading.
   paneTitle?: string | null;
+  // Orchestrator-assigned human/assistant name (e.g. "Iris"). Kept separate from
+  // paneTitle so the assistant name (a badge) and the live CLI title can coexist.
+  agentName?: string | null;
   isRunning: boolean;
   isExecuting?: boolean;
   agentPreset?: string | null;
@@ -15,6 +20,10 @@ export type TerminalSessionInfo = {
   role?: string | null;
   cwd?: string | null;
   taskSummary?: string | null;
+  lastExitCode?: number | null;
+  // Orchestrator: id of the OrchestratorTask that currently owns this terminal
+  // (single-agent lease). null/undefined = unowned / user-controlled.
+  ownerTaskId?: string | null;
 };
 
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
@@ -62,6 +71,12 @@ export const promptBarImage = writable<{ dataUrl: string; name: string } | null>
 export const promptBarFocusRequest = writable(0);
 export function focusPromptBar() {
   promptBarFocusRequest.update((n) => n + 1);
+}
+
+// Bumped to request the FloatingPromptBar launch agent voice mode.
+export const promptBarVoiceModeRequest = writable(0);
+export function launchPromptBarVoiceMode() {
+  promptBarVoiceModeRequest.update((n) => n + 1);
 }
 
 // Command history store, persisted in localStorage
@@ -462,7 +477,9 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
         exitCallbacks.get(pty.id)?.(code);
         updateProjectState(sessionProjectId, (current) => ({
           ...current,
-          sessions: current.sessions.map((x) => (x.id === pty.id ? { ...x, isRunning: false } : x)),
+          sessions: current.sessions.map((x) => (
+            x.id === pty.id ? { ...x, isRunning: false, lastExitCode: code } : x
+          )),
         }));
         const visibleSessions = sessionProjectId === activeTerminalProjectId ? get(sessions) : state.sessions;
         const label = session ? getSessionLabel(session, visibleSessions) : `Terminal ${pty.id}`;
@@ -493,7 +510,9 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       projectId: owningProjectId,
       title: `Terminal ${sessionNum}`,
       paneTitle: null,
+      agentName: null,
       isRunning: true,
+      lastExitCode: null,
       lastActivatedAt: Date.now(),
     };
 
@@ -586,6 +605,146 @@ export function sendPromptToSession(sessionId: number, text: string, agentPreset
   writeToSession(sessionId, `${text}\r`);
 }
 
+// Submitting an agent prompt is two steps: paste the text, then send a separate
+// Enter. The Enter must not arrive until the agent's TUI has actually committed
+// the pasted text to its input composer — Ink/React REPLs (Claude Code) render
+// paste input asynchronously, so an Enter sent too early submits an *empty*
+// composer (a no-op) and the text then lands typed-but-unsent. We therefore wait
+// for the pasted text *itself* to be echoed into the output before submitting.
+const PASTE_ECHO_POLL_MS = 40;
+const PASTE_ECHO_MIN_WAIT_MS = 60;
+// How much of the prompt to match against the echoed composer. A short, early
+// slice is enough to confirm the paste landed and stays on one line at any sane
+// terminal width (so reflow can't split it mid-word).
+const PASTE_ECHO_NEEDLE_CHARS = 48;
+const PASTE_SUBMIT_SETTLE_MS = 140;
+const PASTE_SUBMIT_MAX_WAIT_MS = 2500;
+// After pressing Enter we confirm the agent actually *started* — an Enter that
+// raced the paste-commit lands on an empty composer (a no-op) and the prompt
+// just sits there typed-but-unsent. A submitted prompt makes the TUI redraw
+// heavily (spinner, "working", token counter), so a burst of new output is a
+// reliable "it took the prompt" signal; the absence of one means re-press Enter.
+const SUBMIT_CONFIRM_POLL_MS = 80;
+const SUBMIT_CONFIRM_WINDOW_MS = 2000;
+const SUBMIT_CONFIRM_DELTA = 150;
+const MAX_SUBMIT_ATTEMPTS = 3;
+
+// Strip ANSI/VT escapes and C0 control noise, then collapse whitespace, so the
+// literal prompt text can be found in a TUI's escape-laden, reflowed redraw.
+const ECHO_ANSI =
+  /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[PX^_][\s\S]*?(?:\x1b\\|\x07)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[()][0-9A-Za-z]|\x1b[@-Z\\-_=>]/g;
+const ECHO_CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
+export function normalizeForEchoMatch(raw: string): string {
+  if (!raw) return '';
+  return raw.replace(ECHO_ANSI, '').replace(ECHO_CONTROL, '').replace(/\s+/g, ' ').trim();
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let from = haystack.indexOf(needle);
+  while (from !== -1) {
+    count++;
+    from = haystack.indexOf(needle, from + needle.length);
+  }
+  return count;
+}
+
+/**
+ * True once `current` (the session's full output buffer) shows the pasted `text`
+ * echoed into the composer beyond what `base` (the buffer captured the instant
+ * before the paste) already contained. We match the literal text — not mere
+ * output growth — because TUI agents (Claude Code) redraw their status
+ * bar/spinner constantly, so a length delta trips long before the paste is
+ * committed. Comparing occurrence counts means a prompt identical to earlier
+ * output still registers as newly echoed.
+ */
+export function pasteEchoLanded(base: string, current: string, text: string): boolean {
+  const needle = normalizeForEchoMatch(text).slice(0, PASTE_ECHO_NEEDLE_CHARS);
+  if (!needle) return false;
+  const baseCount = countOccurrences(normalizeForEchoMatch(base), needle);
+  const nowCount = countOccurrences(normalizeForEchoMatch(current), needle);
+  return nowCount > baseCount;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Wait until the pasted `text` is echoed into the agent's composer (so a
+ * following Enter can't race the input-state commit), then settle briefly. Falls
+ * back to a max wait so a non-echoing agent still proceeds to submit.
+ */
+async function waitForPasteEcho(sessionId: number, base: string, text: string): Promise<void> {
+  const startedAt = Date.now();
+  for (;;) {
+    const elapsed = Date.now() - startedAt;
+    const landed =
+      elapsed >= PASTE_ECHO_MIN_WAIT_MS && pasteEchoLanded(base, getSessionOutputBuffer(sessionId), text);
+    if (landed || elapsed >= PASTE_SUBMIT_MAX_WAIT_MS) break;
+    await sleep(PASTE_ECHO_POLL_MS);
+  }
+  await sleep(PASTE_SUBMIT_SETTLE_MS);
+}
+
+/**
+ * After an Enter, watch for the burst of output an agent emits when it actually
+ * accepts a prompt. Returns true once output grows past `baseLen` by the
+ * threshold, false if the window elapses (the Enter was a no-op) or the session
+ * closes.
+ */
+async function confirmAgentStarted(sessionId: number, baseLen: number): Promise<boolean> {
+  const startedAt = Date.now();
+  for (;;) {
+    if (!ptyInstances.get(sessionId)) return false;
+    if (getSessionOutputBuffer(sessionId).length >= baseLen + SUBMIT_CONFIRM_DELTA) return true;
+    if (Date.now() - startedAt >= SUBMIT_CONFIRM_WINDOW_MS) return false;
+    await sleep(SUBMIT_CONFIRM_POLL_MS);
+  }
+}
+
+/**
+ * Deliver a prompt straight to a session's PTY using a bracketed-paste wrapper,
+ * then submit it — pressing Enter, confirming the agent actually started, and
+ * re-pressing if the first Enter raced the paste-commit and hit an empty
+ * composer. Unlike `sendPromptToSession` (which routes through the xterm
+ * `term.paste`), this does NOT depend on a TerminalPane being mounted — so it
+ * reliably reaches a just-spawned agent the user may not be looking at. Used by
+ * the orchestrator to auto-drive agents.
+ *
+ * Resolves true once the prompt is delivered (pasted and Enter sent). The
+ * internal confirm/retry only governs whether further Enters are needed; a
+ * delivered-but-unconfirmed prompt still resolves true so the caller can watch
+ * the turn (the turn watcher tolerates an agent that never started).
+ */
+export async function sendAgentPromptDirect(sessionId: number, text: string): Promise<boolean> {
+  if (!text) return false;
+  const pty = ptyInstances.get(sessionId);
+  if (!pty) return false;
+
+  // Bracketed paste keeps multi-line prompts intact and stops the REPL from
+  // submitting on each embedded newline; a separate CR (below) submits the blob.
+  const base = getSessionOutputBuffer(sessionId);
+  pty.write(`\x1b[200~${text}\x1b[201~`).catch((err) => console.error('Failed to paste prompt:', err));
+  setSessionExecuting(sessionId, true);
+
+  await waitForPasteEcho(sessionId, base, text);
+
+  // Press Enter, then verify the agent took it. An Enter on an empty composer is
+  // a harmless no-op, so re-pressing is safe — the prompt stays in the composer
+  // until one Enter lands after the commit and the agent starts working.
+  for (let attempt = 0; attempt < MAX_SUBMIT_ATTEMPTS; attempt += 1) {
+    if (!ptyInstances.get(sessionId)) return false;
+    const lenBeforeEnter = getSessionOutputBuffer(sessionId).length;
+    pty.write('\r').catch((err) => console.error('Failed to submit prompt:', err));
+    if (await confirmAgentStarted(sessionId, lenBeforeEnter)) return true;
+  }
+  // Delivered but never confirmed starting (quiet/stuck agent). Still report
+  // success: the prompt is in the composer and the caller's turn watcher won't
+  // false-finish a turn that produced no real output.
+  return ptyInstances.has(sessionId);
+}
+
 export function setSessionExecuting(id: number, executing: boolean) {
   const projectId = terminalSessionProjects.get(id);
   if (!projectId) return;
@@ -615,6 +774,28 @@ export function setSessionPaneTitle(id: number, paneTitle: string | null) {
       x.id === id ? { ...x, paneTitle } : x
     ),
   }));
+}
+
+/** The orchestrator-assigned assistant name (shown as the pane badge). Distinct
+ * from `paneTitle`, which the agent CLI drives via OSC, so both can show at once. */
+export function setSessionAgentName(id: number, agentName: string | null) {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) =>
+      x.id === id ? { ...x, agentName } : x
+    ),
+  }));
+}
+
+export function applyOscPaneTitle(id: number, paneTitle: string): void {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+
+  // The agent CLI's reported title flows into `paneTitle` even for orchestrator-
+  // leased panes — the assistant name lives in `agentName`, so there's no clash.
+  setSessionPaneTitle(id, paneTitle);
 }
 
 export function markSessionAgentPreset(id: number, agentPreset: string | null) {
@@ -731,6 +912,17 @@ export function setSessionTaskSummary(id: number, taskSummary: string | null) {
   updateProjectState(projectId, (state) => ({
     ...state,
     sessions: state.sessions.map((x) => (x.id === id ? { ...x, taskSummary } : x)),
+  }));
+}
+
+// Orchestrator lease: mark which task owns this terminal. Setting null releases
+// the lease (the terminal stays alive but is no longer tied to a task).
+export function setSessionOwnerTask(id: number, ownerTaskId: string | null) {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => (x.id === id ? { ...x, ownerTaskId } : x)),
   }));
 }
 
@@ -910,7 +1102,31 @@ export function registerMosaicGrow(fn: (() => number) | null) {
   mosaicGrowFn = fn;
 }
 
-export async function spawnAgentPreset(command: string, cwd?: string): Promise<number | null> {
+// Counterpart to mosaicGrowFn: called by killSession when a terminal is killed
+// outside the normal closePane flow (e.g. orchestrator teardown), so the pane
+// cell is removed from the mosaic and neighbors resize to fill the space.
+let mosaicClosePaneFn: ((paneIndex: number) => void) | null = null;
+
+export function registerMosaicClose(fn: ((paneIndex: number) => void) | null) {
+  mosaicClosePaneFn = fn;
+}
+
+export async function spawnAgentPreset(
+  command: string,
+  cwd?: string,
+  opts?: { activate?: boolean }
+): Promise<number | null> {
+  const activate = opts?.activate ?? true;
+  // When spawning in the background (activate: false), remember what was focused
+  // so a freshly created pane doesn't steal focus — the "primary" agent stays put.
+  const bgProjectId = activate ? null : activeTerminalProjectId;
+  const priorActive = bgProjectId
+    ? {
+        sessionId: getProjectState(bgProjectId).activeSessionId,
+        paneIndex: getProjectState(bgProjectId).activePaneIndex,
+      }
+    : null;
+
   let target = findAvailablePaneForAgentRun();
 
   if (!target) {
@@ -938,6 +1154,17 @@ export async function spawnAgentPreset(command: string, cwd?: string): Promise<n
   const displayName = getAgentDisplayName(command) ?? command;
   updateSessionTitle(sessionId, displayName);
   writeToSession(sessionId, command + '\r');
+
+  // Background spawn: createTerminalSession made the new pane active — undo that
+  // and restore the prior focus so the primary terminal stays stationary.
+  if (bgProjectId && priorActive?.sessionId != null && priorActive.sessionId !== sessionId) {
+    updateProjectState(bgProjectId, (state) => ({
+      ...state,
+      activeSessionId: priorActive.sessionId,
+      activePaneIndex: priorActive.paneIndex,
+    }));
+  }
+
   return sessionId;
 }
 
@@ -955,6 +1182,15 @@ export async function killAllSessions() {
 
 export async function killSession(id: number) {
   const projectId = terminalSessionProjects.get(id);
+
+  // Capture which pane the session occupies BEFORE the state update nulls the
+  // assignment. When killSession is called from outside closePane (e.g. the
+  // orchestrator), we use this to remove the mosaic cell so neighbors resize.
+  // When called from closePane (which removes the cell first then calls us),
+  // the cell is already gone so mosaicClosePaneFn becomes a no-op there.
+  const paneIndexForMosaicClose = projectId
+    ? getProjectState(projectId).paneAssignments.indexOf(id)
+    : get(paneAssignments).indexOf(id);
 
   // Update the authoritative state *synchronously* — before the async pty
   // teardown below. closePane() in TerminalPanel mutates the local mosaic
@@ -995,6 +1231,13 @@ export async function killSession(id: number) {
   sessionOutputDecoders.delete(id);
   sessionInputBuffers.delete(id);
   terminalSessionProjects.delete(id);
+
+  // Close the mosaic cell so surrounding terminals reclaim the freed space.
+  // No-op when: called from closePane (cell already removed before killSession),
+  // the session was orphaned (paneIndex === -1), or TerminalPanel isn't mounted.
+  if (paneIndexForMosaicClose !== -1 && mosaicClosePaneFn) {
+    mosaicClosePaneFn(paneIndexForMosaicClose);
+  }
 
   // Tear the pty down in the background; state no longer depends on it.
   const pty = ptyInstances.get(id);

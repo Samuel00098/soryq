@@ -5,7 +5,7 @@ use crate::state::AppState;
 
 /// Resolve a (possibly new) path to its best canonical form and verify it
 /// falls inside one of the currently open project roots.
-fn require_in_project(path: &Path, state: &AppState) -> Result<(), String> {
+pub fn require_in_project(path: &Path, state: &AppState) -> Result<(), String> {
     let projects = state.workspace_manager.list_projects();
     if projects.is_empty() {
         return Err("No project is open — open a project folder first".to_string());

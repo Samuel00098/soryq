@@ -90,6 +90,9 @@ interface ProjectWorkspaceState {
     reviewVisible: boolean;
     httpVisible: boolean;
     tasksVisible: boolean;
+    orchestratorVisible: boolean;
+    dbVisible: boolean;
+    toolboxVisible: boolean;
     lastAuxView: string;
     editorSplitPreview: boolean;
     auxPanelWidth: number;
@@ -184,6 +187,9 @@ interface PersistedProjectState {
     reviewVisible: boolean;
     httpVisible: boolean;
     tasksVisible?: boolean;
+    orchestratorVisible?: boolean;
+    dbVisible?: boolean;
+    toolboxVisible?: boolean;
     lastAuxView?: string;
     editorSplitPreview: boolean;
     auxPanelWidth: number;
@@ -219,6 +225,9 @@ function saveProjectStateToStorage(projectId: string) {
       reviewVisible: currentLayout.reviewVisible,
       httpVisible: currentLayout.httpVisible,
       tasksVisible: currentLayout.tasksVisible,
+      orchestratorVisible: currentLayout.orchestratorVisible,
+      dbVisible: currentLayout.dbVisible,
+      toolboxVisible: currentLayout.toolboxVisible,
       lastAuxView: currentLayout.lastAuxView,
       editorSplitPreview: currentLayout.editorSplitPreview,
       auxPanelWidth: currentLayout.auxPanelWidth,
@@ -278,6 +287,9 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
       reviewVisible: Boolean(l.reviewVisible),
       httpVisible: Boolean(l.httpVisible),
       tasksVisible: Boolean(l.tasksVisible),
+      orchestratorVisible: Boolean(l.orchestratorVisible),
+      dbVisible: Boolean(l.dbVisible),
+      toolboxVisible: Boolean(l.toolboxVisible),
       lastAuxView: typeof l.lastAuxView === 'string' ? l.lastAuxView : undefined,
       editorSplitPreview: Boolean(l.editorSplitPreview),
       auxPanelWidth: typeof l.auxPanelWidth === 'number' ? Math.max(180, Math.min(2000, l.auxPanelWidth)) : 550,
@@ -340,6 +352,9 @@ export function saveProjectState(projectId: string) {
       reviewVisible: get(layout).reviewVisible,
       httpVisible: get(layout).httpVisible,
       tasksVisible: get(layout).tasksVisible,
+      orchestratorVisible: get(layout).orchestratorVisible,
+      dbVisible: get(layout).dbVisible,
+      toolboxVisible: get(layout).toolboxVisible,
       lastAuxView: get(layout).lastAuxView,
       editorSplitPreview: get(layout).editorSplitPreview,
       auxPanelWidth: get(layout).auxPanelWidth,
@@ -417,6 +432,9 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
         reviewVisible: cached.layout.reviewVisible,
         httpVisible: cached.layout.httpVisible,
         tasksVisible: cached.layout.tasksVisible,
+        orchestratorVisible: cached.layout.orchestratorVisible,
+        dbVisible: cached.layout.dbVisible,
+        toolboxVisible: cached.layout.toolboxVisible,
         lastAuxView: sanitiseActiveView(cached.layout.lastAuxView, l.lastAuxView),
         editorSplitPreview: cached.layout.editorSplitPreview,
         auxPanelWidth: cached.layout.auxPanelWidth,
@@ -461,6 +479,9 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
           reviewVisible: persisted.layout!.reviewVisible ?? false,
           httpVisible: persisted.layout!.httpVisible ?? false,
           tasksVisible: persisted.layout!.tasksVisible ?? false,
+          orchestratorVisible: persisted.layout!.orchestratorVisible ?? false,
+          dbVisible: persisted.layout!.dbVisible ?? false,
+          toolboxVisible: persisted.layout!.toolboxVisible ?? false,
           lastAuxView: sanitiseActiveView(persisted.layout!.lastAuxView, l.lastAuxView),
           editorSplitPreview: persisted.layout!.editorSplitPreview ?? false,
           auxPanelWidth: persisted.layout!.auxPanelWidth ?? 550,
@@ -545,6 +566,10 @@ export function clearAllStores() {
     previewVisible: false,
     reviewVisible: false,
     httpVisible: false,
+    tasksVisible: false,
+    orchestratorVisible: false,
+    dbVisible: false,
+    toolboxVisible: false,
     editorSplitPreview: false,
     auxPanelWidth: 550,
     auxEditorHeight: 50,

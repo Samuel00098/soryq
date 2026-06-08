@@ -73,11 +73,7 @@
 <style>
   .statusbar {
     height: 26px;
-    background: rgba(var(--statusbar-bg-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    border-top: 1px solid var(--statusbar-border);
-    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+    background: transparent;
     display: flex;
     align-items: center;
     justify-content: space-between;

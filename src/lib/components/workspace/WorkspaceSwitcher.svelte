@@ -161,19 +161,20 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
-    height: 30px;
+    gap: 4px;
+    height: 26px;
     flex-shrink: 0;
-    width: 100%;
+    width: auto;
   }
 
   .ws-trigger {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex: 1;
     min-width: 0;
-    height: 30px;
+    max-width: 140px;
+    height: 26px;
     padding: 0 6px;
     border-radius: 6px;
     background: transparent;
@@ -190,15 +191,15 @@
   }
 
   .ws-dot {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
     opacity: 0.9;
   }
 
   .ws-trigger-name {
-    font-size: 13.5px;
+    font-size: 11.5px;
     font-weight: 600;
     letter-spacing: 0.2px;
     color: inherit;
@@ -222,9 +223,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 5px;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
     flex-shrink: 0;
     color: var(--text-muted);
     opacity: 0;
@@ -243,15 +244,15 @@
     background: var(--input-bg);
     border: 1px solid var(--accent);
     color: var(--text-primary);
-    font-size: 13.5px;
+    font-size: 11.5px;
     font-weight: 600;
     letter-spacing: 0.2px;
-    padding: 2px 6px;
+    padding: 1px 4px;
     border-radius: 5px;
     outline: none;
-    width: 100%;
+    width: 100px;
     box-sizing: border-box;
-    height: 28px;
+    height: 24px;
   }
 
   /* ── Popup menu ── */

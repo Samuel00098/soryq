@@ -3,6 +3,72 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.0] - 2026-06-08
+
+### Added
+
+- **Agent Command Center** — a new conversational AI panel (the Agents tab) powers project-wide chat with AI agents. Messages go through the orchestrator and replies stream back in a thread view. The floating prompt bar gains an "Agent mode" button that switches it from a terminal-command dispatcher to a conversational input for the command center, with its own send/cancel flow and a live preview of the last assistant reply.
+
+- **Voice conversation loop** — activating voice mode in Agent mode opens a full conversational loop: voice is captured and transcribed (Google or OpenRouter), sent to the active agent, and the response is read back via TTS. The loop auto-continues after each reply. A new animated overlay shows the speaking/listening state, and stop controls halt both TTS playback and the mic.
+
+- **TTS backend** — `tts_speak` synthesises speech from text using the selected provider (OpenRouter, Groq, OpenAI, Google, or any local OpenAI-compatible server). Google audio is decoded from raw PCM and re-wrapped into a standard WAV container server-side; all other providers return their native format. A 4 096-character cap prevents accidental large requests.
+
+- **Audio transcription backend** — `ai_transcribe_audio` transcribes recorded audio using Google or OpenRouter's transcription APIs, with per-provider validation and secret redaction before errors reach the frontend.
+
+- **Database Explorer** — a new `db` panel in the right rail lists every SQLite database detected in the open project, lets you browse tables, and run arbitrary SQL queries with a full column/row results viewer. Backed by new Rust commands (`db_list_tables`, `db_execute_query`) using the bundled `rusqlite` dependency.
+
+- **Dev Toolbox** — a new `toolbox` panel in the activity bar, grouping developer utility tools in one place.
+
+- **Terminal Snippets sidebar** — a new `Snippets` tab in the left sidebar (`TerminalSnippetsPanel`) for managing and inserting reusable shell snippets.
+
+- **Sketch Canvas** — a freehand drawing overlay toggled from the bottom of the activity bar, for quick scratch diagrams alongside the workspace.
+
+- **Activity Bar** — the left rail is now a permanent activity bar with icon buttons for every sidebar tab (Files, Source Control, Snapshots, Snippets) and every right-panel view (Editor, Terminal, Preview, Code Review, HTTP Client, Tasks, Database, Toolbox). Clicking an already-active sidebar tab closes it. Clicking an active aux view toggles it off and returns to terminal.
+
+- **Git worktrees** — two new Rust commands (`workspace_git_worktree_create`, `workspace_git_worktree_remove`) for creating and pruning Git worktrees from within the app.
+
+- **Recent Daily Notes** — `workspace_get_recent_daily_notes` surfaces recently edited per-project daily note files for display in the welcome screen and navigation.
+
+- **`check_local_provider_online`** — probes local AI provider servers (Ollama, LM Studio) with a 500 ms timeout; Ollama falls back from the `/v1/models` path to the native `/api/tags` endpoint when the OpenAI-compatible route isn't reachable.
+
+- **`provider_api_key_get` command** — complements `provider_api_key_exists` with an actual key-read command, used by the keychain cache system.
+
+- **`ai_complete` command** — generic Tauri command for direct prompt completions outside the voice and commit-message flows.
+
+- **HTTP Client requests moved to Rust** — the HTTP Client panel now sends requests through `http_send_request` in the Rust backend instead of `fetch()` in the WebView, eliminating CORS errors and allowing requests to any URL regardless of the app's Content-Security-Policy.
+
+- **Navigation history store** — `initNavigationHistory` initialises browser-style back/forward history for the preview panel.
+
+- **`VoiceInputProviderId` type** — `'webspeech' | 'google' | 'openrouter'` for the voice-input provider setting.
+
+### Changed
+
+- **AI API keys moved from localStorage to OS keychain** — `ai-keychain.ts` is fully rewritten around an in-memory cache backed by the OS keychain. On startup the app migrates any keys still in `localStorage` to the keychain and populates the cache; all subsequent reads are synchronous Map lookups with no IPC round-trip. The old pattern — localStorage as primary store, keychain as mirror — is reversed. Keychain is now authoritative.
+
+- **Background images served via asset protocol** — background images are no longer base64-encoded over IPC. The Rust backend now returns the stored file path; the frontend converts it to a webview-safe URL using `convertFileSrc`. This removes large IPC payloads, drops the base64 encode/decode overhead, and makes image loads faster.
+
+- **`setSidebarTab` opens the sidebar** — calling `setSidebarTab` now also sets `sidebarVisible: true`, so switching tabs programmatically always makes the result visible.
+
+- **`toggleSidebarTab` added** — closes the sidebar when the given tab is already active, or switches to and opens it otherwise. The activity bar uses this for all sidebar-tab buttons.
+
+- **Layout state extended** — `LayoutState` gains `orchestratorVisible`, `dbVisible`, and `toolboxVisible` booleans. All existing toggle functions (`setActiveView`, `showTerminal`, `toggleTerminal`, `toggleEditorVisible`, etc.) are updated to clear the new flags when switching views so only one aux panel is ever visible.
+
+- **Provider definitions carry `ttsSupport`** — `AiProviderDef` now includes an optional `ttsSupport` field (`'native' | 'self-hosted' | 'none'`) indicating TTS support. OpenRouter is marked `'native'`.
+
+- **App startup hardening** — the config-directory creation now uses `expect` to surface failures immediately instead of silently ignoring them, and the main webview window retrieval uses a proper `None` guard that returns an error rather than an unwrap panic.
+
+### Fixed
+
+- **Interface transparency migration** — users whose transparency was silently reset to `0` by the opaque-default change in v0.2.5 have it automatically restored to `50` on next launch, gated by a one-time `forge_setting_interfaceTransparency_migrated_v1` marker in `localStorage`.
+
+### Security
+
+- **API keys are keychain-only** — keys are never written to `localStorage` as a primary store. The in-memory cache is populated from the OS keychain at startup; `localStorage` is only touched during the one-time migration and is cleared afterward.
+
+- **HTTP Client bypasses WebView CSP safely** — routing HTTP Client requests through the Rust backend keeps the app's Content-Security-Policy tight (no wildcard `connect-src`) without blocking any developer tool requests.
+
+- **Database queries are project-scoped** — `db_list_tables` and `db_execute_query` call `require_in_project` before opening any SQLite connection, preventing the panel from accessing databases outside the open project roots.
+
 ## [v0.2.5] - 2026-06-04
 
 ### Changed

@@ -133,12 +133,12 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border-subtle);
+    padding: 0;
     overflow-x: auto;
     scrollbar-width: none;
     flex-shrink: 0;
-    min-height: 38px;
+    min-height: 26px;
+    height: 26px;
   }
 
   .project-switcher::-webkit-scrollbar { display: none; }
@@ -146,17 +146,18 @@
   .project-tab {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 8px 4px 8px;
-    border-radius: 6px;
-    font-size: 11.5px;
+    gap: 5px;
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 11px;
     font-weight: 500;
     color: var(--text-muted);
     cursor: pointer;
     white-space: nowrap;
-    max-width: 130px;
+    max-width: 110px;
     transition: background 0.15s, color 0.15s;
     flex-shrink: 0;
+    height: 20px;
   }
 
   .project-tab:hover { color: var(--text-secondary); background: var(--bg-hover); }
@@ -181,8 +182,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 3px;
     color: var(--text-muted);
     opacity: 0;
@@ -197,8 +198,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     border-radius: 5px;
     flex-shrink: 0;
     color: var(--text-muted);
@@ -206,18 +207,19 @@
   }
   .project-add-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 
-  .project-switcher-empty { padding: 6px 8px; }
+  .project-switcher-empty { padding: 0; }
 
   .project-add-full {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
-    border-radius: 6px;
+    padding: 2px 6px;
+    border-radius: 5px;
     font-size: 11px;
     color: var(--text-muted);
     transition: color 0.15s, background 0.15s;
-    width: 100%;
+    width: auto;
+    height: 20px;
   }
   .project-add-full:hover { color: var(--text-secondary); background: var(--bg-hover); }
 

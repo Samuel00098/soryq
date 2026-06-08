@@ -1,20 +1,29 @@
+use crate::commands::clean_path_buf;
 use crate::workspace::project::Project;
 use tauri::State;
 use crate::state::AppState;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Strip local path information from git error output before surfacing it to the frontend.
 pub(crate) fn sanitize_git_error(stderr: &str) -> String {
     stderr
         .lines()
         .map(|line| {
-            // Replace absolute path segments with a placeholder
-            if line.contains(":\\") || line.contains('/') {
-                "[path redacted]".to_string()
-            } else {
-                line.to_string()
-            }
+            line.split_whitespace()
+                .map(|token| {
+                    let trimmed = token.trim_matches(|c| matches!(c, '\'' | '"' | '`'));
+                    let looks_like_path = trimmed.starts_with('/')
+                        || trimmed.starts_with(r"\\")
+                        || (trimmed.len() > 2
+                            && trimmed.as_bytes()[1] == b':'
+                            && matches!(trimmed.as_bytes()[2], b'\\' | b'/'))
+                        || trimmed.contains('/')
+                        || trimmed.contains('\\');
+                    if looks_like_path { "[path redacted]" } else { token }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -993,6 +1002,286 @@ fn validate_branch_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_worktree_task_id(task_id: &str) -> Result<(), String> {
+    if task_id.is_empty() {
+        return Err("Task id cannot be empty".to_string());
+    }
+    if task_id.len() > 64 {
+        return Err("Task id is too long".to_string());
+    }
+    #[cfg(windows)]
+    {
+        let stem = task_id
+            .trim_end_matches('.')
+            .split('.')
+            .next()
+            .unwrap_or(task_id)
+            .to_ascii_uppercase();
+        if matches!(
+            stem.as_str(),
+            "CON"
+                | "PRN"
+                | "AUX"
+                | "NUL"
+                | "COM1"
+                | "COM2"
+                | "COM3"
+                | "COM4"
+                | "COM5"
+                | "COM6"
+                | "COM7"
+                | "COM8"
+                | "COM9"
+                | "LPT1"
+                | "LPT2"
+                | "LPT3"
+                | "LPT4"
+                | "LPT5"
+                | "LPT6"
+                | "LPT7"
+                | "LPT8"
+                | "LPT9"
+        ) {
+            return Err("Task id cannot use reserved Windows device names".to_string());
+        }
+    }
+    if task_id.starts_with('-') || task_id.starts_with('.') {
+        return Err("Task id cannot start with '.' or '-'".to_string());
+    }
+    if task_id.ends_with('.') || task_id.ends_with(".lock") {
+        return Err("Task id cannot end with '.' or '.lock'".to_string());
+    }
+    if task_id.contains('/') || task_id.contains('\\') {
+        return Err("Task id cannot contain path separators".to_string());
+    }
+    if task_id.contains("..") {
+        return Err("Task id cannot contain '..'".to_string());
+    }
+    if !task_id.chars().any(|c| c.is_ascii_alphanumeric()) {
+        return Err("Task id must contain at least one alphanumeric character".to_string());
+    }
+    if !task_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err("Task id contains invalid characters".to_string());
+    }
+    Ok(())
+}
+
+fn slugify_worktree_component(input: &str) -> String {
+    let mut slug = String::new();
+    let mut needs_dash = false;
+
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if needs_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push(ch.to_ascii_lowercase());
+            needs_dash = false;
+        } else if !slug.is_empty() {
+            needs_dash = true;
+        }
+    }
+
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+
+    slug
+}
+
+fn sanitize_worktree_branch_name(task_id: &str, title: &str) -> String {
+    const MAX_TITLE_SEGMENT: usize = 48;
+    let mut title_slug = slugify_worktree_component(title);
+    if title_slug.len() > MAX_TITLE_SEGMENT {
+        title_slug.truncate(MAX_TITLE_SEGMENT);
+        while title_slug.ends_with('-') {
+            title_slug.pop();
+        }
+    }
+
+    if title_slug.is_empty() {
+        format!("soryq/{task_id}")
+    } else {
+        format!("soryq/{task_id}-{title_slug}")
+    }
+}
+
+fn worktree_root_path(root_path: &Path) -> PathBuf {
+    root_path.join(".soryq").join("worktrees")
+}
+
+fn ensure_git_repository(root_path: &Path) -> Result<(), String> {
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
+    Ok(())
+}
+
+fn worktree_path_for_task(root_path: &Path, task_id: &str) -> Result<PathBuf, String> {
+    validate_worktree_task_id(task_id)?;
+    Ok(worktree_root_path(root_path).join(task_id))
+}
+
+fn validate_task_worktree_remove_path(root_path: &Path, task_id: &str) -> Result<PathBuf, String> {
+    let expected = clean_path_buf(worktree_path_for_task(root_path, task_id)?);
+    if expected.exists() {
+        let canonical = std::fs::canonicalize(&expected).map_err(|_| "Invalid worktree path".to_string())?;
+        let worktree_root = clean_path_buf(
+            std::fs::canonicalize(worktree_root_path(root_path)).map_err(|_| "Invalid worktree path".to_string())?,
+        );
+        if !canonical.starts_with(&worktree_root) {
+            return Err("Access denied: invalid worktree path".to_string());
+        }
+        if canonical.file_name().and_then(|component| component.to_str()) != Some(task_id) {
+            return Err("Access denied: worktree path does not match task id".to_string());
+        }
+    }
+    Ok(expected)
+}
+
+fn current_worktree_base_branch(root_path: &Path) -> Result<String, String> {
+    let base_branch = git_capture(root_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .ok_or_else(|| "Failed to determine current branch".to_string())?;
+    let base_branch = base_branch.trim().to_string();
+
+    if base_branch.is_empty() || base_branch == "HEAD" {
+        Err("Detached HEAD cannot be used as a worktree base branch".to_string())
+    } else {
+        Ok(base_branch)
+    }
+}
+
+fn current_worktree_base_commit(root_path: &Path) -> Result<String, String> {
+    let base_commit = git_capture(root_path, &["rev-parse", "HEAD"])
+        .ok_or_else(|| "Failed to determine HEAD commit".to_string())?;
+    let base_commit = base_commit.trim().to_string();
+
+    if base_commit.is_empty() {
+        Err("Failed to determine HEAD commit".to_string())
+    } else {
+        Ok(base_commit)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GitWorktreeInfo {
+    pub id: String,
+    pub path: String,
+    pub branch_name: String,
+    pub base_branch: String,
+    pub base_commit: String,
+    pub created_at: i64,
+}
+
+#[tauri::command]
+pub fn workspace_git_worktree_create(
+    project_id: String,
+    task_id: String,
+    title: String,
+    state: State<AppState>,
+) -> Result<GitWorktreeInfo, String> {
+    let root_path = get_project_path(&project_id, &state)?;
+    ensure_git_repository(&root_path)?;
+    validate_worktree_task_id(&task_id)?;
+
+    let base_branch = current_worktree_base_branch(&root_path)?;
+    let base_commit = current_worktree_base_commit(&root_path)?;
+    let branch_name = sanitize_worktree_branch_name(&task_id, &title);
+    validate_branch_name(&branch_name)?;
+    let project_root = clean_path_buf(
+        std::fs::canonicalize(&root_path)
+            .map_err(|e| format!("Failed to resolve project root: {}", e))?,
+    );
+    let dot_soryq = root_path.join(".soryq");
+    if let Ok(meta) = std::fs::symlink_metadata(&dot_soryq) {
+        if meta.file_type().is_symlink() {
+            return Err("Access denied: invalid worktree root".to_string());
+        }
+    }
+    let worktree_root = worktree_root_path(&root_path);
+    std::fs::create_dir_all(&worktree_root)
+        .map_err(|e| format!("Failed to create worktree directory: {}", e))?;
+    let resolved_root = clean_path_buf(
+        std::fs::canonicalize(&worktree_root)
+            .map_err(|e| format!("Failed to resolve worktree root: {}", e))?,
+    );
+    if !resolved_root.starts_with(&project_root) {
+        return Err("Access denied: invalid worktree root".to_string());
+    }
+    let worktree_path = resolved_root.join(&task_id);
+
+    let output = Command::new("git")
+        .arg("worktree")
+        .arg("add")
+        .arg("-b")
+        .arg(&branch_name)
+        .arg(&worktree_path)
+        .arg(&base_commit)
+        .current_dir(&root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to create worktree: {}", e))?;
+
+    if !output.status.success() {
+        return Err(sanitize_git_error(&String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Failed to read system time: {}", e))?
+        .as_millis() as i64;
+    let path = clean_path_buf(
+        std::fs::canonicalize(&worktree_path)
+            .map_err(|e| format!("Failed to resolve worktree path: {}", e))?,
+    )
+    .to_string_lossy()
+    .to_string();
+
+    Ok(GitWorktreeInfo {
+        id: task_id,
+        path,
+        branch_name,
+        base_branch,
+        base_commit,
+        created_at,
+    })
+}
+
+#[tauri::command]
+pub fn workspace_git_worktree_remove(
+    project_id: String,
+    task_id: String,
+    force: Option<bool>,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let root_path = get_project_path(&project_id, &state)?;
+    ensure_git_repository(&root_path)?;
+    validate_worktree_task_id(&task_id)?;
+    let worktree_path = validate_task_worktree_remove_path(&root_path, &task_id)?;
+    let force = force.unwrap_or(false);
+
+    let mut command = Command::new("git");
+    command.arg("worktree").arg("remove");
+    if force {
+        command.arg("--force");
+    }
+    let output = command
+        .arg(&worktree_path)
+        .current_dir(&root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to remove worktree: {}", e))?;
+
+    if !output.status.success() {
+        return Err(sanitize_git_error(&String::from_utf8_lossy(&output.stderr)));
+    }
+
+    Ok(format!("Removed worktree for {}", task_id))
+}
+
 fn get_project_path(project_id: &str, state: &AppState) -> Result<std::path::PathBuf, String> {
     let projects = state.workspace_manager.list_projects();
     let project = projects.iter().find(|p| p.id == project_id)
@@ -1141,6 +1430,111 @@ pub fn workspace_clear_recent(state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
+fn parse_daily_note_markdown(content: &str) -> (Vec<String>, Vec<String>) {
+    let mut focus = Vec::new();
+    let mut done = Vec::new();
+    let mut current_section = ""; // "focus", "done" or ""
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("##") {
+            let section_name = trimmed[2..].trim().to_lowercase();
+            if section_name.contains("focus") {
+                current_section = "focus";
+            } else if section_name.contains("done") {
+                current_section = "done";
+            } else {
+                current_section = "";
+            }
+            continue;
+        }
+
+        if current_section == "focus" || current_section == "done" {
+            if trimmed.starts_with('-') || trimmed.starts_with('*') || (trimmed.len() > 2 && trimmed.chars().next().unwrap().is_ascii_digit() && trimmed.contains('.')) {
+                let item = trimmed.trim_start_matches(|c| c == '-' || c == '*' || c == ' ' || c == '.' || c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7' || c == '8' || c == '9' || c == '0').trim().to_string();
+                if !item.is_empty() {
+                    if current_section == "focus" {
+                        focus.push(item);
+                    } else {
+                        done.push(item);
+                    }
+                }
+            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                if current_section == "focus" {
+                    focus.push(trimmed.to_string());
+                } else {
+                    done.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    (focus, done)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DailyNoteSummary {
+    pub project_name: String,
+    pub project_path: String,
+    pub date: String,
+    pub filepath: String,
+    pub focus: Vec<String>,
+    pub done: Vec<String>,
+}
+
+#[tauri::command]
+pub fn workspace_get_recent_daily_notes(state: State<AppState>) -> Result<Vec<DailyNoteSummary>, String> {
+    let recents = state.workspace_manager.get_recent_projects();
+    let mut summaries = Vec::new();
+
+    for project in recents {
+        let daily_dir = project.root_path.join(".soryq").join("daily");
+        let daily_notes_dir = project.root_path.join(".soryq").join("daily-notes");
+
+        let dir_to_read = if daily_dir.is_dir() {
+            Some(daily_dir)
+        } else if daily_notes_dir.is_dir() {
+            Some(daily_notes_dir)
+        } else {
+            None
+        };
+
+        if let Some(dir) = dir_to_read {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                let mut note_files = Vec::new();
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().map(|s| s == "md").unwrap_or(false) {
+                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                note_files.push((stem.to_string(), path));
+                            }
+                        }
+                    }
+                }
+
+                note_files.sort_by(|a, b| b.0.cmp(&a.0));
+
+                for (date, path) in note_files.into_iter().take(3) {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let (focus, done) = parse_daily_note_markdown(&content);
+                        summaries.push(DailyNoteSummary {
+                            project_name: project.name.clone(),
+                            project_path: project.root_path.to_string_lossy().to_string(),
+                            date,
+                            filepath: path.to_string_lossy().to_string(),
+                            focus,
+                            done,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(summaries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1158,14 +1552,14 @@ mod tests {
     fn sanitize_git_error_redacts_windows_absolute_paths() {
         let input = "error: could not read C:\\Users\\sam\\project\\.git\\config";
         let result = sanitize_git_error(input);
-        assert_eq!(result, "[path redacted]");
+        assert_eq!(result, "error: could not read [path redacted]");
     }
 
     #[test]
     fn sanitize_git_error_redacts_unix_absolute_paths() {
         let input = "/home/user/project: not a git repository";
         let result = sanitize_git_error(input);
-        assert_eq!(result, "[path redacted]");
+        assert_eq!(result, "[path redacted] not a git repository");
     }
 
     #[test]
@@ -1242,6 +1636,62 @@ mod tests {
         assert!(validate_branch_name("branch name").is_err());
         assert!(validate_branch_name("branch@name").is_err());
         assert!(validate_branch_name("branch;name").is_err());
+    }
+
+    // --- worktree helpers ---
+
+    #[test]
+    fn sanitize_worktree_branch_name_slugifies_task_and_title() {
+        assert_eq!(
+            sanitize_worktree_branch_name("ot_123", "Fix review flow"),
+            "soryq/ot_123-fix-review-flow"
+        );
+        assert_eq!(sanitize_worktree_branch_name("ot_123", "!!!"), "soryq/ot_123");
+        let long = sanitize_worktree_branch_name("ot_123", &"Fix ".repeat(50));
+        assert!(long.starts_with("soryq/ot_123-"));
+        assert!(long.len() <= "soryq/ot_123-".len() + 48);
+    }
+
+    #[test]
+    fn validate_worktree_task_id_rejects_overlong_ids() {
+        assert!(validate_worktree_task_id(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn validate_worktree_task_id_rejects_invalid_segments() {
+        assert!(validate_worktree_task_id("ot_123").is_ok());
+        assert!(validate_worktree_task_id("../ot_123").is_err());
+        assert!(validate_worktree_task_id("ot/123").is_err());
+        assert!(validate_worktree_task_id("ot 123").is_err());
+        assert!(validate_worktree_task_id("ot_123.lock").is_err());
+    }
+
+
+    #[test]
+    fn ensure_git_repository_rejects_plain_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(ensure_git_repository(temp.path()).is_err());
+    }
+
+    #[test]
+    fn worktree_path_for_task_stays_project_local() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = crate::commands::clean_path_buf(std::fs::canonicalize(temp.path()).unwrap());
+
+        let path = worktree_path_for_task(&root, "ot_123").unwrap();
+        assert_eq!(path, root.join(".soryq").join("worktrees").join("ot_123"));
+    }
+
+    #[test]
+    fn validate_task_worktree_remove_path_allows_missing_expected_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = crate::commands::clean_path_buf(std::fs::canonicalize(temp.path()).unwrap());
+        let worktree_root = worktree_root_path(&root);
+        std::fs::create_dir_all(&worktree_root).unwrap();
+
+        let expected = worktree_path_for_task(&root, "ot_123").unwrap();
+        assert!(!expected.exists());
+        assert_eq!(validate_task_worktree_remove_path(&root, "ot_123").unwrap(), expected);
     }
 
     // --- extract_port_from_cmd ---

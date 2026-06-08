@@ -1,3 +1,4 @@
+<!-- WelcomeScreen.svelte -->
 <script lang="ts">
   import {
     newWorkspacePromptOpen,
@@ -10,6 +11,9 @@
   import { derived } from 'svelte/store';
   import { search as paletteSearch } from '$lib/stores/commandpalette';
   import { activeTheme } from '$lib/stores/theme';
+  import { openSettings } from '$lib/stores/layout';
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
 
   let isLight = $derived($activeTheme?.type === 'light');
 
@@ -82,6 +86,123 @@
 
   let iconError = $state(false);
   let hasRecents = $derived($recentWorkspaces.length > 0);
+
+  // Time & Date Display
+  let timeString = $state('');
+  let dateString = $state('');
+  function updateTime() {
+    const now = new Date();
+    timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    dateString = now.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  // --- Async Portal Feeds ---
+  let hnStories = $state<any[]>([]);
+  let loadingHn = $state(false);
+  let ghRepos = $state<any[]>([]);
+  let loadingGh = $state(false);
+  let dailyNotes = $state<any[]>([]);
+  let activeDailyNotes = $derived(dailyNotes.filter((note) => note.focus.length > 0 || note.done.length > 0));
+  let loadingNotes = $state(false);
+
+  async function fetchCorsFree(url: string, headers: Record<string, string> = {}): Promise<any> {
+    try {
+      const requestHeaders = {
+        'User-Agent': 'Soryq-Developer-Workspace/1.0',
+        ...headers
+      };
+      const payload = await invoke<any>('http_send_request', {
+        method: 'GET',
+        url: url,
+        headers: requestHeaders,
+        body: null
+      });
+      return JSON.parse(payload.body);
+    } catch (err) {
+      console.error(`CORS free fetch failed for ${url}:`, err);
+      throw err;
+    }
+  }
+
+  async function loadHnStories() {
+    loadingHn = true;
+    try {
+      const ids = await fetchCorsFree('https://hacker-news.firebaseio.com/v0/topstories.json');
+      const topIds = ids.slice(0, 6);
+      const storyPromises = topIds.map((id: number) =>
+        fetchCorsFree(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)
+      );
+      hnStories = await Promise.all(storyPromises);
+    } catch (err) {
+      console.error('Failed to load HN stories:', err);
+    } finally {
+      loadingHn = false;
+    }
+  }
+
+  async function loadGhRepos() {
+    loadingGh = true;
+    try {
+      const data = await fetchCorsFree('https://api.github.com/search/repositories?q=stars:>15000+language:rust+language:typescript+language:python&sort=stars&order=desc&per_page=5');
+      ghRepos = data.items || [];
+    } catch (err) {
+      console.error('Failed to load GitHub trending:', err);
+    } finally {
+      loadingGh = false;
+    }
+  }
+
+  async function loadDailyNotes() {
+    loadingNotes = true;
+    try {
+      dailyNotes = await invoke<any[]>('workspace_get_recent_daily_notes');
+    } catch (err) {
+      console.error('Failed to load daily notes timeline:', err);
+    } finally {
+      loadingNotes = false;
+    }
+  }
+
+  async function openUrl(url: string) {
+    try {
+      await invoke('preview_open_in_browser', { url });
+    } catch (err) {
+      console.error('Failed to open URL:', err);
+    }
+  }
+
+  async function handleNoteClick(note: any) {
+    const ws = $recentWorkspaces.find((w: any) =>
+      w.project_paths.includes(note.project_path)
+    );
+    if (ws) {
+      await openWorkspace(ws.id);
+      setTimeout(async () => {
+        const { openFile } = await import('$lib/stores/editor');
+        await openFile(note.filepath);
+      }, 500);
+    } else {
+      const { addFolderToWorkspace } = await import('$lib/stores/workspace');
+      try {
+        await addFolderToWorkspace(note.project_path);
+        setTimeout(async () => {
+          const { openFile } = await import('$lib/stores/editor');
+          await openFile(note.filepath);
+        }, 500);
+      } catch (err) {
+        console.error('Failed to add project path for note:', err);
+      }
+    }
+  }
+
+  onMount(() => {
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    void loadHnStories();
+    void loadGhRepos();
+    void loadDailyNotes();
+    return () => clearInterval(timer);
+  });
 </script>
 
 <div class="welcome" class:light={isLight}>
@@ -100,17 +221,19 @@
       {/if}
     </div>
     <div class="header-text">
-      <h1 class="app-name">Soryq</h1>
-      <p class="app-tagline">Terminal-first developer workspace</p>
+      <h1 class="app-name">Soryq Portal</h1>
+      <p class="app-tagline">Welcome back. It is {dateString} — {timeString}</p>
     </div>
   </header>
 
-  <!-- Main content -->
+  <!-- 3 Column Layout Grid -->
   <div class="content">
-    <!-- Left: actions + recents -->
-    <div class="left-col">
+    
+    <!-- Column 1: Workspace list & Actions -->
+    <div class="col left-col">
       <!-- Primary actions -->
-      <div class="action-group">
+      <div class="action-group bento-card">
+        <span class="section-label">Launchpad</span>
         <button class="action-btn primary" onclick={() => newWorkspacePromptOpen.set(true)}>
           <span class="action-icon">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -130,19 +253,30 @@
           <span class="action-label">Open Folder</span>
           <kbd>Ctrl+O</kbd>
         </button>
+
+        <button class="action-btn secondary" onclick={openSettings}>
+          <span class="action-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </span>
+          <span class="action-label">Settings</span>
+          <kbd>Ctrl+,</kbd>
+        </button>
       </div>
 
       <!-- Recents -->
-      <div class="recents">
+      <div class="recents bento-card">
         <div class="recents-header">
-          <span class="section-label">Recent</span>
+          <span class="section-label">Recent Workspaces</span>
           {#if hasRecents}
             <button class="text-btn danger" onclick={clearAllApplicationState}>Clear all</button>
           {/if}
         </div>
 
         {#if $filteredWorkspaces.length > 0}
-          <div class="recent-list">
+          <div class="recent-list scrollable">
             {#each $filteredWorkspaces as w (w.id)}
               {@const hue = projectHue(w.name)}
               <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
@@ -203,96 +337,175 @@
           </div>
         {:else}
           <div class="empty-state">
-            <svg width="48" height="48" viewBox="0 0 64 64" fill="none" stroke="currentColor" class="animated-svg-floating" style="margin-bottom: 8px;">
-              <circle cx="32" cy="32" r="28" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="1" />
-              <rect x="20" y="20" width="10" height="10" rx="2" fill="rgba(6, 182, 212, 0.1)" stroke="var(--accent)" stroke-width="1.2" />
-              <rect x="34" y="20" width="10" height="10" rx="2" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.2" />
-              <rect x="20" y="34" width="10" height="10" rx="2" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.2" />
-              <rect x="34" y="34" width="10" height="10" rx="2" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.2" />
-              <path d="M 30,25 L 34,25 M 25,30 L 25,34 M 30,39 L 34,39" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2,2" />
-            </svg>
             <p style="font-weight: 550; color: var(--text-primary); margin: 0 0 4px 0;">No Recent Workspaces</p>
-            <span style="color: var(--text-secondary); font-size: 11px; max-width: 200px; line-height: 1.4; display: inline-block;">Create a new workspace or open a folder to populate your dashboard.</span>
           </div>
         {/if}
       </div>
     </div>
 
-    <!-- Right: workspace concept + getting started tips -->
-    <div class="right-col">
-      <!-- Workspace concept visual -->
-      <div class="concept-card">
-        <span class="concept-title">What is a workspace?</span>
-        <div class="concept-diagram">
-          <div class="concept-ws">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+    <!-- Column 2: Tech News Feed (Middle) -->
+    <div class="col middle-col">
+      <!-- Hacker News top stories -->
+      <div class="feed-section bento-card">
+        <div class="feed-header">
+          <span class="section-label">Hacker News top stories</span>
+          <button class="icon-btn" onclick={loadHnStories} disabled={loadingHn} title="Refresh News">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
             </svg>
-            <span>Workspace</span>
-          </div>
-          <svg class="concept-arrow" width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 5h13M10 1l4 4-4 4"/>
-          </svg>
-          <div class="concept-projects">
-            <div class="concept-proj">frontend/</div>
-            <div class="concept-proj">backend/</div>
-            <div class="concept-proj">docs/</div>
-          </div>
+          </button>
         </div>
-        <p class="concept-desc">A workspace groups multiple project folders. Switch between <strong>projects</strong> using the tabs at the top of the editor — or switch <strong>workspaces</strong> from this screen or from within the editor.</p>
-      </div>
 
-      <span class="section-label">Getting started</span>
-      <div class="tips">
-        <div class="tip">
-          <div class="tip-icon green">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-            </svg>
-          </div>
-          <div class="tip-body">
-            <strong>Multi-pane terminal</strong>
-            <p>Split your workspace into up to 4 terminal panes. Drag to resize.</p>
-          </div>
-        </div>
-        <div class="tip">
-          <div class="tip-icon purple">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="5 3 19 12 5 21 5 3"/>
-            </svg>
-          </div>
-          <div class="tip-body">
-            <strong>Quick Run panel</strong>
-            <p>Launch AI agents (Claude, Codex, Aider) or dev commands instantly from the Run panel in the sidebar.</p>
-          </div>
-        </div>
-        <div class="tip">
-          <div class="tip-icon blue">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-            </svg>
-          </div>
-          <div class="tip-body">
-            <strong>Built-in preview</strong>
-            <p>Switch to the Preview tab to browse the web or preview your local dev server.</p>
-          </div>
-        </div>
-        <div class="tip">
-          <div class="tip-icon orange">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-            </svg>
-          </div>
-          <div class="tip-body">
-            <strong>Workspace snapshots</strong>
-            <p>Save your current layout and restore it anytime from the sidebar.</p>
-          </div>
+        <div class="feed-list scrollable">
+          {#if loadingHn}
+            <div class="shimmer-feed">
+              <div class="shimmer-item"></div>
+              <div class="shimmer-item"></div>
+              <div class="shimmer-item"></div>
+            </div>
+          {:else}
+            {#each hnStories.filter(Boolean) as story}
+              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+              <div class="feed-item" onclick={() => story.url && openUrl(story.url)}>
+                <div class="feed-main">
+                  <span class="feed-title">{story.title}</span>
+                  <div class="feed-meta">
+                    <span class="feed-score">{story.score || 0} points</span>
+                    <span class="dot">•</span>
+                    <span class="feed-by">by {story.by}</span>
+                  </div>
+                </div>
+                {#if story.kids}
+                  <button class="comments-btn" onclick={(e) => { e.stopPropagation(); openUrl(`https://news.ycombinator.com/item?id=${story.id}`); }} title="View HN comments">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    {story.kids.length}
+                  </button>
+                {/if}
+              </div>
+            {/each}
+          {/if}
         </div>
       </div>
 
-      <div class="shortcuts-row">
-        <span class="section-label" style="margin-bottom: 10px;">Quick shortcuts</span>
+      <!-- GitHub Trending Repos -->
+      <div class="feed-section bento-card">
+        <div class="feed-header">
+          <span class="section-label">Popular Github Repositories</span>
+          <button class="icon-btn" onclick={loadGhRepos} disabled={loadingGh} title="Refresh Repos">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="feed-list scrollable">
+          {#if loadingGh}
+            <div class="shimmer-feed">
+              <div class="shimmer-item"></div>
+              <div class="shimmer-item"></div>
+              <div class="shimmer-item"></div>
+            </div>
+          {:else}
+            {#each ghRepos as repo}
+              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+              <div class="feed-item" onclick={() => openUrl(repo.html_url)}>
+                <div class="feed-main">
+                  <span class="feed-title repo-name">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    {repo.full_name}
+                  </span>
+                  <p class="repo-desc">{repo.description || 'No description provided.'}</p>
+                  <div class="feed-meta">
+                    {#if repo.language}
+                      <span class="repo-lang badge">{repo.language}</span>
+                    {/if}
+                    <span class="repo-stars">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                      </svg>
+                      {Math.round(repo.stargazers_count / 100) / 10}k
+                    </span>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    <!-- Column 3: Timeline of Daily Notes & Shortcuts (Right) -->
+    <div class="col right-col">
+      <!-- Daily Notes timeline -->
+      <div class="daily-notes-widget bento-card">
+        <div class="widget-header">
+          <span class="section-label">Daily Notes Summary</span>
+          <button class="icon-btn" onclick={loadDailyNotes} disabled={loadingNotes} title="Refresh Notes">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="notes-timeline scrollable">
+          {#if loadingNotes}
+            <div class="empty-notes-timeline">Loading notes timeline...</div>
+          {:else if activeDailyNotes.length === 0}
+            <div class="empty-notes-timeline">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+              <span>No active daily notes found</span>
+            </div>
+          {:else}
+            <div class="timeline-container">
+              {#each activeDailyNotes as note}
+                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                <div class="timeline-node" onclick={() => handleNoteClick(note)}>
+                  <div class="node-bullet"></div>
+                  <div class="node-content">
+                    <span class="node-project">{note.project_name}</span>
+                    <span class="node-date">{note.date}</span>
+                    
+                    {#if note.focus.length > 0}
+                      <div class="node-section">
+                        <span class="sec-title">Focus</span>
+                        <ul>
+                          {#each note.focus.slice(0, 3) as item}
+                            <li>{item}</li>
+                          {/each}
+                        </ul>
+                      </div>
+                    {/if}
+                    
+                    {#if note.done.length > 0}
+                      <div class="node-section">
+                        <span class="sec-title">Done</span>
+                        <ul>
+                          {#each note.done.slice(0, 3) as item}
+                            <li>{item}</li>
+                          {/each}
+                        </ul>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Shortcuts grid -->
+      <div class="shortcuts-row bento-card">
+        <span class="section-label">Quick shortcuts</span>
         <div class="shortcut-grid">
           {#each [
             ['Command palette', 'Ctrl+Shift+P'],
@@ -308,6 +521,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </div>
 
@@ -322,9 +536,10 @@
     background-image:
       radial-gradient(72% 48% at 50% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
       radial-gradient(46% 40% at 100% 102%, color-mix(in srgb, var(--accent-hover, var(--accent)) 8%, transparent), transparent 58%);
-    overflow-y: auto;
-    padding: 48px 32px 40px;
-    gap: 36px;
+    overflow: hidden;
+    padding: 20px 24px 24px 24px;
+    gap: 16px;
+    box-sizing: border-box;
   }
 
   /* ── Header ── */
@@ -332,18 +547,19 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: 6px;
     text-align: center;
     width: 100%;
-    max-width: 760px;
+    max-width: 1200px;
+    flex-shrink: 0;
     animation: welcome-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .logo-wrap {
     position: relative;
-    width: 80px;
-    height: 80px;
-    border-radius: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
     background: linear-gradient(155deg, color-mix(in srgb, var(--accent) 16%, var(--bg-secondary)), color-mix(in srgb, var(--bg-secondary) 88%, transparent));
     border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
     backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
@@ -356,23 +572,13 @@
     box-shadow:
       var(--shadow-md),
       inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
-      0 0 28px color-mix(in srgb, var(--accent) 20%, transparent);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .logo-wrap:hover {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    box-shadow:
-      var(--shadow-lg),
-      inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
-      0 0 36px color-mix(in srgb, var(--accent) 32%, transparent);
-    transform: translateY(-2px) scale(1.02);
+      0 0 20px color-mix(in srgb, var(--accent) 15%, transparent);
   }
 
   .logo-img {
-    width: 62px;
-    height: 62px;
-    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
   }
 
   .logo-fallback { opacity: 0.8; }
@@ -380,41 +586,79 @@
   .header-text { display: flex; flex-direction: column; gap: 2px; align-items: center; }
 
   .app-name {
-    font-size: 36px;
+    font-size: 26px;
     font-weight: 700;
     color: var(--text-primary);
     background: linear-gradient(180deg, var(--text-primary) 35%, color-mix(in srgb, var(--text-primary) 62%, var(--accent)));
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    letter-spacing: -0.8px;
+    letter-spacing: -0.6px;
     line-height: 1;
   }
 
   .app-tagline {
-    font-size: 13px;
-    color: var(--text-secondary);
+    font-size: 11.5px;
+    color: var(--text-muted);
     margin-top: 3px;
   }
 
   /* ── Content grid ── */
   .content {
     display: grid;
-    grid-template-columns: 340px 1fr;
-    gap: 24px;
+    grid-template-columns: 280px 1fr 300px;
+    gap: 16px;
     flex: 1;
     min-height: 0;
     width: 100%;
-    max-width: 760px;
+    max-width: 1200px;
   }
 
-  /* ── Left column ── */
-  .left-col {
+  /* Columns general styling */
+  .col {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
+    height: 100%;
     min-height: 0;
+  }
+
+  .left-col {
     animation: welcome-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+  }
+
+  .middle-col {
+    animation: welcome-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+  }
+
+  .right-col {
+    animation: welcome-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both;
+  }
+
+  /* Bento Cards */
+  .bento-card {
+    background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07)),
+      var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    display: inline-block;
   }
 
   /* ── Action buttons ── */
@@ -422,18 +666,19 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex-shrink: 0;
   }
 
   .action-btn {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-radius: 10px;
-    font-size: 13.5px;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+    transition: all 0.15s;
     text-align: left;
     width: 100%;
     border: 1px solid var(--border);
@@ -444,25 +689,19 @@
     border-color: color-mix(in srgb, var(--accent) 70%, transparent);
     color: var(--button-text, #fff);
     box-shadow:
-      0 6px 20px -6px color-mix(in srgb, var(--accent) 55%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      0 6px 16px -6px color-mix(in srgb, var(--accent) 50%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
 
   .action-btn.primary:hover {
     background: linear-gradient(180deg, color-mix(in srgb, var(--accent-hover, var(--accent)) 90%, white), var(--accent-hover, var(--accent)));
     border-color: color-mix(in srgb, var(--accent) 80%, transparent);
-    box-shadow:
-      0 10px 28px -6px color-mix(in srgb, var(--accent) 60%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.28);
     transform: translateY(-1px);
   }
 
   .action-btn.secondary {
-    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    background: color-mix(in srgb, var(--bg-secondary) 40%, transparent);
     color: var(--text-primary);
-    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
   }
 
   .action-btn.secondary:hover {
@@ -471,125 +710,67 @@
     transform: translateY(-1px);
   }
 
-  .action-btn:active { transform: translateY(0); }
-
-  .action-icon {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  .action-label { flex: 1; }
-
   .action-btn kbd {
-    font-size: 10px;
+    font-size: 9px;
     font-family: inherit;
-    padding: 2px 6px;
+    padding: 1px 5px;
     border-radius: 4px;
     border: 1px solid var(--border);
     background: var(--bg-hover);
-    color: var(--text-secondary);
-    letter-spacing: 0.2px;
-  }
-
-  .action-btn.secondary kbd {
-    background: var(--bg-tertiary);
-    border-color: var(--border);
     color: var(--text-muted);
+    margin-left: auto;
   }
 
   /* ── Recents ── */
   .recents {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 0;
     flex: 1;
+    min-height: 0;
   }
 
   .recents-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    margin-bottom: 6px;
   }
 
-  .section-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
-
-  .text-btn {
-    font-size: 10.5px;
-    color: var(--text-muted);
-    padding: 2px 6px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.12s, color 0.12s;
-    background: transparent;
-    border: none;
-  }
-
-  .text-btn.danger:hover {
-    background: color-mix(in srgb, var(--error) 12%, transparent);
-    color: var(--error);
+  .recents-header .section-label {
+    margin-bottom: 0;
   }
 
   .recent-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     overflow-y: auto;
     flex: 1;
-    padding: 6px 4px;
-    margin: -6px -4px;
-  }
-
-  .recent-list::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .recent-list::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .recent-list::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.15));
-    border-radius: 3px;
-  }
-
-  .recent-list::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--accent) 50%, transparent);
+    padding-right: 2px;
+    overscroll-behavior: none;
+    scrollbar-gutter: stable;
   }
 
   .recent-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-secondary) 30%, transparent);
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.15s ease;
   }
 
   .recent-item:hover {
     background: var(--bg-hover);
-    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md), 0 0 8px var(--accent-glow);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    transform: translateY(-0.5px);
   }
 
   .recent-avatar {
-    width: 28px;
-    height: 28px;
-    border-radius: 7px;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
     border: 1px solid transparent;
     display: flex;
     align-items: center;
@@ -600,14 +781,13 @@
   .recent-info {
     display: flex;
     flex-direction: column;
-    gap: 1px;
     flex: 1;
     min-width: 0;
   }
 
   .recent-name {
-    font-size: 12px;
-    font-weight: 500;
+    font-size: 11.5px;
+    font-weight: 550;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
@@ -615,7 +795,7 @@
   }
 
   .recent-path {
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -625,8 +805,7 @@
   .recent-actions {
     display: flex;
     align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
+    gap: 2px;
     opacity: 0;
     transition: opacity 0.12s;
   }
@@ -634,29 +813,28 @@
   .recent-item:hover .recent-actions { opacity: 1; }
 
   .recent-time {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-muted);
-    white-space: nowrap;
-    margin-right: 4px;
+    margin-right: 2px;
   }
 
   .icon-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     border-radius: 4px;
     color: var(--text-muted);
     border: none;
     background: transparent;
     cursor: pointer;
-    transition: background 0.12s, color 0.12s;
+    transition: all 0.12s;
   }
 
-  .icon-btn:hover {
+  .icon-btn:hover:not(:disabled) {
     background: var(--bg-hover);
-    color: var(--accent);
+    color: var(--text-primary);
   }
 
   .icon-btn.danger:hover {
@@ -668,313 +846,397 @@
     background: var(--bg-primary);
     border: 1px solid var(--accent);
     color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 500;
-    padding: 1px 6px;
+    font-size: 11.5px;
+    font-weight: 550;
+    padding: 0 4px;
     border-radius: 4px;
     outline: none;
     width: 100%;
-    height: 22px;
+    height: 18px;
     box-sizing: border-box;
   }
 
-  /* ── Empty state ── */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 32px 16px;
-    color: var(--text-muted);
-    text-align: center;
-    border: 1px dashed var(--border);
-    border-radius: 10px;
-    opacity: 0.7;
-  }
-
-  .empty-state p {
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    margin-top: 4px;
-  }
-
-  .empty-state span {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  /* ── Right column ── */
-  .right-col {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
+  /* ── Feeds (Middle Column) ── */
+  .feed-section {
+    flex: 1;
     min-height: 0;
-    animation: welcome-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
   }
 
-  /* ── Workspace concept card ── */
-  .concept-card {
+  .feed-header {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--accent) 9%, color-mix(in srgb, var(--bg-secondary) 72%, transparent));
-    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    box-shadow:
-      inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07)),
-      0 0 24px color-mix(in srgb, var(--accent) 10%, transparent);
-  }
-
-  .concept-title {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    color: var(--accent);
-    opacity: 0.85;
-  }
-
-  .concept-diagram {
-    display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .concept-ws {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 8px;
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    color: var(--accent);
-    font-size: 10.5px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  .concept-arrow {
-    color: var(--text-muted);
-    opacity: 0.5;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
     flex-shrink: 0;
   }
 
-  .concept-projects {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
+  .feed-header .section-label {
+    margin-bottom: 0;
   }
 
-  .concept-proj {
-    padding: 3px 7px;
-    border-radius: 5px;
-    background: var(--bg-hover);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    font-size: 10px;
-    font-family: var(--font-mono, monospace);
-    white-space: nowrap;
-  }
-
-  .concept-desc {
-    font-size: 11px;
-    color: var(--text-muted);
-    line-height: 1.5;
-    margin: 0;
-  }
-
-  /* ── Tips ── */
-  .tips {
+  .feed-list {
+    flex: 1;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    padding-right: 2px;
+    overscroll-behavior: none;
+    scrollbar-gutter: stable;
   }
 
-  .tip {
+  .feed-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-primary) 40%, transparent);
+    cursor: pointer;
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
-    border: 1px solid var(--border);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.15s ease;
   }
 
-  .tip:hover {
+  .feed-item:hover {
     background: var(--bg-hover);
     border-color: color-mix(in srgb, var(--accent) 30%, transparent);
     transform: translateX(2px);
-    box-shadow: var(--shadow-sm);
   }
 
-  .tip-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    margin-top: 1px;
-  }
-
-  .tip-icon.green  { background: rgba(74,222,128,0.12); color: #4ade80; }
-  .tip-icon.purple { background: rgba(167,139,250,0.12); color: #a78bfa; }
-  .tip-icon.blue   { background: rgba(56,189,248,0.12);  color: #38bdf8; }
-  .tip-icon.orange { background: rgba(251,146,60,0.12);  color: #fb923c; }
-
-  .tip-body {
+  .feed-main {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    flex: 1;
+    min-width: 0;
   }
 
-  .tip-body strong {
+  .feed-title {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 550;
     color: var(--text-primary);
+    line-height: 1.3;
   }
 
-  .tip-body p {
-    font-size: 11px;
+  .feed-title.repo-name {
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .repo-desc {
+    font-size: 10.5px;
     color: var(--text-muted);
-    line-height: 1.5;
+    margin: 2px 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
-  .tip-body kbd {
-    display: inline-block;
+  .feed-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 9.5px;
-    font-family: inherit;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
+    color: var(--text-muted);
   }
 
-  /* ── Shortcuts ── */
-  .shortcuts-row {
+  .badge {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .repo-stars {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .repo-stars svg {
+    color: var(--warning);
+  }
+
+  .comments-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .comments-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Shimmer Loading states */
+  .shimmer-feed {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 14px 16px;
-    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
-    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-    box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    transition: border-color 0.2s ease;
+    gap: 6px;
   }
 
-  .shortcuts-row:hover {
+  .shimmer-item {
+    height: 40px;
+    background: linear-gradient(90deg, var(--bg-hover) 25%, var(--border) 50%, var(--bg-hover) 75%);
+    background-size: 200% 100%;
+    animation: shimmer-pulse-welcome 1.6s infinite linear;
+    border-radius: 6px;
+  }
+
+  @keyframes shimmer-pulse-welcome {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* ── Timeline (Right Column) ── */
+  .daily-notes-widget {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+  }
+
+  .widget-header .section-label {
+    margin-bottom: 0;
+  }
+
+  .notes-timeline {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 2px;
+    overscroll-behavior: none;
+    scrollbar-gutter: stable;
+  }
+
+  .empty-notes-timeline {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 24px 0;
+    text-align: center;
+  }
+
+  .timeline-container {
+    display: flex;
+    flex-direction: column;
+    padding-left: 10px;
+    border-left: 1.5px solid var(--border);
+    margin-left: 6px;
+    gap: 12px;
+  }
+
+  .timeline-node {
+    position: relative;
+    cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--bg-primary) 30%, transparent);
+    transition: all 0.15s ease;
+  }
+
+  .timeline-node:hover {
+    background: var(--bg-hover);
     border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  .node-bullet {
+    position: absolute;
+    left: -15.5px;
+    top: 12px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--border);
+    border: 2px solid var(--bg-secondary);
+    transition: background 0.15s;
+  }
+
+  .timeline-node:hover .node-bullet {
+    background: var(--accent);
+  }
+
+  .node-content {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .node-project {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .node-date {
+    font-size: 9.5px;
+    color: var(--text-muted);
+  }
+
+  .node-section {
+    margin-top: 4px;
+  }
+
+  .sec-title {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .node-content ul {
+    margin: 0;
+    padding-left: 12px;
+    list-style-type: disc;
+  }
+
+  .node-content li {
+    font-size: 10px;
+    color: var(--text-secondary);
+    line-height: 1.3;
+  }
+
+  .node-empty {
+    font-size: 10px;
+    font-style: italic;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  /* Shortcuts */
+  .shortcuts-row {
+    flex-shrink: 0;
   }
 
   .shortcut-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px 16px;
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   .shortcut-item {
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    font-size: 11.5px;
+    align-items: center;
+    padding: 6px 8px;
+    background: color-mix(in srgb, var(--bg-secondary) 25%, transparent);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    font-size: 11px;
     color: var(--text-secondary);
-    padding: 4px 6px;
-    margin: 0 -6px;
-    border-radius: 4px;
-    transition: all 0.15s ease;
-  }
-
-  .shortcut-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
   }
 
   .shortcut-item kbd {
-    font-size: 9.5px;
-    font-family: inherit;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: linear-gradient(to bottom, var(--bg-tertiary), var(--bg-secondary));
+    font-size: 9px;
+    padding: 1px 4px;
     border: 1px solid var(--border);
-    border-bottom: 2.5px solid var(--border);
-    color: var(--text-primary);
-    box-shadow: var(--shadow-sm);
-    white-space: nowrap;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    color: var(--text-muted);
   }
 
-  /* ── Light-mode legibility ──
-     In light themes --text-muted is a very pale ("ash") gray that's hard to
-     read for descriptive text. Bump those to the darker --text-secondary. */
-  .welcome.light .section-label,
-  .welcome.light .recent-path,
-  .welcome.light .recent-time,
-  .welcome.light .concept-desc,
-  .welcome.light .tip-body p,
-  .welcome.light .empty-state,
-  .welcome.light .empty-state span {
-    color: var(--text-secondary);
+  .scrollable::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
   }
 
-  .welcome.light .concept-desc,
-  .welcome.light .tip-body p {
-    opacity: 0.95;
+  .scrollable::-webkit-scrollbar-track {
+    background: transparent;
   }
 
-  .welcome.light .empty-state {
-    opacity: 0.9;
+  .scrollable::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.15));
+    border-radius: 2.5px;
   }
 
-  /* Keyboard hints sit on pale surfaces — give them readable text too */
-  .welcome.light .action-btn kbd,
-  .welcome.light .shortcut-item kbd,
-  .welcome.light .tip-body kbd {
-    color: var(--text-secondary);
+  .scrollable::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent) 40%, transparent);
   }
 
-  /* ── Responsive ── */
-  @media (max-width: 720px) {
-    .welcome { padding: 28px 16px 32px; gap: 24px; }
-    .content { grid-template-columns: 1fr; max-width: 100%; }
-    .right-col { display: none; }
+  .text-btn {
+    font-size: 10px;
+    color: var(--text-muted);
+    padding: 1px 4px;
+    border-radius: 3px;
+    cursor: pointer;
+    background: transparent;
+    border: none;
   }
 
-  .animated-svg-floating {
-    animation: floating 4s ease-in-out infinite;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+  .text-btn.danger:hover {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    color: var(--error);
   }
 
-  @keyframes floating {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-4px); }
+  .empty-state {
+    padding: 16px;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 11px;
   }
 
   @keyframes welcome-rise {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .header,
-    .left-col,
-    .right-col,
-    .animated-svg-floating {
-      animation: none;
+  @media (max-width: 1024px) {
+    .welcome {
+      overflow-y: auto;
+    }
+    .content {
+      grid-template-columns: 1fr 1fr;
+      height: auto;
+    }
+    .col {
+      height: auto;
+    }
+    .right-col {
+      grid-column: span 2;
+    }
+    .recent-list,
+    .feed-list,
+    .notes-timeline {
+      max-height: 320px;
+    }
+  }
+
+  @media (max-width: 680px) {
+    .content {
+      grid-template-columns: 1fr;
+    }
+    .right-col {
+      grid-column: span 1;
     }
   }
 </style>
