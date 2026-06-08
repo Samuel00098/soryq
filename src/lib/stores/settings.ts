@@ -19,21 +19,6 @@ function persistentWritable<T>(key: string, defaultValue: T): import('svelte/sto
       // Ignore JSON parse errors
     }
   }
-  // Restore the original frosted look for profiles created while the temporary
-  // opaque-default experiment was active.
-  if (key === 'interfaceTransparency' && stored !== null) {
-    try {
-      const parsed = JSON.parse(stored);
-      const transparencyMigrationKey = 'forge_setting_interfaceTransparency_migrated_v1';
-      if (!localStorage.getItem(transparencyMigrationKey) && parsed === 0) {
-        localStorage.setItem('forge_setting_interfaceTransparency', JSON.stringify(50));
-        localStorage.setItem(transparencyMigrationKey, '1');
-        stored = JSON.stringify(50);
-      }
-    } catch (e) {
-      // Ignore JSON parse errors
-    }
-  }
   let initialValue: T;
   try {
     initialValue = stored !== null ? JSON.parse(stored) : defaultValue;
@@ -792,9 +777,8 @@ export const appearance = persistentWritable<'system' | 'light' | 'dark'>('appea
 
 // Global interface transparency (0 = solid, 100 = most see-through). Controls the
 // frost/glass opacity of every surface — works with or without a background image,
-// letting the desktop/acrylic (or the image) show through. Default 50 ≈ the
-// app's built-in frosted look.
-export const interfaceTransparency = persistentWritable<number>('interfaceTransparency', 50);
+// letting the desktop/acrylic (or the image) show through. Default 0.
+export const interfaceTransparency = persistentWritable<number>('interfaceTransparency', 0);
 
 // Background image — an optional personalization layer painted behind the frosted UI.
 // The image file lives in the app data dir (managed by the Rust backend); this only
@@ -873,7 +857,7 @@ export function resetSettingsToDefault() {
   formatOnSave.set(true);
   userShortcuts.set(defaultShortcuts);
   appearance.set('system');
-  interfaceTransparency.set(50);
+  interfaceTransparency.set(0);
   backgroundImageEnabled.set(false);
   backgroundImageOpacity.set(100);
   backgroundImageBlur.set(0);
