@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use tauri::State;
 use crate::state::AppState;
 use std::path::Path;
-use rusqlite::{Connection, types::ValueRef};
+use rusqlite::{Connection, OpenFlags, types::ValueRef};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DbQueryResult {
@@ -17,7 +17,8 @@ pub fn db_list_tables(path: String, state: State<AppState>) -> Result<Vec<String
     let p = Path::new(&path);
     super::file_system::require_in_project(p, &state)?;
 
-    let conn = Connection::open(&path).map_err(|e| format!("Failed to open database: {e}"))?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Failed to open database: {e}"))?;
     let mut stmt = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .map_err(|e| format!("Failed to query schema: {e}"))?;
@@ -40,12 +41,14 @@ pub fn db_execute_query(path: String, query: String, state: State<AppState>) -> 
     let p = Path::new(&path);
     super::file_system::require_in_project(p, &state)?;
 
-    let conn = Connection::open(&path).map_err(|e| format!("Failed to open database: {e}"))?;
-
     let trimmed = query.trim().to_uppercase();
     let is_select = trimmed.starts_with("SELECT") || trimmed.starts_with("PRAGMA") || trimmed.starts_with("EXPLAIN");
 
     if is_select {
+        // Read-only connection: even if the SELECT classification is bypassed, the OS-level
+        // read-only flag prevents any writes to the database file.
+        let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("Failed to open database: {e}"))?;
         let mut stmt = conn.prepare(&query).map_err(|e| format!("Query preparation failed: {e}"))?;
         let columns: Vec<String> = stmt.column_names().into_iter().map(|s| s.to_string()).collect();
         let num_cols = columns.len();
@@ -88,6 +91,7 @@ pub fn db_execute_query(path: String, query: String, state: State<AppState>) -> 
             is_select: true,
         })
     } else {
+        let conn = Connection::open(&path).map_err(|e| format!("Failed to open database: {e}"))?;
         let affected_rows = conn.execute(&query, []).map_err(|e| format!("Query execution failed: {e}"))?;
         Ok(DbQueryResult {
             columns: Vec::new(),

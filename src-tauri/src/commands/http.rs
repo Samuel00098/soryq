@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 #[derive(Serialize, Deserialize)]
 pub struct HttpResponsePayload {
@@ -21,8 +22,16 @@ pub async fn http_send_request(
     headers: HashMap<String, String>,
     body: Option<String>,
 ) -> Result<HttpResponsePayload, String> {
+    // Restrict to http/https — file://, ftp://, etc. have no place in an HTTP client.
+    let parsed_url = Url::parse(&url).map_err(|e| format!("Invalid URL: {e}"))?;
+    match parsed_url.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(format!("Unsupported URL scheme '{scheme}': only http and https are allowed")),
+    }
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(|err| format!("Failed to create HTTP client: {err}"))?;
 
