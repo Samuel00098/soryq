@@ -9,7 +9,9 @@
   let currentStep = $state(0);
   const steps = [
     { title: 'Welcome to Soryq',       desc: 'Your terminal-first workspace for coding and productivity. Everything in one window, nothing in your way.' },
-    { title: 'Your Layout, Your Way',  desc: 'Split between a terminal, code editor, browser preview, HTTP client, task board, and code review — all resizable and per-project.' },
+    { title: 'Your Layout, Your Way',  desc: 'Control your workspace with the Activity Bar. Split between a terminal, editor, preview, database explorer, sketch canvas, and more.' },
+    { title: 'AI Agent & Voice Input', desc: 'Engage peer AI agents via the Agent Orchestrator to run tasks, or trigger the Voice Loop to dictate code and commands hands-free.' },
+    { title: 'DB & Canvas Integration', desc: 'Query databases natively with the DB Explorer, and draft flows or sketch system architectures with the built-in Sketch Canvas.' },
     { title: 'Built-in Productivity',  desc: 'A daily note opens each morning, quick capture saves thoughts in a keystroke, and a Kanban board tracks what matters.' },
     { title: 'Command Palette',        desc: 'Launch files, switch themes, and open any panel in milliseconds. Everything Soryq can do is one shortcut away.' },
     { title: 'Ready to Go',            desc: 'Your workspace is set. Open a folder and start building — or start writing.' },
@@ -69,7 +71,7 @@
     else if (e.key === 'ArrowLeft' && currentStep > 0) prevStep();
     else if (e.key === 'Escape') finish();
 
-    if (currentStep === 3) {
+    if (currentStep === 5) {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         e.stopPropagation();
@@ -244,17 +246,122 @@
             </div>
             <div class="feature-item">
               <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>Right panel: Editor, Preview, Tasks, HTTP Client, Review</span>
+              <span>Layout and state saved automatically per project</span>
             </div>
             <div class="feature-item">
               <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>Layout and state saved automatically per project</span>
+              <span>Activity Bar for quick access to database explorer, sketch canvas, AI agents, and settings</span>
             </div>
           </div>
         </div>
 
-      <!-- ── Step 2: Productivity ── -->
+      <!-- ── Step 2: AI Agents & Voice ── -->
       {:else if currentStep === 2}
+        <div class="slide-content" in:fade={{ duration: 200 }}>
+          <div class="illustration-area">
+            <svg viewBox="0 0 400 180" width="100%" height="100%">
+              <defs>
+                <linearGradient id="ai-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="var(--accent)" />
+                  <stop offset="100%" stop-color="#ec4899" />
+                </linearGradient>
+              </defs>
+              <g class="float-animation">
+                <!-- AI Core / Brain -->
+                <circle cx="160" cy="90" r="28" fill="rgba(6, 182, 212, 0.1)" stroke="url(#ai-glow)" stroke-width="2"/>
+                <circle cx="160" cy="90" r="14" fill="var(--accent)" opacity="0.2"/>
+                <circle cx="160" cy="90" r="6" fill="var(--accent)"/>
+                <!-- Connected Nodes -->
+                <line x1="160" y1="90" x2="110" y2="60" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="3,3"/>
+                <line x1="160" y1="90" x2="110" y2="120" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="3,3"/>
+                <line x1="160" y1="90" x2="210" y2="90" stroke="var(--border)" stroke-width="1.5"/>
+                <!-- Node circles -->
+                <circle cx="110" cy="60" r="6" fill="var(--text-muted)"/>
+                <circle cx="110" cy="120" r="6" fill="var(--text-muted)"/>
+                <!-- Voice Microphone Icon -->
+                <g transform="translate(240, 65)">
+                  <rect x="16" y="10" width="12" height="20" rx="6" fill="none" stroke="#ec4899" stroke-width="2"/>
+                  <path d="M 10,22 A 14,14 0 0 0 34,22" fill="none" stroke="#ec4899" stroke-width="2" stroke-linecap="round"/>
+                  <line x1="22" y1="32" x2="22" y2="38" stroke="#ec4899" stroke-width="2"/>
+                  <!-- Waveform -->
+                  <path d="M -40,22 Q -30,12 -20,22 T 0,22 T 20,22 T 40,22" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" class="dash-flow"/>
+                </g>
+              </g>
+            </svg>
+          </div>
+
+          <h2 class="slide-title">{steps[2].title}</h2>
+          <p class="slide-desc">{steps[2].desc}</p>
+
+          <div class="features-checklist">
+            <div class="feature-item">
+              <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Agent Orchestrator: Delegate tasks to peer AI agents that build, test, and write code</span>
+            </div>
+            <div class="feature-item">
+              <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Voice Loop: High-performance local speech recognition for hands-free workflow control</span>
+            </div>
+            <div class="feature-item">
+              <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Speech-to-Code: dictation shortcut <kbd>Ctrl+Shift+V</kbd> to type text directly through your microphone</span>
+            </div>
+          </div>
+        </div>
+
+      <!-- ── Step 3: DB & Canvas ── -->
+      {:else if currentStep === 3}
+        <div class="slide-content" in:fade={{ duration: 200 }}>
+          <div class="illustration-area">
+            <svg viewBox="0 0 400 180" width="100%" height="100%">
+              <g class="float-animation">
+                <!-- Database Cylinder -->
+                <g transform="translate(80, 40)">
+                  <path d="M 10,15 A 25,10 0 0 0 60,15 A 25,10 0 0 0 10,15 Z" fill="none" stroke="var(--accent)" stroke-width="2"/>
+                  <path d="M 10,15 L 10,40 A 25,10 0 0 0 60,40 L 60,15" fill="none" stroke="var(--accent)" stroke-width="2"/>
+                  <path d="M 10,40 L 10,65 A 25,10 0 0 0 60,65 L 60,40" fill="none" stroke="var(--accent)" stroke-width="2"/>
+                  <ellipse cx="35" cy="15" rx="25" ry="10" fill="var(--accent-light)"/>
+                  <line x1="20" y1="28" x2="50" y2="28" stroke="var(--border)" stroke-width="1.5"/>
+                  <line x1="20" y1="53" x2="50" y2="53" stroke="var(--border)" stroke-width="1.5"/>
+                </g>
+                <!-- Connector Line -->
+                <path d="M 155,75 Q 200,45 235,75" fill="none" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="4,4"/>
+                <!-- Sketch Canvas Board -->
+                <g transform="translate(245, 35)">
+                  <rect x="0" y="0" width="90" height="75" rx="6" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.5"/>
+                  <!-- Shapes on Canvas -->
+                  <circle cx="25" cy="38" r="12" fill="rgba(139,92,246,0.12)" stroke="#8b5cf6" stroke-width="1.5"/>
+                  <rect x="55" y="28" width="20" height="20" rx="3" fill="rgba(6,182,212,0.12)" stroke="var(--accent)" stroke-width="1.5"/>
+                  <path d="M 37,38 L 55,38" fill="none" stroke="var(--text-muted)" stroke-width="1.2" stroke-linecap="round"/>
+                  <!-- Hand Drawn Pencil -->
+                  <path d="M 65,60 L 75,50 L 78,53 L 68,63 Z" fill="var(--text-secondary)"/>
+                  <circle cx="65" cy="63" r="1.5" fill="var(--accent)"/>
+                </g>
+              </g>
+            </svg>
+          </div>
+
+          <h2 class="slide-title">{steps[3].title}</h2>
+          <p class="slide-desc">{steps[3].desc}</p>
+
+          <div class="features-checklist">
+            <div class="feature-item">
+              <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>DB Explorer: Native SQLite, Postgres, and MySQL panel with schema tree and SQL runner</span>
+            </div>
+            <div class="feature-item">
+              <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Sketch Canvas: Vector design and diagrams (rectangles, circles, lines, pen tool) in a dedicated tab</span>
+            </div>
+            <div class="feature-item">
+              <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Integrated Workspace: Connect your database schema directly to your AI context or sketch notes</span>
+            </div>
+          </div>
+        </div>
+
+      <!-- ── Step 4: Productivity ── -->
+      {:else if currentStep === 4}
         <div class="slide-content" in:fly={{ x: 30, duration: 300 }} out:fly={{ x: -30, duration: 300 }}>
           <div class="illustration-area">
             <svg viewBox="0 0 400 180" width="100%" height="100%">
@@ -276,47 +383,54 @@
               <rect x="40" y="100" width="55" height="3" rx="1.5" fill="var(--text-muted)" opacity="0.25"/>
               <!-- "auto-opens" badge -->
               <rect x="38" y="140" width="54" height="12" rx="4" fill="rgba(74,222,128,0.12)" stroke="rgba(74,222,128,0.3)" stroke-width="0.8"/>
-              <text x="65" y="149" font-family="sans-serif" font-size="6" fill="var(--success)" text-anchor="middle" font-weight="600">Auto-opens daily</text>
+              <text x="65" y="149" font-family="sans-serif" font-size="6" fill="var(--success)" text-anchor="middle">Auto-opens daily</text>
 
-              <!-- Quick capture card -->
-              <rect x="155" y="50" width="90" height="36" rx="8" fill="var(--bg-secondary)" stroke="var(--accent)" stroke-width="1.5" class="pulse-animation-1"/>
-              <text x="165" y="63" font-family="sans-serif" font-size="6.5" fill="var(--text-muted)">Capture a thought…</text>
-              <line x1="155" y1="72" x2="245" y2="72" stroke="var(--border-subtle)" stroke-width="0.8"/>
-              <rect x="160" y="76" width="36" height="6" rx="2" fill="rgba(6,182,212,0.12)" stroke="rgba(6,182,212,0.2)" stroke-width="0.8"/>
-              <text x="178" y="81" font-family="monospace" font-size="5.5" fill="var(--accent)" text-anchor="middle">Ctrl+Shift+Space</text>
-              <text x="200" y="105" font-family="sans-serif" font-size="7" fill="var(--text-muted)" text-anchor="middle">Saves to .soryq/inbox.md</text>
+              <!-- Quick Capture -->
+              <rect x="155" y="20" width="90" height="140" rx="8" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.5"/>
+              <rect x="155" y="20" width="90" height="26" rx="8" fill="var(--bg-tertiary)"/>
+              <text x="200" y="36" font-family="sans-serif" font-size="7.5" fill="var(--text-muted)" text-anchor="middle" font-weight="600">Quick Capture</text>
+              
+              <!-- Input field simulation -->
+              <rect x="163" y="56" width="74" height="24" rx="4" fill="var(--bg-tertiary)" stroke="var(--accent)" stroke-width="1"/>
+              <text x="169" y="70" font-family="sans-serif" font-size="6.5" fill="var(--text-primary)">Idea for app...</text>
+              <line x1="222" y1="62" x2="222" y2="74" stroke="var(--accent)" stroke-width="1" class="caret"/>
+              
+              <!-- Captured thoughts list -->
+              <rect x="163" y="90" width="74" height="12" rx="3" fill="var(--bg-tertiary)" opacity="0.5"/>
+              <rect x="167" y="95" width="50" height="2" rx="0.5" fill="var(--text-secondary)" opacity="0.6"/>
+              <rect x="163" y="106" width="74" height="12" rx="3" fill="var(--bg-tertiary)" opacity="0.5"/>
+              <rect x="167" y="111" width="40" height="2" rx="0.5" fill="var(--text-secondary)" opacity="0.6"/>
+              
+              <!-- Shortcut info -->
+              <rect x="161" y="140" width="78" height="12" rx="4" fill="rgba(6,182,212,0.12)" stroke="rgba(6,182,212,0.2)" stroke-width="0.8"/>
+              <text x="200" y="148" font-family="monospace" font-size="5.5" fill="var(--accent)" text-anchor="middle">Ctrl+Shift+Space</text>
 
-              <!-- Kanban mini -->
-              <rect x="155" y="115" width="90" height="40" rx="6" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.2"/>
-              <!-- 3 columns -->
-              <rect x="158" y="118" width="24" height="34" rx="3" fill="var(--bg-tertiary)"/>
-              <rect x="185" y="118" width="24" height="34" rx="3" fill="var(--bg-tertiary)"/>
-              <rect x="212" y="118" width="24" height="34" rx="3" fill="var(--bg-tertiary)"/>
-              <!-- Column dots -->
-              <circle cx="163" cy="123" r="2" fill="var(--text-muted)" opacity="0.5"/>
-              <rect x="160" y="128" width="20" height="3" rx="1" fill="var(--text-muted)" opacity="0.3"/>
-              <rect x="160" y="134" width="14" height="3" rx="1" fill="var(--text-muted)" opacity="0.2"/>
-              <circle cx="190" cy="123" r="2" fill="var(--warning)" opacity="0.7"/>
-              <rect x="187" y="128" width="20" height="3" rx="1" fill="var(--warning)" opacity="0.3"/>
-              <circle cx="217" cy="123" r="2" fill="var(--success)" opacity="0.7"/>
-              <rect x="214" y="128" width="18" height="3" rx="1" fill="var(--success)" opacity="0.3"/>
-              <rect x="214" y="134" width="14" height="3" rx="1" fill="var(--success)" opacity="0.2"/>
-
-              <!-- Scratchpad -->
+              <!-- Kanban Board -->
               <rect x="260" y="20" width="110" height="140" rx="8" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.5"/>
               <rect x="260" y="20" width="110" height="26" rx="8" fill="var(--bg-tertiary)"/>
-              <text x="315" y="36" font-family="sans-serif" font-size="7.5" fill="var(--text-muted)" text-anchor="middle" font-weight="600">Scratchpad</text>
-              <rect x="270" y="56" width="90" height="3" rx="1.5" fill="var(--text-secondary)" opacity="0.4"/>
-              <rect x="270" y="64" width="70" height="3" rx="1.5" fill="var(--text-muted)" opacity="0.3"/>
-              <rect x="270" y="72" width="85" height="3" rx="1.5" fill="var(--text-muted)" opacity="0.25"/>
-              <rect x="270" y="84" width="55" height="3" rx="1.5" fill="var(--text-muted)" opacity="0.2"/>
-              <rect x="268" y="140" width="54" height="12" rx="4" fill="rgba(139,92,246,0.12)" stroke="rgba(139,92,246,0.25)" stroke-width="0.8"/>
-              <text x="295" y="149" font-family="sans-serif" font-size="6" fill="#a78bfa" text-anchor="middle" font-weight="600">Ctrl+Shift+N</text>
+              <text x="315" y="36" font-family="sans-serif" font-size="7.5" fill="var(--text-muted)" text-anchor="middle" font-weight="600">Kanban Board</text>
+              
+              <!-- Kanban Columns -->
+              <!-- To Do -->
+              <rect x="265" y="52" width="30" height="75" rx="3" fill="var(--bg-tertiary)" opacity="0.6"/>
+              <rect x="268" y="57" width="24" height="12" rx="2" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="0.8"/>
+              <rect x="271" y="61" width="18" height="2" rx="0.5" fill="var(--text-muted)" opacity="0.4"/>
+              
+              <!-- In Progress -->
+              <rect x="300" y="52" width="30" height="75" rx="3" fill="var(--bg-tertiary)" opacity="0.6"/>
+              <rect x="303" y="57" width="24" height="16" rx="2" fill="var(--bg-secondary)" stroke="var(--warning)" stroke-width="0.8"/>
+              <rect x="306" y="61" width="18" height="2" rx="0.5" fill="var(--warning)" opacity="0.6"/>
+              <rect x="306" y="67" width="12" height="2" rx="0.5" fill="var(--text-muted)" opacity="0.3"/>
+              
+              <!-- Done -->
+              <rect x="335" y="52" width="30" height="75" rx="3" fill="var(--bg-tertiary)" opacity="0.6"/>
+              <rect x="338" y="57" width="24" height="12" rx="2" fill="var(--bg-secondary)" stroke="var(--success)" stroke-width="0.8"/>
+              <rect x="341" y="61" width="18" height="2" rx="0.5" fill="var(--success)" opacity="0.6"/>
             </svg>
           </div>
 
-          <h2 class="slide-title">{steps[2].title}</h2>
-          <p class="slide-desc">{steps[2].desc}</p>
+          <h2 class="slide-title">{steps[4].title}</h2>
+          <p class="slide-desc">{steps[4].desc}</p>
 
           <div class="features-checklist">
             <div class="feature-item">
@@ -334,8 +448,8 @@
           </div>
         </div>
 
-      <!-- ── Step 3: Command Palette (interactive) ── -->
-      {:else if currentStep === 3}
+      <!-- ── Step 5: Command Palette (interactive) ── -->
+      {:else if currentStep === 5}
         <div class="slide-content" in:fly={{ x: 30, duration: 300 }} out:fly={{ x: -30, duration: 300 }}>
           <div class="palette-interactive-box">
             {#if !isPaletteOpen && !showSuccessBanner}
@@ -418,12 +532,12 @@
             </div>
           {/if}
 
-          <h2 class="slide-title" style={isPaletteOpen ? 'margin-top:10px;' : ''}>{steps[3].title}</h2>
-          <p class="slide-desc">{steps[3].desc}</p>
+          <h2 class="slide-title" style={isPaletteOpen ? 'margin-top:10px;' : ''}>{steps[5].title}</h2>
+          <p class="slide-desc">{steps[5].desc}</p>
         </div>
 
-      <!-- ── Step 4: Ready ── -->
-      {:else if currentStep === 4}
+      <!-- ── Step 6: Ready ── -->
+      {:else if currentStep === 6}
         <div class="slide-content" in:fly={{ x: 30, duration: 300 }} out:fly={{ x: -30, duration: 300 }}>
           <div class="illustration-area ready-illus">
             <svg viewBox="0 0 400 150" width="100%" height="100%">
@@ -442,8 +556,8 @@
             </svg>
           </div>
 
-          <h2 class="slide-title">{steps[4].title}</h2>
-          <p class="slide-desc">{steps[4].desc}</p>
+          <h2 class="slide-title">{steps[6].title}</h2>
+          <p class="slide-desc">{steps[6].desc}</p>
 
           <div class="shortcut-reference-grid">
             <div class="shortcut-ref-item">
@@ -459,8 +573,8 @@
               <kbd class="ref-kbd">Ctrl+Shift+D</kbd>
             </div>
             <div class="shortcut-ref-item">
-              <span class="ref-label">Scratchpad</span>
-              <kbd class="ref-kbd">Ctrl+Shift+N</kbd>
+              <span class="ref-label">Voice Dictation</span>
+              <kbd class="ref-kbd">Ctrl+Shift+V</kbd>
             </div>
             <div class="shortcut-ref-item">
               <span class="ref-label">Toggle Sidebar</span>
