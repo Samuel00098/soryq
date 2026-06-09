@@ -60,7 +60,9 @@
     max-width: 380px;
     width: 100%;
     pointer-events: none;
+    transition: left 0.2s ease, right 0.2s ease;
   }
+
 
   .toast {
     display: flex;

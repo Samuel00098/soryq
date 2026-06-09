@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.hoisted(() => vi.fn(async () => undefined));
+const invoke = vi.hoisted(() => vi.fn(async (..._args: any[]): Promise<any> => undefined));
 const getProviderApiKeyLocal = vi.hoisted(() =>
   vi.fn((_provider: string): string | null => null)
 );

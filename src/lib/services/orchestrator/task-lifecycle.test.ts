@@ -7,6 +7,7 @@ import {
   requestTaskChanges,
   transitionTask,
 } from './task-lifecycle';
+import type { OrchestratorTask } from './task-lifecycle';
 
 describe('inferExecutionMode', () => {
   it('defaults non-read-only goals to worktree', () => {
@@ -82,7 +83,7 @@ describe('task lifecycle transitions', () => {
   });
 
   it('returns an already-cancelled task unchanged', () => {
-    const alreadyCancelled = {
+    const alreadyCancelled: OrchestratorTask = {
       ...seed,
       status: 'cancelled',
       completedAt: 1700000000000,
@@ -99,7 +100,7 @@ describe('task lifecycle transitions', () => {
   });
 
   it('marks cancellation explicitly and preserves existing review note when no new note is provided', () => {
-    const reviewed = {
+    const reviewed: OrchestratorTask = {
       ...seed,
       status: 'in-review',
       review: {

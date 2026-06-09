@@ -1,13 +1,13 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 
-const invoke = vi.hoisted(() => vi.fn(async () => undefined));
+const invoke = vi.hoisted(() => vi.fn(async (..._args: any[]): Promise<any> => undefined));
 const routeOrchestratorRequest = vi.hoisted(() => vi.fn());
 const showToast = vi.hoisted(() => vi.fn());
 const showTerminal = vi.hoisted(() => vi.fn());
 const createTaskWorktree = vi.hoisted(() => vi.fn());
 const removeTaskWorktree = vi.hoisted(() => vi.fn());
-const spawnAgentPreset = vi.hoisted(() => vi.fn(async () => 42));
+const spawnAgentPreset = vi.hoisted(() => vi.fn(async (): Promise<number | null> => 42));
 const setSessionOwnerTask = vi.hoisted(() => vi.fn());
 const setSessionTaskSummary = vi.hoisted(() => vi.fn());
 const setSessionAgentName = vi.hoisted(() => vi.fn());
@@ -21,12 +21,16 @@ const promptBarInput = vi.hoisted(() => ({ set: vi.fn() }));
 const focusPromptBar = vi.hoisted(() => vi.fn());
 const summarizeTerminalTask = vi.hoisted(() => vi.fn((text: string) => text));
 const getPresetRuns = vi.hoisted(() => vi.fn(() => []));
-const detectAgentAccess = vi.hoisted(() => vi.fn(async () => ({
-  ready: true,
-  via: 'api-key',
-  providerId: 'openrouter',
-  message: 'OpenRouter is ready.',
-})));
+const detectAgentAccess = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<{ ready: boolean; via: string; providerId: string | null; message: string }> => ({
+      ready: true,
+      via: 'api-key',
+      providerId: 'openrouter',
+      message: 'OpenRouter is ready.',
+    })
+  )
+);
 type MockLiveSession = { id: number; isRunning: boolean; ownerTaskId: string | null; lastExitCode?: number | null };
 const getTerminalProjectState = vi.hoisted(() =>
   vi.fn((): { sessions: MockLiveSession[] } => ({ sessions: [] }))
@@ -915,7 +919,7 @@ describe('orchestrator chat actions', () => {
 
   it('classifies a non-zero leased process exit as failed instead of finished', async () => {
     vi.resetModules();
-    const g = globalThis as typeof globalThis & { window?: unknown; localStorage?: unknown };
+    const g = globalThis as unknown as { window?: unknown; localStorage?: unknown };
     const previousWindow = g.window;
     const previousLocalStorage = g.localStorage;
     g.window = {};

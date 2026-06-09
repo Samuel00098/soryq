@@ -1301,21 +1301,6 @@ mod tests {
     }
 
     #[test]
-    fn debug_print_keyring() {
-        let entry = keyring::Entry::new("com.samue.soryq", "groq_api_key");
-        match entry.and_then(|e| e.get_password()) {
-            Ok(pwd) => println!("KEYRING_DEBUG_GROQ_KEY: len={}, starts_with_gsk={}", pwd.trim().len(), pwd.trim().starts_with("gsk_")),
-            Err(e) => println!("KEYRING_DEBUG_GROQ_KEY: error={}", e),
-        }
-        
-        let openrouter_entry = keyring::Entry::new("com.samue.soryq", "openrouter_api_key");
-        match openrouter_entry.and_then(|e| e.get_password()) {
-            Ok(pwd) => println!("KEYRING_DEBUG_OPENROUTER_KEY: len={}", pwd.trim().len()),
-            Err(e) => println!("KEYRING_DEBUG_OPENROUTER_KEY: error={}", e),
-        }
-    }
-
-    #[test]
     fn only_local_providers_are_local() {
         assert!(is_local_provider("ollama"));
         assert!(is_local_provider("lmstudio"));

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.hoisted(() => vi.fn());
-const getProviderApiKeyLocal = vi.hoisted(() => vi.fn((_provider: string) => null));
+const getProviderApiKeyLocal = vi.hoisted(() => vi.fn((_provider: string): string | null => null));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('$lib/services/ai-keychain', () => ({ getProviderApiKeyLocal }));
@@ -162,7 +162,7 @@ describe('createVoiceInputSession', () => {
 
     expect(resolveMedia).not.toBeNull();
     session.stop();
-    resolveMedia?.({
+    (resolveMedia as ((stream: MockStream) => void) | null)?.({
       getTracks: () => [{ stop: vi.fn() }],
     });
     await startPromise;

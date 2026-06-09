@@ -64,6 +64,18 @@
     }
   }
 
+  // Returns a human warning when a query would irreversibly change data, or null
+  // when it's safe. Strips line comments first so a commented-out WHERE can't
+  // mask a full-table DELETE/UPDATE.
+  function destructiveWarning(sql: string): string | null {
+    const q = sql.replace(/--.*$/gm, '').trim().toLowerCase();
+    if (/^drop\b/.test(q)) return 'This will DROP a table or index. The data and its structure will be permanently removed.';
+    if (/^truncate\b/.test(q)) return 'This will TRUNCATE the table. Every row will be permanently removed.';
+    if (/^delete\b/.test(q) && !/\bwhere\b/.test(q)) return 'This DELETE has no WHERE clause. Every row in the table will be removed.';
+    if (/^update\b/.test(q) && !/\bwhere\b/.test(q)) return 'This UPDATE has no WHERE clause. Every row in the table will be modified.';
+    return null;
+  }
+
   async function runQuery() {
     if (!dbPath) {
       errorMsg = 'Please select a database file first.';
@@ -71,6 +83,10 @@
     }
     if (!query.trim()) {
       errorMsg = 'Please write a query to execute.';
+      return;
+    }
+    const warning = destructiveWarning(query);
+    if (warning && !confirm(`${warning}\n\nRun this query anyway?`)) {
       return;
     }
     loading = true;

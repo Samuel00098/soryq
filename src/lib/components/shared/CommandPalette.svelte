@@ -156,7 +156,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    max-height: 400px;
+    max-height: min(400px, 70vh);
     animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
 

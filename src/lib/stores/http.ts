@@ -1,6 +1,27 @@
 import { writable, get } from 'svelte/store';
 import { loadJson } from '$lib/utils/storage';
 import { invoke } from '@tauri-apps/api/core';
+import { activeProjectId } from '$lib/stores/workspace';
+
+// Pull the active project's env vault and expand `{{VAR}}` placeholders in a
+// request. Unknown placeholders are left intact so a typo is visible rather
+// than silently blanked.
+async function loadEnvVars(): Promise<Record<string, string>> {
+  const pid = get(activeProjectId);
+  if (!pid) return {};
+  try {
+    const vars = await invoke<{ key: string; value: string }[]>('env_vault_get', { projectId: pid });
+    return Object.fromEntries(vars.map((v) => [v.key, v.value]));
+  } catch {
+    return {};
+  }
+}
+
+function expandVars(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_, k) =>
+    Object.prototype.hasOwnProperty.call(vars, k) ? vars[k] : `{{${k}}}`
+  );
+}
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export type BodyType = 'none' | 'json' | 'text' | 'form';
@@ -129,7 +150,8 @@ export async function sendRequest(req: HttpRequest): Promise<void> {
   httpError.set(null);
   const start = Date.now();
   try {
-    let url = req.url.trim();
+    const env = await loadEnvVars();
+    let url = expandVars(req.url.trim(), env);
     if (!url) throw new Error('URL is required');
     if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
 
@@ -142,13 +164,13 @@ export async function sendRequest(req: HttpRequest): Promise<void> {
 
     const headers: Record<string, string> = {};
     for (const h of req.headers) {
-      if (h.enabled && h.key.trim()) headers[h.key.trim()] = h.value;
+      if (h.enabled && h.key.trim()) headers[expandVars(h.key.trim(), env)] = expandVars(h.value, env);
     }
     if (req.bodyType === 'json' && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
 
     let requestBody: string | null = null;
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.bodyType !== 'none' && req.body) {
-      requestBody = req.body;
+      requestBody = expandVars(req.body, env);
     }
 
     const response = await invoke<HttpResponse>('http_send_request', {

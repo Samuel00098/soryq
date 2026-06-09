@@ -1,9 +1,11 @@
 pub mod background;
 pub mod db;
+pub mod env_vars;
 pub mod file_system;
 pub mod github;
 pub mod http;
 pub mod preview;
+pub mod search;
 pub mod secrets;
 pub mod terminal;
 pub mod theme;

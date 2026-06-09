@@ -543,6 +543,7 @@ pub struct GitStatus {
     pub added: Vec<String>,
     pub deleted: Vec<String>,
     pub untracked: Vec<String>,
+    pub conflicted: Vec<String>,
     pub file_stats: std::collections::HashMap<String, (i32, i32)>,
     pub total_additions: i32,
     pub total_deletions: i32,
@@ -587,6 +588,7 @@ pub fn workspace_git_status(
     let mut added = Vec::new();
     let mut deleted = Vec::new();
     let mut untracked = Vec::new();
+    let mut conflicted = Vec::new();
 
     for line in stdout.lines() {
         if line.len() < 4 {
@@ -595,7 +597,12 @@ pub fn workspace_git_status(
         let status_code = &line[0..2];
         let file_path = line[3..].trim().to_string();
 
-        if status_code.contains('M') {
+        // Unmerged paths (merge/rebase conflicts) come first: any 'U', or the
+        // both-added / both-deleted cases, which the M/A/D checks would
+        // otherwise misclassify.
+        if status_code.contains('U') || status_code == "AA" || status_code == "DD" {
+            conflicted.push(file_path);
+        } else if status_code.contains('M') {
             modified.push(file_path);
         } else if status_code.contains('A') {
             added.push(file_path);
@@ -661,6 +668,7 @@ pub fn workspace_git_status(
         added,
         deleted,
         untracked,
+        conflicted,
         file_stats,
         total_additions,
         total_deletions,
@@ -900,6 +908,118 @@ pub fn workspace_git_diff(
     } else {
         Err(format!("Git diff failed:\n{}{}", sanitize_git_error(&stderr), sanitize_git_error(&stdout)))
     }
+}
+
+/// Resolve a merge conflict in `file_path` by collapsing each conflict block to
+/// a single side. `resolution` is "ours", "theirs", or "both". The file is
+/// rewritten and staged with `git add` so Git treats the conflict as handled.
+#[tauri::command]
+pub fn workspace_resolve_conflict(
+    project_id: String,
+    file_path: String,
+    resolution: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let projects = state.workspace_manager.list_projects();
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+    let root_path = &project.root_path;
+
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
+    validate_relative_path(&file_path)?;
+
+    let absolute_path = root_path.join(&file_path);
+    if let Ok(canonical) = std::fs::canonicalize(&absolute_path) {
+        let canonical = crate::commands::clean_path_buf(canonical);
+        if !canonical.starts_with(root_path) {
+            return Err("Access denied: path is outside project root".to_string());
+        }
+    }
+
+    let content = std::fs::read_to_string(&absolute_path)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    let resolved = resolve_conflict_markers(&content, &resolution)?;
+
+    std::fs::write(&absolute_path, resolved)
+        .map_err(|e| format!("Failed to write resolved file: {}", e))?;
+
+    let output = Command::new("git")
+        .args(&["add", "--", &file_path])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to stage resolved file: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("git add failed:\n{}", sanitize_git_error(&stderr)));
+    }
+
+    Ok(())
+}
+
+/// Collapse Git conflict blocks (`<<<<<<<` / `|||||||` / `=======` / `>>>>>>>`)
+/// to a single side. Errors when no markers are present so the caller can tell
+/// the user there was nothing to resolve.
+fn resolve_conflict_markers(content: &str, resolution: &str) -> Result<String, String> {
+    #[derive(PartialEq)]
+    enum Section {
+        None,
+        Ours,
+        Base,
+        Theirs,
+    }
+
+    let mut out: Vec<&str> = Vec::new();
+    let mut ours: Vec<&str> = Vec::new();
+    let mut theirs: Vec<&str> = Vec::new();
+    let mut section = Section::None;
+    let mut found = false;
+
+    for line in content.lines() {
+        if line.starts_with("<<<<<<<") {
+            found = true;
+            section = Section::Ours;
+            ours.clear();
+            theirs.clear();
+        } else if line.starts_with("|||||||") && section != Section::None {
+            section = Section::Base;
+        } else if line.starts_with("=======") && section != Section::None {
+            section = Section::Theirs;
+        } else if line.starts_with(">>>>>>>") && section != Section::None {
+            match resolution {
+                "ours" => out.extend(ours.iter().copied()),
+                "theirs" => out.extend(theirs.iter().copied()),
+                "both" => {
+                    out.extend(ours.iter().copied());
+                    out.extend(theirs.iter().copied());
+                }
+                other => return Err(format!("Unknown resolution '{}'", other)),
+            }
+            section = Section::None;
+        } else {
+            match section {
+                Section::None => out.push(line),
+                Section::Ours => ours.push(line),
+                Section::Base => { /* base side is discarded */ }
+                Section::Theirs => theirs.push(line),
+            }
+        }
+    }
+
+    if !found {
+        return Err("No conflict markers found in this file.".to_string());
+    }
+
+    let mut result = out.join("\n");
+    if content.ends_with('\n') {
+        result.push('\n');
+    }
+    Ok(result)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -3,7 +3,7 @@ import type { LayoutState, ActiveView, SidebarTab } from '$lib/types/layout';
 import { loadJson } from '$lib/utils/storage';
 
 const VALID_ACTIVE_VIEWS = new Set<ActiveView>(['editor', 'terminal', 'preview', 'settings', 'review', 'http', 'tasks', 'orchestrator', 'db', 'toolbox']);
-const VALID_SIDEBAR_TABS = new Set<SidebarTab>(['files', 'git', 'snapshots', 'history']);
+const VALID_SIDEBAR_TABS = new Set<SidebarTab>(['files', 'search', 'git', 'snapshots', 'history', 'snippets']);
 
 export function sanitiseActiveView(v: unknown, fallback: ActiveView = 'terminal'): ActiveView {
   return VALID_ACTIVE_VIEWS.has(v as ActiveView) ? (v as ActiveView) : fallback;
@@ -82,6 +82,12 @@ export const quickCaptureOpen = writable(false);
 
 export function openQuickCapture() { quickCaptureOpen.set(true); }
 export function closeQuickCapture() { quickCaptureOpen.set(false); }
+
+// Environment manager overlay state
+export const envManagerOpen = writable(false);
+
+export function openEnvManager() { envManagerOpen.set(true); }
+export function closeEnvManager() { envManagerOpen.set(false); }
 
 export function toggleSidebar() {
   layout.update((l) => ({ ...l, sidebarVisible: !l.sidebarVisible }));

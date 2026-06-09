@@ -41,6 +41,7 @@
     setAiModel,
     type AiModelOption,
     type AiProviderId,
+    type VoiceInputProviderId,
     aiProviders,
     getProviderDef,
     getProviderTtsBadge,
@@ -341,7 +342,12 @@
         sublabel: model.description || model.id,
       }))
   );
-  let voiceInputProviderOptions = $derived([
+  let voiceInputProviderOptions: Array<{
+    id: VoiceInputProviderId;
+    label: string;
+    subtitle: string;
+    status: string;
+  }> = $derived([
     {
       id: 'webspeech',
       label: 'Web Speech',

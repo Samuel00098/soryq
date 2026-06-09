@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.hoisted(() => vi.fn(async () => undefined));
+const invoke = vi.hoisted(() => vi.fn(async (..._args: any[]): Promise<any> => undefined));
 const getProviderApiKeyLocal = vi.hoisted(() => vi.fn(() => 'secret'));
 const getProviderDef = vi.hoisted(() => vi.fn(() => ({ models: [{ id: 'gpt-4.1' }, { id: 'gpt-4o-mini' }] })));
 const isLocalProvider = vi.hoisted(() => vi.fn(() => false));

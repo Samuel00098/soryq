@@ -23,6 +23,12 @@ vite.config.ts.timestamp-*
 *_go_mainstream.md
 ai-researcher-report-*.md
 
+# Local agent/review reports — generated artifacts, not source
+code-reviewer-report-*.md
+performance-analyzer-report-*.md
+security-auditor-report-*.md
+code-editor-report-*.md
+
 # Browser automation session logs
 .playwright-mcp/
 

@@ -21,7 +21,7 @@ export function toggleCommandPalette() {
 
 import { newWorkspacePromptOpen, openProject, openProjectByPath } from './workspace';
 import { saveActiveFile, formatActiveFile } from './editor';
-import { setActiveView, toggleSidebar, toggleEditorSplitPreview } from './layout';
+import { setActiveView, toggleSidebar, toggleEditorSplitPreview, toggleSidebarTab, openEnvManager } from './layout';
 import { createTerminalSession } from './terminal';
 import { startProxy, stopProxy } from './preview';
 
@@ -54,6 +54,20 @@ export function initDefaultCommands() {
       category: 'View',
       shortcut: 'Ctrl+B',
       action: () => toggleSidebar(),
+    },
+    {
+      id: 'search.project',
+      name: 'Search in Files',
+      category: 'View',
+      shortcut: 'Ctrl+Shift+F',
+      action: () => toggleSidebarTab('search'),
+    },
+    {
+      id: 'workspace.env',
+      name: 'Environment Manager',
+      category: 'Workspace',
+      shortcut: 'Ctrl+Shift+E',
+      action: () => openEnvManager(),
     },
     {
       id: 'view.editor',

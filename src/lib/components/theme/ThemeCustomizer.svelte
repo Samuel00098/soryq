@@ -285,7 +285,6 @@
     color: var(--text-secondary);
   }
 
-  .customizer-select,
   .customizer-input {
     background: var(--input-bg);
     border: 1px solid var(--input-border);
@@ -298,17 +297,11 @@
     transition: border-color 0.15s;
   }
 
-  .customizer-select {
-    cursor: pointer;
-  }
-
-  .customizer-select:focus,
   .customizer-input:focus {
     border-color: var(--input-focus-border);
   }
 
-  .customizer-input:disabled,
-  .customizer-select:disabled {
+  .customizer-input:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }

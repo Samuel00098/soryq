@@ -2,6 +2,7 @@
   import TitleBar from './TitleBar.svelte';
   import StatusBar from './StatusBar.svelte';
   import FileExplorer from '$lib/components/explorer/FileExplorer.svelte';
+  import SearchPanel from '$lib/components/explorer/SearchPanel.svelte';
   import ProjectSwitcher from '$lib/components/workspace/ProjectSwitcher.svelte';
   import WorkspaceSwitcher from '$lib/components/workspace/WorkspaceSwitcher.svelte';
   import TerminalPanel from '$lib/components/terminal/TerminalPanel.svelte';
@@ -23,7 +24,7 @@
   import { checkForUpdate } from '$lib/stores/updater';
   import { fly } from 'svelte/transition';
 
-  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, toggleSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, toggleDbVisible, toggleToolboxVisible, openQuickCapture } from '$lib/stores/layout';
+  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, toggleSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, toggleDbVisible, toggleToolboxVisible, openQuickCapture, openEnvManager } from '$lib/stores/layout';
   import { initNavigationHistory } from '$lib/stores/navigation';
   import SketchCanvas from '$lib/components/workspace/SketchCanvas.svelte';
   import { sketchCanvasOpen, toggleSketchCanvas } from '$lib/stores/sketch';
@@ -81,6 +82,7 @@
 
   // Adjust sidebar width dynamically when screen size changes, and close panel if very narrow screen
   $effect(() => {
+    if (windowWidth < 500 || (typeof document !== 'undefined' && document.hidden)) return;
     const zoom = $uiZoom;
     const effectiveWindowWidth = windowWidth / (zoom / 100);
     if (effectiveWindowWidth < 640) {
@@ -98,12 +100,24 @@
     }
   });
 
+  // Horizontal space the aux panel may occupy before the flex row overflows its
+  // `overflow: hidden` container and gets clipped on the right. Beyond the
+  // activity bar + sidebar, it must also reserve the terminal's min-width (250)
+  // and the surrounding chrome: app-body padding (24px) plus the inter-panel
+  // gaps and resize handles (~36px). Under-reserving here is what cut the panel
+  // off on smaller windows.
+  function auxMaxWidth(): number {
+    const zoom = $uiZoom / 100;
+    const sidebar = 48 + ($layout.sidebarVisible ? $layout.sidebarWidth : 0);
+    const TERMINAL_MIN = 250;
+    const CHROME = 60;
+    return (windowWidth / zoom) - sidebar - TERMINAL_MIN - CHROME;
+  }
+
   // Clamp auxiliary panel width dynamically when screen size, zoom, or sidebar changes
   $effect(() => {
-    const zoom = $uiZoom / 100;
-    const currentSidebarWidth = 48 + ($layout.sidebarVisible ? $layout.sidebarWidth : 0);
-    const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
-    
+    if (windowWidth < 500 || (typeof document !== 'undefined' && document.hidden)) return;
+    const maxAllowedWidth = auxMaxWidth();
     if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible) && auxPanelWidth > maxAllowedWidth) {
       auxPanelWidth = Math.max(200, maxAllowedWidth);
     }
@@ -145,8 +159,7 @@
     } else if (auxResizing) {
       const delta = (e.clientX - auxStartX) / zoom;
       const nextWidth = auxStartWidth - delta;
-      const currentSidebarWidth = 48 + ($layout.sidebarVisible ? $layout.sidebarWidth : 0);
-      const maxAllowedWidth = (windowWidth / zoom) - currentSidebarWidth - 250 - 4;
+      const maxAllowedWidth = auxMaxWidth();
       auxPanelWidth = Math.max(200, Math.min(maxAllowedWidth, nextWidth));
     } else if (auxRowResizing) {
       const deltaY = (e.clientY - auxStartY) / zoom;
@@ -200,6 +213,12 @@
           break;
         case 'toggleSidebar':
           toggleSidebar();
+          break;
+        case 'openSearch':
+          toggleSidebarTab('search');
+          break;
+        case 'openEnvManager':
+          openEnvManager();
           break;
         case 'saveFile':
           saveActiveFile();
@@ -290,6 +309,18 @@
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 7a2 2 0 0 1 2-2h3.586a2 2 0 0 1 1.414.586L11.414 7H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
+            class:svt-active={$layout.sidebarVisible && $layout.sidebarTab === 'search'}
+            onclick={() => toggleSidebarTab('search')}
+            title="Search"
+            aria-label="Search"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="7"/>
+              <path d="M21 21l-4.3-4.3"/>
             </svg>
           </button>
           <button
@@ -487,6 +518,8 @@
           <div class="sidebar-content">
             {#if $layout.sidebarTab === 'files'}
               <FileExplorer />
+            {:else if $layout.sidebarTab === 'search'}
+              <SearchPanel />
             {:else if $layout.sidebarTab === 'git'}
               <SourceControl />
             {:else if $layout.sidebarTab === 'snapshots'}

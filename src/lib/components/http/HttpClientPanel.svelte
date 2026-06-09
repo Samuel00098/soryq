@@ -271,6 +271,9 @@
     overflow: hidden;
     /* Transparent so the parent .auxiliary-panel provides the frosted glass. */
     background: transparent;
+    /* Drive the internal layout off the panel's own width (it lives inside a
+       resizable aux panel), not the viewport. */
+    container-type: inline-size;
   }
 
   /* ─── Left sidebar ─────────────────────────── */
@@ -282,6 +285,18 @@
     background: rgba(var(--sidebar-bg-rgb, 18, 18, 22), 0.35);
     border-right: 1px solid var(--border);
     overflow: hidden;
+  }
+
+  /* As the panel narrows, give the request list less room so the editor never
+     gets clipped. Below ~340px the rail collapses entirely. */
+  @container (max-width: 520px) {
+    .req-sidebar { width: 180px; }
+  }
+  @container (max-width: 420px) {
+    .req-sidebar { width: 140px; }
+  }
+  @container (max-width: 340px) {
+    .req-sidebar { display: none; }
   }
 
   .req-sidebar-header {

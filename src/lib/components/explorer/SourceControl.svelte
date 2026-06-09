@@ -4,6 +4,7 @@
   import { openFile } from '$lib/stores/editor';
   import { showToast } from '$lib/stores/notification';
   import FileIcon from './FileIcon.svelte';
+  import DiffViewer from './DiffViewer.svelte';
   import { branchInfo, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
   import { aiProvider, currentAiModel, getProviderDef, isLocalProvider, getProviderBaseUrl } from '$lib/stores/settings';
   import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
@@ -18,7 +19,7 @@
     subject: string | null;
   }
 
-  let gitStatus = $state<{ modified: string[]; added: string[]; deleted: string[]; untracked: string[] } | null>(null);
+  let gitStatus = $state<{ modified: string[]; added: string[]; deleted: string[]; untracked: string[]; conflicted?: string[] } | null>(null);
   let gitHistory = $state<GitLogEntry[] | null>(null);
   let isFetchingStatus = $state(false);
   let isFetchingHistory = $state(false);
@@ -367,6 +368,15 @@
     }
   }
 
+  // Diff viewer overlay state.
+  let diffFile = $state<string | null>(null);
+  let diffConflicted = $state(false);
+
+  function openDiff(file: string, conflicted = false) {
+    diffFile = file;
+    diffConflicted = conflicted;
+  }
+
   function handleInputKeyDown(e: KeyboardEvent) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -632,7 +642,7 @@
         </div>
       </div>
     {:else}
-      {@const totalChanges = gitStatus ? (gitStatus.modified.length + gitStatus.added.length + gitStatus.deleted.length + gitStatus.untracked.length) : 0}
+      {@const totalChanges = gitStatus ? (gitStatus.modified.length + gitStatus.added.length + gitStatus.deleted.length + gitStatus.untracked.length + (gitStatus.conflicted?.length ?? 0)) : 0}
 
       {#if needsPublish}
         <div class="publish-banner">
@@ -721,7 +731,7 @@
         </button>
       </div>
 
-      {#snippet fileRow(file: string, kind: 'modified' | 'added' | 'deleted' | 'untracked', badge: string, openable: boolean)}
+      {#snippet fileRow(file: string, kind: 'modified' | 'added' | 'deleted' | 'untracked' | 'conflicted', badge: string, openable: boolean)}
         <div class="sc-file-item {kind}" class:unselected={!selectedFiles.has(file)}>
           <input
             type="checkbox"
@@ -740,6 +750,16 @@
             <FileIcon name={file.split('/').pop() || ''} isDir={false} />
             <span class="file-path">{file}</span>
             <span class="status-badge {kind}">{badge}</span>
+          </button>
+          <button
+            class="sc-file-diff"
+            onclick={() => openDiff(file, kind === 'conflicted')}
+            title="View diff"
+            aria-label="View diff for {file}"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3v18M5 8l-3 4 3 4M19 8l3 4-3 4"/>
+            </svg>
           </button>
         </div>
       {/snippet}
@@ -769,6 +789,10 @@
         {#if changesExpanded}
           {#if gitStatus && totalChanges > 0}
             <div class="sc-files">
+              {#each gitStatus.conflicted ?? [] as file}
+                {@render fileRow(file, 'conflicted', '!', true)}
+              {/each}
+
               {#each gitStatus.modified as file}
                 {@render fileRow(file, 'modified', 'M', true)}
               {/each}
@@ -879,6 +903,16 @@
     {/if}
   </div>
 </div>
+
+{#if diffFile && $activeProjectId}
+  <DiffViewer
+    projectId={$activeProjectId}
+    filePath={diffFile}
+    conflicted={diffConflicted}
+    onClose={() => (diffFile = null)}
+    onResolved={() => refreshAll()}
+  />
+{/if}
 
 <style>
   .source-control {
@@ -1077,6 +1111,31 @@
     opacity: 0.6;
   }
 
+  .sc-file-diff {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+  }
+
+  .sc-file-item:hover .sc-file-diff {
+    opacity: 1;
+  }
+
+  .sc-file-diff:hover {
+    background: var(--bg-secondary);
+    color: var(--accent);
+  }
+
   .sc-section-head-row {
     display: flex;
     align-items: center;
@@ -1151,6 +1210,11 @@
   .status-badge.untracked {
     background: rgba(148, 148, 166, 0.15);
     color: var(--text-secondary);
+  }
+
+  .status-badge.conflicted {
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    color: var(--warning);
   }
 
   /* Commits history list styles */

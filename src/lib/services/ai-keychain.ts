@@ -22,8 +22,11 @@ export async function initApiKeyCache(): Promise<void> {
     try {
       const key = await invoke<string | null>('provider_api_key_get', { provider });
       keyCache.set(provider, key && key.trim() ? key.trim() : null);
-    } catch {
-      keyCache.set(provider, null);
+    } catch (err) {
+      // Don't poison the cache with null on error — leave this provider out so
+      // providerApiKeyExists() falls back to a live keychain query instead of
+      // returning false from a stale cache entry.
+      console.error(`[keychain] Failed to read key for ${provider} at startup:`, err);
     }
   }
 
@@ -70,7 +73,10 @@ export function getProviderApiKeyLocal(provider: AiProviderId): string | null {
 
 /** True if a key exists in the cache (or the keychain if the cache is not yet ready). */
 export async function providerApiKeyExists(provider: AiProviderId): Promise<boolean> {
-  if (cacheReady) return !!keyCache.get(provider);
+  // Use the cache only if it's ready AND this provider was successfully loaded into it.
+  // Providers that errored during initApiKeyCache are absent from the map (not set to null),
+  // so we fall through to a live keychain query for them.
+  if (cacheReady && keyCache.has(provider)) return !!keyCache.get(provider);
   try {
     return await safeInvoke<boolean>('provider_api_key_exists', { provider });
   } catch {

@@ -3,6 +3,44 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.1] - 2026-06-09
+
+### Added
+
+- **Project-wide search (Ctrl+Shift+F)** — a new `Search` tab in the sidebar (`SearchPanel`) finds text across every open project root. Searches honour `.gitignore` (but never descend into `.git`), support case-sensitive, whole-word, and regular-expression modes, and take an optional comma-separated include-glob filter (e.g. `*.rs, src/**/*.ts`). Results are grouped by file with line/column positions. Backed by a new Rust `search_in_project` command built on the `ignore` walker, with caps on file size (2 MB), per-file matches (200), total matches (5 000), and line length (500 chars) so a pathological query can't lock up the UI.
+
+- **Environment variable manager (Ctrl+Shift+E)** — a new `EnvManager` overlay stores per-project environment variables in the OS keychain (namespaced by project id under the same `com.samue.soryq` service as the AI and GitHub secrets). Variables can be added, edited, removed, or imported in bulk from the project's root `.env` file. Backed by new Rust commands `env_vault_get`, `env_vault_set`, and `env_vault_import_dotenv`, with variable-name validation and a minimal `.env` parser (handles `export`, `#` comments, and quoted values).
+
+- **HTTP Client variable substitution** — requests now expand `{{VAR}}` placeholders from the active project's environment vault in the URL, headers, and body before sending. Unknown placeholders are left intact so a typo is visible rather than silently blanked.
+
+- **Inline diff viewer in Source Control** — every changed file in the Source Control panel gains a hover "View diff" button that opens a `DiffViewer` overlay for that file, instead of having to open it in the editor.
+
+- **Merge-conflict resolution** — `workspace_git_status` now reports a separate `conflicted` list (unmerged paths: any `U` state plus the both-added/both-deleted cases), shown in Source Control with a `!` badge. A new `workspace_resolve_conflict` command collapses each conflict block in a file to a single side — "ours", "theirs", or "both" — then stages the result so Git treats the conflict as handled.
+
+### Changed
+
+- **Responsive Welcome screen** — the welcome screen's three-column layout now narrows its side rails before collapsing, uses fluid `clamp()`-based padding/gaps/heights, and progressively reflows to two columns, then one, then a compact phone layout (with the daily-notes and shortcuts rails sitting side by side at intermediate widths). The whole page scrolls instead of clipping on small windows.
+
+- **Responsive HTTP Client panel** — the panel now drives its internal layout off its own width (`container-type: inline-size`) rather than the viewport, shrinking the saved-request rail in steps and collapsing it entirely below ~340 px so the request editor is never clipped inside a narrow aux panel.
+
+- **Command palette height** — capped at `min(400px, 70vh)` so it never overflows short windows.
+
+### Fixed
+
+- **Aux panel no longer clipped on smaller windows** — the auxiliary-panel max-width clamp under-reserved horizontal space, cutting the panel off on the right at smaller window sizes. The calculation now reserves the terminal's minimum width plus the surrounding chrome (app-body padding, inter-panel gaps, and resize handles) through a single shared `auxMaxWidth()` helper used by both the clamp effect and the drag handler. The width effects also bail out for very narrow or hidden windows to avoid spurious reclamps.
+
+- **API-key cache isn't poisoned by a startup read error** — `initApiKeyCache` no longer caches `null` for a provider whose key failed to read at startup. The provider is left absent from the cache so `providerApiKeyExists` falls through to a live keychain query instead of incorrectly reporting "no key".
+
+### Security
+
+- **HTTP Client blocks SSRF to link-local and cloud-metadata addresses** — `http_send_request` now rejects requests whose host is, or resolves to, a link-local or cloud-metadata address (notably the `169.254.169.254` IMDS endpoint and the `metadata.google.internal` / `metadata.goog` hostnames), including IPv6 link-local and IPv4-mapped forms. The check runs on the initial URL and is re-evaluated on every redirect hop, so a redirect can't smuggle the request to a blocked address. Loopback and private ranges stay allowed on purpose (hitting your own dev server is the point).
+
+- **HTTP Client caps response size** — response bodies are now streamed in chunks and aborted once they exceed 50 MB, so an oversized or never-ending response can't exhaust memory.
+
+- **Destructive SQL queries require confirmation** — the Database Explorer now warns and asks for confirmation before running a `DROP`, `TRUNCATE`, or a `DELETE`/`UPDATE` with no `WHERE` clause. Line comments are stripped before the check so a commented-out `WHERE` can't mask a full-table mutation.
+
+- **Environment vault is keychain-only** — project environment variables are stored exclusively in the OS keychain, never written to `localStorage` or the project folder, and variable names are validated (letters, digits, underscores, not starting with a digit) before being saved.
+
 ## [v0.3.0] - 2026-06-08
 
 ### Added

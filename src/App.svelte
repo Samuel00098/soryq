@@ -5,7 +5,8 @@
   import SettingsModal from '$lib/components/shared/SettingsModal.svelte';
   import QuickCaptureModal from '$lib/components/shared/QuickCaptureModal.svelte';
   import WorkspaceNameModal from '$lib/components/shared/WorkspaceNameModal.svelte';
-  import { settingsOpen, closeSettings, quickCaptureOpen, closeQuickCapture } from '$lib/stores/layout';
+  import EnvManager from '$lib/components/shared/EnvManager.svelte';
+  import { settingsOpen, closeSettings, quickCaptureOpen, closeQuickCapture, envManagerOpen } from '$lib/stores/layout';
   import { newWorkspacePromptOpen } from '$lib/stores/workspace';
   import MicrophonePermissionDialog from '$lib/components/shared/MicrophonePermissionDialog.svelte';
   import { pendingPermissionRequest } from '$lib/stores/permissions';
@@ -163,6 +164,10 @@
 
 {#if $quickCaptureOpen}
   <QuickCaptureModal onclose={closeQuickCapture} />
+{/if}
+
+{#if $envManagerOpen}
+  <EnvManager />
 {/if}
 
 {#if $newWorkspacePromptOpen}

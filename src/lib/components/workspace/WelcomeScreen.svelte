@@ -537,8 +537,8 @@
       radial-gradient(72% 48% at 50% -6%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
       radial-gradient(46% 40% at 100% 102%, color-mix(in srgb, var(--accent-hover, var(--accent)) 8%, transparent), transparent 58%);
     overflow: hidden;
-    padding: 20px 24px 24px 24px;
-    gap: 16px;
+    padding: clamp(14px, 2vw, 24px);
+    gap: clamp(12px, 1.4vw, 16px);
     box-sizing: border-box;
   }
 
@@ -586,7 +586,7 @@
   .header-text { display: flex; flex-direction: column; gap: 2px; align-items: center; }
 
   .app-name {
-    font-size: 26px;
+    font-size: clamp(20px, 2.4vw, 26px);
     font-weight: 700;
     color: var(--text-primary);
     background: linear-gradient(180deg, var(--text-primary) 35%, color-mix(in srgb, var(--text-primary) 62%, var(--accent)));
@@ -606,8 +606,8 @@
   /* ── Content grid ── */
   .content {
     display: grid;
-    grid-template-columns: 280px 1fr 300px;
-    gap: 16px;
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(260px, 300px);
+    gap: clamp(12px, 1.4vw, 16px);
     flex: 1;
     min-height: 0;
     width: 100%;
@@ -1210,12 +1210,21 @@
     100% { opacity: 1; transform: translateY(0); }
   }
 
+  /* Narrow the side rails before collapsing the grid. */
+  @media (max-width: 1180px) {
+    .content {
+      grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(220px, 260px);
+    }
+  }
+
+  /* Two-column stacked layout: cards get fluid, viewport-relative heights
+     and the whole page scrolls instead of clipping. */
   @media (max-width: 1024px) {
     .welcome {
       overflow-y: auto;
     }
     .content {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       height: auto;
     }
     .col {
@@ -1227,16 +1236,50 @@
     .recent-list,
     .feed-list,
     .notes-timeline {
-      max-height: 320px;
+      max-height: clamp(220px, 40vh, 360px);
+    }
+    /* Daily-notes + shortcuts sit side by side once the rail spans full width. */
+    .right-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
     }
   }
 
+  /* Single column for tablets / narrow windows. */
   @media (max-width: 680px) {
     .content {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
     .right-col {
       grid-column: span 1;
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .recent-list,
+    .feed-list,
+    .notes-timeline {
+      max-height: clamp(200px, 48vh, 340px);
+    }
+  }
+
+  /* Compact phones / very small windows. */
+  @media (max-width: 440px) {
+    .header {
+      flex-direction: row;
+      gap: 10px;
+      text-align: left;
+      justify-content: flex-start;
+    }
+    .header-text {
+      align-items: flex-start;
+    }
+    .logo-wrap {
+      width: 44px;
+      height: 44px;
+    }
+    .action-btn kbd,
+    .shortcut-item kbd {
+      display: none;
     }
   }
 </style>
