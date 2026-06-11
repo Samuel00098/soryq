@@ -39,8 +39,8 @@ impl Project {
         // matched back to the project. Canonicalize so equivalent paths (e.g.
         // with/without trailing slash or symlinks) map to the same id.
         let canonical = std::fs::canonicalize(&root_path).unwrap_or_else(|_| root_path.clone());
-        let id = Uuid::new_v5(&Uuid::NAMESPACE_OID, canonical.to_string_lossy().as_bytes())
-            .to_string();
+        let id =
+            Uuid::new_v5(&Uuid::NAMESPACE_OID, canonical.to_string_lossy().as_bytes()).to_string();
 
         Project {
             id: id.clone(),

@@ -4,7 +4,6 @@ use std::fs;
 use std::path::PathBuf;
 
 #[allow(dead_code)]
-
 pub fn load_theme_from_file(path: &PathBuf) -> Result<Theme, ForgeError> {
     let content = fs::read_to_string(path)?;
     let theme: Theme = serde_json::from_str(&content)?;

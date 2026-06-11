@@ -1,8 +1,8 @@
-use crate::workspace::project::Project;
-use tauri::State;
 use crate::state::AppState;
+use crate::workspace::project::Project;
 use std::path::PathBuf;
 use std::process::Command;
+use tauri::State;
 
 pub(crate) fn sanitize_git_error(stderr: &str) -> String {
     stderr
@@ -18,7 +18,11 @@ pub(crate) fn sanitize_git_error(stderr: &str) -> String {
                             && matches!(trimmed.as_bytes()[2], b'\\' | b'/'))
                         || trimmed.contains('/')
                         || trimmed.contains('\\');
-                    if looks_like_path { "[path redacted]" } else { token }
+                    if looks_like_path {
+                        "[path redacted]"
+                    } else {
+                        token
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join(" ")
@@ -93,7 +97,7 @@ fn validate_relative_path(file_path: &str) -> Result<(), String> {
     if file_path.starts_with("--") {
         return Err("Invalid file path".to_string());
     }
-    if file_path.split(|c| c == '/' || c == '\\').any(|seg| seg == "..") {
+    if file_path.split(['/', '\\']).any(|seg| seg == "..") {
         return Err("Path traversal is not allowed".to_string());
     }
     Ok(())
@@ -101,10 +105,13 @@ fn validate_relative_path(file_path: &str) -> Result<(), String> {
 
 #[tauri::command]
 pub fn workspace_open_project(path: String, state: State<AppState>) -> Result<Project, String> {
-    let root_path = std::fs::canonicalize(PathBuf::from(&path))
-        .map_err(|_| "Invalid path".to_string())?;
+    let root_path =
+        std::fs::canonicalize(PathBuf::from(&path)).map_err(|_| "Invalid path".to_string())?;
     let root_path = crate::commands::clean_path_buf(root_path);
-    state.workspace_manager.open_project(root_path).map_err(|e| e.to_string())
+    state
+        .workspace_manager
+        .open_project(root_path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -118,7 +125,9 @@ pub fn workspace_list_projects(state: State<AppState>) -> Vec<Project> {
 }
 
 #[tauri::command]
-pub fn workspace_get_recent(state: State<AppState>) -> Vec<crate::workspace::project::RecentProject> {
+pub fn workspace_get_recent(
+    state: State<AppState>,
+) -> Vec<crate::workspace::project::RecentProject> {
     state.workspace_manager.get_recent_projects()
 }
 
@@ -130,7 +139,9 @@ pub fn workspace_git_commit(
     state: State<AppState>,
 ) -> Result<String, String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -184,7 +195,10 @@ pub fn workspace_git_commit(
 
     if !add_output.status.success() {
         let stderr = String::from_utf8_lossy(&add_output.stderr);
-        return Err(format!("Failed to stage changes: {}", sanitize_git_error(&stderr)));
+        return Err(format!(
+            "Failed to stage changes: {}",
+            sanitize_git_error(&stderr)
+        ));
     }
 
     // 2. Commit changes. With a selection, restrict the commit to those paths so
@@ -207,19 +221,26 @@ pub fn workspace_git_commit(
     let stderr = String::from_utf8_lossy(&commit_output.stderr).to_string();
 
     if commit_output.status.success() {
-        Ok(format!("Successfully committed changes!\n{}{}", stdout, sanitize_git_error(&stderr)))
+        Ok(format!(
+            "Successfully committed changes!\n{}{}",
+            stdout,
+            sanitize_git_error(&stderr)
+        ))
     } else {
-        Err(format!("Commit failed:\n{}{}", sanitize_git_error(&stderr), stdout))
+        Err(format!(
+            "Commit failed:\n{}{}",
+            sanitize_git_error(&stderr),
+            stdout
+        ))
     }
 }
 
 #[tauri::command]
-pub fn workspace_git_push(
-    project_id: String,
-    state: State<AppState>,
-) -> Result<String, String> {
+pub fn workspace_git_push(project_id: String, state: State<AppState>) -> Result<String, String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -230,7 +251,7 @@ pub fn workspace_git_push(
 
     // 1. Determine current branch
     let branch = Command::new("git")
-        .args(&["branch", "--show-current"])
+        .args(["branch", "--show-current"])
         .current_dir(root_path)
         .output()
         .ok()
@@ -249,7 +270,7 @@ pub fn workspace_git_push(
     }
 
     let output = Command::new("git")
-        .args(&push_args)
+        .args(push_args)
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -263,7 +284,11 @@ pub fn workspace_git_push(
         if stderr.to_lowercase().contains("everything up-to-date") {
             Ok("Already up to date — nothing new to push.".to_string())
         } else {
-            Ok(format!("Successfully pushed to GitHub!\n{}{}", stdout, sanitize_git_error(&stderr)))
+            Ok(format!(
+                "Successfully pushed to GitHub!\n{}{}",
+                stdout,
+                sanitize_git_error(&stderr)
+            ))
         }
     } else {
         Err(classify_push_error(&stderr))
@@ -271,12 +296,11 @@ pub fn workspace_git_push(
 }
 
 #[tauri::command]
-pub fn workspace_git_fetch(
-    project_id: String,
-    state: State<AppState>,
-) -> Result<String, String> {
+pub fn workspace_git_fetch(project_id: String, state: State<AppState>) -> Result<String, String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -286,7 +310,7 @@ pub fn workspace_git_fetch(
     }
 
     let output = Command::new("git")
-        .args(&["fetch", "origin"])
+        .args(["fetch", "origin"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -296,13 +320,19 @@ pub fn workspace_git_fetch(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() {
-        Ok(format!("Successfully fetched from remote!\n{}{}", sanitize_git_error(&stdout), sanitize_git_error(&stderr)))
+        Ok(format!(
+            "Successfully fetched from remote!\n{}{}",
+            sanitize_git_error(&stdout),
+            sanitize_git_error(&stderr)
+        ))
     } else {
-        Err(format!("Git fetch failed:\n{}{}", sanitize_git_error(&stderr), sanitize_git_error(&stdout)))
+        Err(format!(
+            "Git fetch failed:\n{}{}",
+            sanitize_git_error(&stderr),
+            sanitize_git_error(&stdout)
+        ))
     }
 }
-
-
 
 #[tauri::command]
 pub fn workspace_detect_port(path: String, state: State<AppState>) -> u16 {
@@ -315,44 +345,51 @@ pub fn workspace_detect_port(path: String, state: State<AppState>) -> u16 {
     if !projects.iter().any(|p| root.starts_with(&p.root_path)) {
         return 5173;
     }
-    
+
     // 1. Try to read package.json (cap at 1MB to prevent DoS on malformed projects)
     let package_json_path = root.join("package.json");
     if package_json_path.is_file() {
-        let too_large = std::fs::metadata(&package_json_path).map(|m| m.len() > 1_048_576).unwrap_or(false);
+        let too_large = std::fs::metadata(&package_json_path)
+            .map(|m| m.len() > 1_048_576)
+            .unwrap_or(false);
         if !too_large {
-        if let Ok(content) = std::fs::read_to_string(&package_json_path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                // If package.json has scripts:
-                if let Some(scripts) = json.get("scripts").and_then(|s| s.as_object()) {
-                    for (_name, cmd_val) in scripts {
-                        if let Some(cmd) = cmd_val.as_str() {
-                            if let Some(port) = extract_port_from_cmd(cmd) {
-                                return port;
+            if let Ok(content) = std::fs::read_to_string(&package_json_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // If package.json has scripts:
+                    if let Some(scripts) = json.get("scripts").and_then(|s| s.as_object()) {
+                        for (_name, cmd_val) in scripts {
+                            if let Some(cmd) = cmd_val.as_str() {
+                                if let Some(port) = extract_port_from_cmd(cmd) {
+                                    return port;
+                                }
                             }
                         }
                     }
-                }
-                
-                // If no port specified in scripts, check framework signatures
-                if let Some(dependencies) = json.get("dependencies").and_then(|d| d.as_object()) {
-                    if dependencies.contains_key("next") || dependencies.contains_key("nuxt") {
-                        return 3000;
+
+                    // If no port specified in scripts, check framework signatures
+                    if let Some(dependencies) = json.get("dependencies").and_then(|d| d.as_object())
+                    {
+                        if dependencies.contains_key("next") || dependencies.contains_key("nuxt") {
+                            return 3000;
+                        }
+                        if dependencies.contains_key("astro") {
+                            return 4321;
+                        }
                     }
-                    if dependencies.contains_key("astro") {
-                        return 4321;
-                    }
-                }
-                if let Some(dev_dependencies) = json.get("devDependencies").and_then(|d| d.as_object()) {
-                    if dev_dependencies.contains_key("next") || dev_dependencies.contains_key("nuxt") {
-                        return 3000;
-                    }
-                    if dev_dependencies.contains_key("astro") {
-                        return 4321;
+                    if let Some(dev_dependencies) =
+                        json.get("devDependencies").and_then(|d| d.as_object())
+                    {
+                        if dev_dependencies.contains_key("next")
+                            || dev_dependencies.contains_key("nuxt")
+                        {
+                            return 3000;
+                        }
+                        if dev_dependencies.contains_key("astro") {
+                            return 4321;
+                        }
                     }
                 }
             }
-        }
         } // end !too_large
     }
 
@@ -367,7 +404,7 @@ pub fn workspace_detect_port(path: String, state: State<AppState>) -> u16 {
             }
         }
     }
-    
+
     // Default fallback
     5173
 }
@@ -390,19 +427,26 @@ fn extract_port_from_vite_config(content: &str) -> Option<u16> {
     for line in content.lines() {
         let trimmed = line.trim();
         if in_block_comment {
-            if trimmed.contains("*/") { in_block_comment = false; }
+            if trimmed.contains("*/") {
+                in_block_comment = false;
+            }
             continue;
         }
-        if trimmed.starts_with("//") { continue; }
+        if trimmed.starts_with("//") {
+            continue;
+        }
         if trimmed.starts_with("/*") {
             // Single-line block comment: /* ... */ — enter and immediately exit
-            if trimmed.contains("*/") { continue; }
+            if trimmed.contains("*/") {
+                continue;
+            }
             in_block_comment = true;
             continue;
         }
         if let Some(pos) = trimmed.find("port:") {
             let after = &trimmed[pos + 5..];
-            let num_str: String = after.chars()
+            let num_str: String = after
+                .chars()
                 .skip_while(|c| c.is_whitespace())
                 .take_while(|c| c.is_ascii_digit())
                 .collect();
@@ -444,13 +488,16 @@ pub fn workspace_search_codebase(
 
     // Verify the requested path is an open project (prevents arbitrary directory traversal)
     let projects = state.workspace_manager.list_projects();
-    if !projects.iter().any(|p| root == p.root_path || root.starts_with(&p.root_path)) {
+    if !projects
+        .iter()
+        .any(|p| root == p.root_path || root.starts_with(&p.root_path))
+    {
         return Err("Project path is not an open project".to_string());
     }
 
     let mut results = Vec::new();
     let query_lower = query.to_lowercase();
-    
+
     // Scan recursively
     if let Err(e) = search_dir_recursive(&root, &root, &query_lower, &mut results) {
         return Err(format!("Search failed: {}", e));
@@ -501,19 +548,20 @@ fn search_dir_recursive(
                         continue;
                     }
                 }
-                
+
                 // Read and check if it's text
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if content.contains('\0') {
                         continue; // binary
                     }
-                    
-                    let relative_path = path.strip_prefix(root)
+
+                    let relative_path = path
+                        .strip_prefix(root)
                         .unwrap_or(&path)
                         .to_string_lossy()
                         .to_string();
                     let file_path = path.to_string_lossy().to_string();
-                    
+
                     for (idx, line) in content.lines().enumerate() {
                         if line.to_lowercase().contains(query) {
                             results.push(SearchResult {
@@ -553,7 +601,9 @@ pub fn workspace_git_status(
     state: State<AppState>,
 ) -> Result<GitStatus, String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -564,7 +614,7 @@ pub fn workspace_git_status(
 
     // 1. Get branch name
     let branch = Command::new("git")
-        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -575,7 +625,7 @@ pub fn workspace_git_status(
 
     // 2. Get porcelain status
     let output = Command::new("git")
-        .args(&["status", "--porcelain"])
+        .args(["status", "--porcelain"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -617,7 +667,7 @@ pub fn workspace_git_status(
     let mut total_deletions = 0;
 
     let numstat_output = Command::new("git")
-        .args(&["diff", "HEAD", "--numstat", "--no-renames"])
+        .args(["diff", "HEAD", "--numstat", "--no-renames"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output();
@@ -644,7 +694,9 @@ pub fn workspace_git_status(
         }
         let absolute_path = root_path.join(file);
         let additions = if absolute_path.exists() && absolute_path.is_file() {
-            let size = std::fs::metadata(&absolute_path).map(|m| m.len()).unwrap_or(u64::MAX);
+            let size = std::fs::metadata(&absolute_path)
+                .map(|m| m.len())
+                .unwrap_or(u64::MAX);
             if size > 10 * 1024 * 1024 {
                 0 // skip large files to avoid reading multi-GB binaries into memory
             } else {
@@ -680,7 +732,9 @@ pub fn workspace_git_discard_file(
     state: State<AppState>,
 ) -> Result<(), String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -712,7 +766,7 @@ pub fn workspace_git_discard_file(
 
     // 1. Get current git status to see if file is untracked
     let status_output = Command::new("git")
-        .args(&["status", "--porcelain", "--", &file_path])
+        .args(["status", "--porcelain", "--", &file_path])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -737,14 +791,14 @@ pub fn workspace_git_discard_file(
         // Tracked file: unstage and discard changes
         // Unstage first (in case it was added/staged)
         let _ = Command::new("git")
-            .args(&["reset", "HEAD", "--", &file_path])
+            .args(["reset", "HEAD", "--", &file_path])
             .current_dir(root_path)
             .env("GIT_TERMINAL_PROMPT", "0")
             .output();
 
         // Discard changes in worktree
         let checkout_output = Command::new("git")
-            .args(&["checkout", "--", &file_path])
+            .args(["checkout", "--", &file_path])
             .current_dir(root_path)
             .env("GIT_TERMINAL_PROMPT", "0")
             .output()
@@ -754,7 +808,7 @@ pub fn workspace_git_discard_file(
             // If checkout failed, it might be a new file that has been reset and is now untracked.
             // Let's check status again, or check if it's untracked now.
             let status_output2 = Command::new("git")
-                .args(&["status", "--porcelain", "--", &file_path])
+                .args(["status", "--porcelain", "--", &file_path])
                 .current_dir(root_path)
                 .env("GIT_TERMINAL_PROMPT", "0")
                 .output();
@@ -775,12 +829,11 @@ pub fn workspace_git_discard_file(
 }
 
 #[tauri::command]
-pub fn workspace_git_discard_all(
-    project_id: String,
-    state: State<AppState>,
-) -> Result<(), String> {
+pub fn workspace_git_discard_all(project_id: String, state: State<AppState>) -> Result<(), String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -791,7 +844,7 @@ pub fn workspace_git_discard_all(
 
     // 1. Reset all tracked changes
     let reset_output = Command::new("git")
-        .args(&["reset", "--hard", "HEAD"])
+        .args(["reset", "--hard", "HEAD"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -804,7 +857,7 @@ pub fn workspace_git_discard_all(
 
     // 2. Clean untracked files
     let clean_output = Command::new("git")
-        .args(&["clean", "-fd"])
+        .args(["clean", "-fd"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -825,7 +878,9 @@ pub fn workspace_git_diff(
     state: State<AppState>,
 ) -> Result<String, String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -839,7 +894,7 @@ pub fn workspace_git_diff(
             validate_relative_path(path)?;
             // First check if the file is tracked in git.
             let is_tracked = Command::new("git")
-                .args(&["ls-files", "--error-unmatch", "--", path])
+                .args(["ls-files", "--error-unmatch", "--", path])
                 .current_dir(root_path)
                 .output()
                 .map(|o| o.status.success())
@@ -858,11 +913,15 @@ pub fn workspace_git_diff(
                 if absolute_path.exists() {
                     match std::fs::read_to_string(&absolute_path) {
                         Ok(content) => {
-                            let mut diff = format!("--- /dev/null\n+++ b/{}\n@@ -0,0 +1,{} @@\n", path, content.lines().count());
+                            let mut diff = format!(
+                                "--- /dev/null\n+++ b/{}\n@@ -0,0 +1,{} @@\n",
+                                path,
+                                content.lines().count()
+                            );
                             for line in content.lines() {
-                                diff.push_str("+");
+                                diff.push('+');
                                 diff.push_str(line);
-                                diff.push_str("\n");
+                                diff.push('\n');
                             }
                             return Ok(diff);
                         }
@@ -873,7 +932,7 @@ pub fn workspace_git_diff(
 
             // Otherwise, get git diff for this specific file
             let output = Command::new("git")
-                .args(&["diff", "HEAD", "--", path])
+                .args(["diff", "HEAD", "--", path])
                 .current_dir(root_path)
                 .env("GIT_TERMINAL_PROMPT", "0")
                 .output()
@@ -885,14 +944,18 @@ pub fn workspace_git_diff(
             if output.status.success() {
                 return Ok(stdout);
             } else {
-                return Err(format!("Git diff failed:\n{}{}", sanitize_git_error(&stderr), sanitize_git_error(&stdout)));
+                return Err(format!(
+                    "Git diff failed:\n{}{}",
+                    sanitize_git_error(&stderr),
+                    sanitize_git_error(&stdout)
+                ));
             }
         }
     }
 
     // Default: get full repo git diff
     let output = Command::new("git")
-        .args(&["diff", "HEAD"])
+        .args(["diff", "HEAD"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -904,7 +967,11 @@ pub fn workspace_git_diff(
     if output.status.success() {
         Ok(stdout)
     } else {
-        Err(format!("Git diff failed:\n{}{}", sanitize_git_error(&stderr), sanitize_git_error(&stdout)))
+        Err(format!(
+            "Git diff failed:\n{}{}",
+            sanitize_git_error(&stderr),
+            sanitize_git_error(&stdout)
+        ))
     }
 }
 
@@ -947,7 +1014,7 @@ pub fn workspace_resolve_conflict(
         .map_err(|e| format!("Failed to write resolved file: {}", e))?;
 
     let output = Command::new("git")
-        .args(&["add", "--", &file_path])
+        .args(["add", "--", &file_path])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -1036,7 +1103,9 @@ pub fn workspace_git_log(
     state: State<AppState>,
 ) -> Result<Vec<GitLogEntry>, String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
 
     let root_path = &project.root_path;
@@ -1046,7 +1115,7 @@ pub fn workspace_git_log(
     }
 
     let output = Command::new("git")
-        .args(&[
+        .args([
             "log",
             "--graph",
             "--pretty=format:__DELIM__%h__DELIM__%an__DELIM__%ad (%ar)__DELIM__%d__DELIM__%s",
@@ -1072,14 +1141,14 @@ pub fn workspace_git_log(
             let (graph, rest) = line.split_at(idx);
             let rest_clean = &rest[9..]; // "__DELIM__" is 9 chars
             let parts: Vec<&str> = rest_clean.split("__DELIM__").collect();
-            
-            let hash = parts.get(0).map(|s| s.to_string());
+
+            let hash = parts.first().map(|s| s.to_string());
             let author = parts.get(1).map(|s| s.to_string());
             let date = parts.get(2).map(|s| s.to_string());
             let refs = parts.get(3).map(|s| {
                 let trimmed = s.trim();
                 if trimmed.starts_with('(') && trimmed.ends_with(')') {
-                    trimmed[1..trimmed.len()-1].to_string()
+                    trimmed[1..trimmed.len() - 1].to_string()
                 } else {
                     trimmed.to_string()
                 }
@@ -1091,7 +1160,11 @@ pub fn workspace_git_log(
                 hash,
                 author,
                 date,
-                refs: if refs.as_ref().map_or(true, |r| r.is_empty()) { None } else { refs },
+                refs: if refs.as_ref().is_none_or(|r| r.is_empty()) {
+                    None
+                } else {
+                    refs
+                },
                 subject,
             });
         } else {
@@ -1110,11 +1183,20 @@ pub fn workspace_git_log(
 }
 
 fn validate_branch_name(name: &str) -> Result<(), String> {
-    if name.is_empty() { return Err("Branch name cannot be empty".to_string()); }
-    if name.starts_with('-') { return Err("Invalid branch name".to_string()); }
-    if name.contains("..") { return Err("Invalid branch name".to_string()); }
+    if name.is_empty() {
+        return Err("Branch name cannot be empty".to_string());
+    }
+    if name.starts_with('-') {
+        return Err("Invalid branch name".to_string());
+    }
+    if name.contains("..") {
+        return Err("Invalid branch name".to_string());
+    }
     // Only allow safe characters
-    if !name.chars().all(|c| c.is_alphanumeric() || "-_./".contains(c)) {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || "-_./".contains(c))
+    {
         return Err("Branch name contains invalid characters".to_string());
     }
     Ok(())
@@ -1122,7 +1204,9 @@ fn validate_branch_name(name: &str) -> Result<(), String> {
 
 fn get_project_path(project_id: &str, state: &AppState) -> Result<std::path::PathBuf, String> {
     let projects = state.workspace_manager.list_projects();
-    let project = projects.iter().find(|p| p.id == project_id)
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
         .ok_or_else(|| "Project not found".to_string())?;
     Ok(project.root_path.clone())
 }
@@ -1144,7 +1228,10 @@ pub struct GitBranchInfo {
 }
 
 #[tauri::command]
-pub fn workspace_git_branches(project_id: String, state: State<AppState>) -> Result<GitBranchInfo, String> {
+pub fn workspace_git_branches(
+    project_id: String,
+    state: State<AppState>,
+) -> Result<GitBranchInfo, String> {
     let root_path = get_project_path(&project_id, &state)?;
     if !root_path.join(".git").exists() {
         return Err("Not a git repository".to_string());
@@ -1160,14 +1247,20 @@ pub fn workspace_git_branches(project_id: String, state: State<AppState>) -> Res
     let mut remote = Vec::new();
     for line in stdout.lines() {
         let parts: Vec<&str> = line.splitn(2, "|||").collect();
-        if parts.len() < 2 { continue; }
+        if parts.len() < 2 {
+            continue;
+        }
         let name = parts[0].trim().to_string();
         let is_head = parts[1].trim() == "*";
         if name.starts_with("remotes/") {
             let short = name.trim_start_matches("remotes/").to_string();
-            if !short.contains("/HEAD") { remote.push(short); }
+            if !short.contains("/HEAD") {
+                remote.push(short);
+            }
         } else {
-            if is_head { current = name.clone(); }
+            if is_head {
+                current = name.clone();
+            }
             local.push(name);
         }
     }
@@ -1185,18 +1278,32 @@ pub fn workspace_git_branches(project_id: String, state: State<AppState>) -> Res
     let (mut ahead, mut behind) = (0usize, 0usize);
     if let Some(ref up) = upstream {
         let spec = format!("{}...HEAD", up);
-        if let Some(counts) = git_capture(&root_path, &["rev-list", "--left-right", "--count", &spec]) {
+        if let Some(counts) =
+            git_capture(&root_path, &["rev-list", "--left-right", "--count", &spec])
+        {
             let mut it = counts.split_whitespace();
             behind = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
             ahead = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         }
     }
 
-    Ok(GitBranchInfo { current, local, remote, upstream, ahead, behind, has_remote })
+    Ok(GitBranchInfo {
+        current,
+        local,
+        remote,
+        upstream,
+        ahead,
+        behind,
+        has_remote,
+    })
 }
 
 #[tauri::command]
-pub fn workspace_git_checkout(project_id: String, branch: String, state: State<AppState>) -> Result<String, String> {
+pub fn workspace_git_checkout(
+    project_id: String,
+    branch: String,
+    state: State<AppState>,
+) -> Result<String, String> {
     validate_branch_name(&branch)?;
     let root_path = get_project_path(&project_id, &state)?;
     if !root_path.join(".git").exists() {
@@ -1215,15 +1322,24 @@ pub fn workspace_git_checkout(project_id: String, branch: String, state: State<A
 }
 
 #[tauri::command]
-pub fn workspace_git_branch_create(project_id: String, name: String, from: Option<String>, state: State<AppState>) -> Result<String, String> {
+pub fn workspace_git_branch_create(
+    project_id: String,
+    name: String,
+    from: Option<String>,
+    state: State<AppState>,
+) -> Result<String, String> {
     validate_branch_name(&name)?;
-    if let Some(ref f) = from { validate_branch_name(f)?; }
+    if let Some(ref f) = from {
+        validate_branch_name(f)?;
+    }
     let root_path = get_project_path(&project_id, &state)?;
     if !root_path.join(".git").exists() {
         return Err("This project is not a Git repository.".to_string());
     }
     let mut args = vec!["checkout", "-b", &name];
-    if let Some(ref f) = from { args.push(f); }
+    if let Some(ref f) = from {
+        args.push(f);
+    }
     let output = Command::new("git")
         .args(&args)
         .current_dir(&root_path)
@@ -1237,7 +1353,12 @@ pub fn workspace_git_branch_create(project_id: String, name: String, from: Optio
 }
 
 #[tauri::command]
-pub fn workspace_git_branch_delete(project_id: String, name: String, force: bool, state: State<AppState>) -> Result<String, String> {
+pub fn workspace_git_branch_delete(
+    project_id: String,
+    name: String,
+    force: bool,
+    state: State<AppState>,
+) -> Result<String, String> {
     validate_branch_name(&name)?;
     let root_path = get_project_path(&project_id, &state)?;
     if !root_path.join(".git").exists() {
@@ -1257,7 +1378,10 @@ pub fn workspace_git_branch_delete(project_id: String, name: String, force: bool
 }
 
 #[tauri::command]
-pub fn workspace_set_active(project_id: Option<String>, state: State<AppState>) -> Result<(), String> {
+pub fn workspace_set_active(
+    project_id: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
     state.workspace_manager.set_active_project(project_id);
     Ok(())
 }
@@ -1275,8 +1399,8 @@ fn parse_daily_note_markdown(content: &str) -> (Vec<String>, Vec<String>) {
 
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("##") {
-            let section_name = trimmed[2..].trim().to_lowercase();
+        if let Some(stripped) = trimmed.strip_prefix("##") {
+            let section_name = stripped.trim().to_lowercase();
             if section_name.contains("focus") {
                 current_section = "focus";
             } else if section_name.contains("done") {
@@ -1288,8 +1412,18 @@ fn parse_daily_note_markdown(content: &str) -> (Vec<String>, Vec<String>) {
         }
 
         if current_section == "focus" || current_section == "done" {
-            if trimmed.starts_with('-') || trimmed.starts_with('*') || (trimmed.len() > 2 && trimmed.chars().next().unwrap().is_ascii_digit() && trimmed.contains('.')) {
-                let item = trimmed.trim_start_matches(|c| c == '-' || c == '*' || c == ' ' || c == '.' || c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7' || c == '8' || c == '9' || c == '0').trim().to_string();
+            if trimmed.starts_with('-')
+                || trimmed.starts_with('*')
+                || (trimmed.len() > 2
+                    && trimmed.chars().next().unwrap().is_ascii_digit()
+                    && trimmed.contains('.'))
+            {
+                let item = trimmed
+                    .trim_start_matches([
+                        '-', '*', ' ', '.', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+                    ])
+                    .trim()
+                    .to_string();
                 if !item.is_empty() {
                     if current_section == "focus" {
                         focus.push(item);
@@ -1321,7 +1455,9 @@ pub struct DailyNoteSummary {
 }
 
 #[tauri::command]
-pub fn workspace_get_recent_daily_notes(state: State<AppState>) -> Result<Vec<DailyNoteSummary>, String> {
+pub fn workspace_get_recent_daily_notes(
+    state: State<AppState>,
+) -> Result<Vec<DailyNoteSummary>, String> {
     let recents = state.workspace_manager.get_recent_projects();
     let mut summaries = Vec::new();
 
@@ -1340,13 +1476,11 @@ pub fn workspace_get_recent_daily_notes(state: State<AppState>) -> Result<Vec<Da
         if let Some(dir) = dir_to_read {
             if let Ok(entries) = std::fs::read_dir(dir) {
                 let mut note_files = Vec::new();
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.is_file() && path.extension().map(|s| s == "md").unwrap_or(false) {
-                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                                note_files.push((stem.to_string(), path));
-                            }
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().map(|s| s == "md").unwrap_or(false) {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            note_files.push((stem.to_string(), path));
                         }
                     }
                 }

@@ -3,6 +3,34 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.3] - 2026-06-11
+
+### Fixed
+
+- **Preview screenshots came out blank on Windows** — capture now uses WebView2's native `CapturePreview` API instead of GDI `BitBlt`. GDI read the hardware-composited WebView2 surface as an all-black frame, so both full-preview screenshots and per-element captures produced empty images. The native path grabs the real rendered pixels and crops to the requested DOM rectangle.
+
+- **"Add Element to Chat" closed the preview** — selecting an element in the preview (and the screenshot-to-prompt fallback) no longer switches to the terminal view, which was hiding the preview panel. The floating prompt bar overlays every view, so it is now simply focused while the preview stays open.
+
+- **Deleting a folder didn't close its open files on Windows** — `onFileDeleted` now normalises path separators before matching, so editor tabs for files inside a removed directory are detected and closed regardless of `\` vs `/`.
+
+- **Desktop notification clicks** — notifications now use the Web Notifications API with an `onclick` that shows and focuses the window, replacing the previous plugin `sendNotification`/`onAction` path.
+
+### Changed
+
+- **Agent charter prompt-injection hardening** — a spawned agent's task text is now wrapped in tamper-evident `<<<SORYQ_TASK … SORYQ_TASK>>>` delimiters, escaped so embedded text can't forge them, and explicitly labelled untrusted. A new "Injection Safety" rule instructs the agent to ignore any instruction inside the task that tries to override the brief, reveal secrets, change scope, or weaken the git/file safety rules.
+
+- **New preview tab opens blank** — opening a new preview browser tab now starts at `about:blank` instead of the dev root, and `about:blank` is handled cleanly throughout URL normalisation and the iframe sandbox.
+
+- **Charter delivery simplified** — removed the single-line compact-paste special case for Claude / OpenCode / Antigravity. Every agent now receives the charter through the standard bracketed-paste path.
+
+- **Per-tab iframe registration** — preview iframes register through a Svelte action (`registerIframe`) instead of `bind:this` into a record, so each tab's element is tracked correctly as tabs are created, switched, and closed.
+
+### Internal
+
+- Backend-wide `cargo fmt` and Clippy cleanup across the command, preview proxy, PTY, theme, and workspace modules — formatting and lint fixes only, no behaviour change.
+
+- Expanded unit-test coverage for the editor, preview, terminal, and agent-charter stores.
+
 ## [v0.3.2] - 2026-06-11
 
 ### Added

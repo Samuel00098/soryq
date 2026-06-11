@@ -103,12 +103,19 @@ pub fn search_in_project(
             .filter_entry(|entry| entry.file_name() != std::ffi::OsStr::new(".git"));
 
         // Apply include globs as a whitelist override scoped to this root.
-        if let Some(globs) = include_glob.as_ref().map(|g| g.trim()).filter(|g| !g.is_empty()) {
+        if let Some(globs) = include_glob
+            .as_ref()
+            .map(|g| g.trim())
+            .filter(|g| !g.is_empty())
+        {
             let mut ob = OverrideBuilder::new(root);
             for glob in globs.split(',').map(|g| g.trim()).filter(|g| !g.is_empty()) {
-                ob.add(glob).map_err(|e| format!("Invalid include glob '{glob}': {e}"))?;
+                ob.add(glob)
+                    .map_err(|e| format!("Invalid include glob '{glob}': {e}"))?;
             }
-            let overrides = ob.build().map_err(|e| format!("Invalid include globs: {e}"))?;
+            let overrides = ob
+                .build()
+                .map_err(|e| format!("Invalid include globs: {e}"))?;
             builder.overrides(overrides);
         }
 
@@ -183,7 +190,7 @@ pub fn search_in_project(
     }
 
     // Stable, predictable ordering by relative path.
-    files.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    files.sort_by_key(|a| a.rel_path.to_lowercase());
 
     Ok(SearchResponse {
         files,

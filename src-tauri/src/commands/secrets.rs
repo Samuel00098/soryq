@@ -96,7 +96,11 @@ fn base_url_is_safe(url: &str) -> bool {
 /// Build a concrete endpoint URL from a validated local base URL, trimming any
 /// trailing slash so we don't produce `//path`.
 fn local_endpoint(base_url: &str, path: &str) -> String {
-    format!("{}/{}", base_url.trim_end_matches('/'), path.trim_start_matches('/'))
+    format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
 }
 
 /// Resolve and validate the server URL for a provider. Local providers require a
@@ -298,7 +302,11 @@ pub fn provider_api_key_get(provider: String) -> Result<Option<String>, String> 
     match entry.get_password() {
         Ok(password) => {
             let trimmed = password.trim().to_string();
-            Ok(if trimmed.is_empty() { None } else { Some(trimmed) })
+            Ok(if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            })
         }
         Err(KeyringError::NoEntry) => Ok(None),
         Err(err) => Err(format!("Failed to read the API key: {err}")),
@@ -353,6 +361,7 @@ pub fn provider_api_key_delete(provider: String) -> Result<(), String> {
 /// Run a single-shot system+user completion against the chosen provider and
 /// return the assistant's text. Normalises the three request/response shapes
 /// (OpenAI-compatible, Anthropic Messages, Google Gemini) behind one signature.
+#[allow(clippy::too_many_arguments)]
 async fn run_completion(
     provider: &str,
     model: &str,
@@ -627,10 +636,9 @@ pub async fn ai_transcribe_audio(
                 return Err(format!("Google transcription failed ({status}): {preview}"));
             }
 
-            let payload: serde_json::Value = response
-                .json()
-                .await
-                .map_err(|err| format!("Google transcription returned an invalid response: {err}"))?;
+            let payload: serde_json::Value = response.json().await.map_err(|err| {
+                format!("Google transcription returned an invalid response: {err}")
+            })?;
 
             Ok(extract_google_text(&payload))
         }
@@ -649,19 +657,22 @@ pub async fn ai_transcribe_audio(
                 }))
                 .send()
                 .await
-                .map_err(|err| safe_request_error("Failed to contact OpenRouter transcription", err))?;
+                .map_err(|err| {
+                    safe_request_error("Failed to contact OpenRouter transcription", err)
+                })?;
 
             if !response.status().is_success() {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();
                 let preview = redact_secrets(&body.chars().take(200).collect::<String>());
-                return Err(format!("OpenRouter transcription failed ({status}): {preview}"));
+                return Err(format!(
+                    "OpenRouter transcription failed ({status}): {preview}"
+                ));
             }
 
-            let payload: serde_json::Value = response
-                .json()
-                .await
-                .map_err(|err| format!("OpenRouter transcription returned an invalid response: {err}"))?;
+            let payload: serde_json::Value = response.json().await.map_err(|err| {
+                format!("OpenRouter transcription returned an invalid response: {err}")
+            })?;
 
             Ok(payload
                 .get("text")
@@ -870,7 +881,11 @@ pub async fn list_provider_models(
                     continue;
                 }
                 let raw = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let id = raw.strip_prefix("models/").unwrap_or(raw).trim().to_string();
+                let id = raw
+                    .strip_prefix("models/")
+                    .unwrap_or(raw)
+                    .trim()
+                    .to_string();
                 if id.is_empty() || !model_id_is_safe(&id) {
                     continue;
                 }
@@ -880,7 +895,10 @@ pub async fn list_provider_models(
                     .filter(|s| !s.is_empty())
                     .unwrap_or(&id)
                     .to_string();
-                let desc = item.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let desc = item
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 out.push(ModelInfo {
                     id,
                     label,
@@ -942,7 +960,10 @@ pub async fn list_provider_models(
                     .filter(|s| !s.is_empty())
                     .unwrap_or(&id)
                     .to_string();
-                let desc = item.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let desc = item
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 out.push(ModelInfo {
                     id,
                     label,
@@ -953,7 +974,7 @@ pub async fn list_provider_models(
         }
     };
 
-    models.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+    models.sort_by_key(|a| a.label.to_lowercase());
     Ok(models)
 }
 
@@ -976,7 +997,12 @@ pub struct TtsAudioPayload {
     pub mime_type: String,
 }
 
-fn pcm_s16le_to_wav_bytes(pcm: &[u8], channels: u16, sample_rate: u32, bits_per_sample: u16) -> Vec<u8> {
+fn pcm_s16le_to_wav_bytes(
+    pcm: &[u8],
+    channels: u16,
+    sample_rate: u32,
+    bits_per_sample: u16,
+) -> Vec<u8> {
     let byte_rate = sample_rate * channels as u32 * bits_per_sample as u32 / 8;
     let block_align = channels * bits_per_sample / 8;
     let data_len = pcm.len() as u32;
@@ -1136,7 +1162,11 @@ pub async fn tts_speak(
         "google" => {
             let url = format!(
                 "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-                if model.is_empty() { GOOGLE_TTS_MODEL } else { &model }
+                if model.is_empty() {
+                    GOOGLE_TTS_MODEL
+                } else {
+                    &model
+                }
             );
             let response = client
                 .post(url)
@@ -1387,7 +1417,9 @@ mod tests {
         // No path traversal — Google embeds the id in a URL path.
         assert!(!model_id_is_safe("../../secret"));
         assert!(!model_id_is_safe("gemini:generateContent?key=leak"));
-        assert!(!model_id_is_safe("some-malicious/model-injection; rm -rf /"));
+        assert!(!model_id_is_safe(
+            "some-malicious/model-injection; rm -rf /"
+        ));
         assert!(!model_id_is_safe("model with spaces"));
         assert!(!model_id_is_safe(&"a".repeat(129)));
     }

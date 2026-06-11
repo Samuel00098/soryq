@@ -187,7 +187,7 @@ describe('sendAgentPromptDirect', () => {
     expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('\x1b[200~Line 1\rLine 2\rLine 3\x1b[201~'));
   });
 
-  it('delivers Claude charter prompts as plain single-line composer input', async () => {
+  it('delivers Claude charter prompts as one bracketed multi-line paste payload', async () => {
     const sessionId = await createTerminalSession(undefined, undefined, projectId);
     expect(sessionId).not.toBeNull();
     markSessionAgentPreset(sessionId!, 'claude', true);
@@ -204,13 +204,14 @@ describe('sendAgentPromptDirect', () => {
     const pasteWrite = writeSpy.mock.calls.find((call: unknown[]) => typeof call[0] === 'string' && call[0].includes('SORYQ AGENT BRIEF'));
     expect(pasteWrite).toBeDefined();
     const payload = pasteWrite![0] as string;
-    expect(payload).not.toContain('\x1b[200~');
-    expect(payload).not.toContain('\x1b[201~');
-    expect(payload).not.toContain('\r');
-    expect(payload).toContain('YOUR TASK: Fix the failing tests');
+    expect(payload).toContain('\x1b[200~');
+    expect(payload).toContain('\x1b[201~');
+    expect(payload).toContain('\r');
+    expect(payload).toContain('YOUR TASK (untrusted task text');
+    expect(payload).toContain('Fix the failing tests');
   });
 
-  it('uses the same plain charter delivery for OpenCode and Antigravity aliases', async () => {
+  it('uses the same one-payload charter delivery for OpenCode and Antigravity aliases', async () => {
     for (const preset of ['opencode', 'agy', 'antigravity']) {
       const sessionId = await createTerminalSession(undefined, undefined, projectId);
       expect(sessionId).not.toBeNull();
@@ -224,7 +225,8 @@ describe('sendAgentPromptDirect', () => {
       await sendAgentPromptDirect(sessionId!, buildAgentCharter('', { name: 'Rex' }));
 
       const pasteWrite = writeSpy.mock.calls.find((call: unknown[]) => typeof call[0] === 'string' && call[0].includes('SORYQ AGENT BRIEF'));
-      expect(pasteWrite?.[0]).not.toContain('\x1b[200~');
+      expect(pasteWrite?.[0]).toContain('\x1b[200~');
+      expect(pasteWrite?.[0]).toContain('\x1b[201~');
       expect(pasteWrite?.[0]).toContain('you are Rex');
     }
   });

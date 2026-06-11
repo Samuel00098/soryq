@@ -1,9 +1,9 @@
+use crate::pty::shell::ShellConfig;
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use tauri::ipc::{Channel, Response};
-use crate::pty::shell::ShellConfig;
 
 #[derive(Clone)]
 pub struct PtySession {
@@ -23,7 +23,12 @@ pub fn spawn(
     let pty_system = NativePtySystem::default();
 
     let pair = pty_system
-        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| e.to_string())?;
 
     let mut cmd = CommandBuilder::new(&shell.program);
@@ -72,7 +77,11 @@ pub fn spawn(
         })
         .map_err(|e| e.to_string())?;
 
-    Ok(PtySession { master, writer, killer })
+    Ok(PtySession {
+        master,
+        writer,
+        killer,
+    })
 }
 
 impl Drop for PtySession {
@@ -97,14 +106,21 @@ impl PtySession {
 
     pub fn write(&self, data: &str) -> Result<(), String> {
         let mut writer = self.writer.lock().map_err(|e| e.to_string())?;
-        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+        writer
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())
     }
 
     pub fn resize(&self, rows: u16, cols: u16) -> Result<(), String> {
         let master = self.master.lock().map_err(|e| e.to_string())?;
         master
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| e.to_string())
     }
 }

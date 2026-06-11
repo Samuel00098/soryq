@@ -65,19 +65,20 @@ pub fn background_image_set(src_path: String, state: State<AppState>) -> Result<
         let max_dim = 1600;
         match image::image_dimensions(&src) {
             Ok((w, h)) if w > max_dim || h > max_dim => {
-                let img = image::open(&src)
-                    .map_err(|e| format!("Failed to process image: {e}"))?;
+                let img = image::open(&src).map_err(|e| format!("Failed to process image: {e}"))?;
                 img.resize(max_dim, max_dim, image::imageops::FilterType::Triangle)
                     .save(&resized_dest)
                     .map_err(|e| format!("Failed to save optimized image: {e}"))?;
                 resized_dest
             }
             Ok(_) => {
-                std::fs::copy(&src, &direct_dest).map_err(|e| format!("Failed to save image: {e}"))?;
+                std::fs::copy(&src, &direct_dest)
+                    .map_err(|e| format!("Failed to save image: {e}"))?;
                 direct_dest
             }
             Err(_) => {
-                std::fs::copy(&src, &direct_dest).map_err(|e| format!("Failed to save image: {e}"))?;
+                std::fs::copy(&src, &direct_dest)
+                    .map_err(|e| format!("Failed to save image: {e}"))?;
                 direct_dest
             }
         }

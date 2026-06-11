@@ -3,8 +3,6 @@ import { notificationsEnabled } from './settings';
 import {
   isPermissionGranted,
   requestPermission,
-  sendNotification,
-  onAction,
 } from '@tauri-apps/plugin-notification';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -20,7 +18,6 @@ export const toasts = writable<Toast[]>([]);
 
 // Cached permission state so we don't re-query the OS on every notification.
 let permissionGranted = false;
-let actionHandlerRegistered = false;
 
 /** Call once on app startup to prompt the user for notification permission. */
 export async function requestNotificationPermission() {
@@ -29,22 +26,19 @@ export async function requestNotificationPermission() {
     if (!permissionGranted) {
       permissionGranted = (await requestPermission()) === 'granted';
     }
-
-    if (!actionHandlerRegistered) {
-      actionHandlerRegistered = true;
-      onAction(async () => {
-        try {
-          const win = getCurrentWindow();
-          await win.show();
-          await win.unminimize();
-          await win.setFocus();
-        } catch (err) {
-          console.error('Failed to focus window on notification click:', err);
-        }
-      });
-    }
   } catch (err) {
     console.error('Failed to initialize notification permission:', err);
+  }
+}
+
+async function focusCurrentWindow() {
+  try {
+    const win = getCurrentWindow();
+    await win.show();
+    await win.unminimize();
+    await win.setFocus();
+  } catch (err) {
+    console.error('Failed to focus window on notification click:', err);
   }
 }
 
@@ -82,7 +76,11 @@ async function showDesktopNotification(message: string, type: Toast['type']) {
       info:    'Soryq',
     };
 
-    sendNotification({ title: titles[type], body: message });
+    const notification = new window.Notification(titles[type], { body: message });
+    notification.onclick = () => {
+      void focusCurrentWindow();
+      notification.close();
+    };
   } catch (err) {
     console.error('Failed to show desktop notification:', err);
   }

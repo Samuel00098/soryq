@@ -15,20 +15,14 @@ pub fn available_shells() -> Vec<ShellConfig> {
         if which("pwsh").is_some() {
             shells.push(ShellConfig {
                 program: "pwsh".into(),
-                args: vec![
-                    "-NoLogo".into(),
-                    "-NoProfile".into(),
-                ],
+                args: vec!["-NoLogo".into(), "-NoProfile".into()],
             });
         }
         // Windows PowerShell 5
         if which("powershell").is_some() || which("powershell.exe").is_some() {
             shells.push(ShellConfig {
                 program: "powershell".into(),
-                args: vec![
-                    "-NoLogo".into(),
-                    "-NoProfile".into(),
-                ],
+                args: vec!["-NoLogo".into(), "-NoProfile".into()],
             });
         }
         // CMD
@@ -66,7 +60,10 @@ pub fn available_shells() -> Vec<ShellConfig> {
             }
         }
         if let Some(p) = which("fish") {
-            shells.push(ShellConfig { program: p, args: vec!["-l".into()] });
+            shells.push(ShellConfig {
+                program: p,
+                args: vec!["-l".into()],
+            });
         }
     }
 
@@ -114,7 +111,10 @@ pub fn detect_shell() -> ShellConfig {
     #[cfg(not(target_os = "windows"))]
     if let Ok(shell) = std::env::var("SHELL") {
         if Path::new(&shell).is_file() {
-            return ShellConfig { program: shell, args: vec!["-l".into()] };
+            return ShellConfig {
+                program: shell,
+                args: vec!["-l".into()],
+            };
         }
     }
 
@@ -125,7 +125,10 @@ pub fn detect_shell() -> ShellConfig {
                 args: vec![],
             }
         } else {
-            ShellConfig { program: "/bin/sh".into(), args: vec!["-l".into()] }
+            ShellConfig {
+                program: "/bin/sh".into(),
+                args: vec!["-l".into()],
+            }
         }
     })
 }

@@ -1,5 +1,5 @@
-use tauri::State;
 use crate::state::AppState;
+use tauri::State;
 
 #[tauri::command]
 pub fn preview_start_proxy(state: State<AppState>) -> Result<u16, String> {
@@ -17,15 +17,24 @@ pub fn preview_set_target_port(port: u16, state: State<AppState>) -> Result<(), 
         return Err("Port 0 is not a valid target port".to_string());
     }
     // Block well-known service ports to prevent the proxy from being used to probe internal services
-    const BLOCKED: &[u16] = &[22, 23, 25, 53, 110, 135, 139, 143, 445, 993, 995, 2375, 3306, 3389, 5432, 6379, 6443, 8500, 9090, 27017];
+    const BLOCKED: &[u16] = &[
+        22, 23, 25, 53, 110, 135, 139, 143, 445, 993, 995, 2375, 3306, 3389, 5432, 6379, 6443,
+        8500, 9090, 27017,
+    ];
     if BLOCKED.contains(&port) {
-        return Err(format!("Port {} is reserved for system services and cannot be used as a proxy target", port));
+        return Err(format!(
+            "Port {} is reserved for system services and cannot be used as a proxy target",
+            port
+        ));
     }
     state.preview_manager.set_target_port(port)
 }
 
 #[tauri::command]
-pub fn preview_set_preferred_local_host(host: Option<String>, state: State<AppState>) -> Result<(), String> {
+pub fn preview_set_preferred_local_host(
+    host: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
     state.preview_manager.set_preferred_local_host(host)
 }
 
@@ -68,9 +77,9 @@ pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Resu
 /// Capture the preview panel region as PNG bytes.
 /// x, y, width, height are CSS (logical) pixels relative to the webview; scale = devicePixelRatio.
 ///
-/// Uses GDI BitBlt against the app's own WebviewWindow HWND — NOT GetDesktopWindow().
-/// This restricts the capture to the app's own rendered content and cannot capture other
-/// windows, the desktop, or any content outside of this app's window.
+/// On Windows this uses WebView2's native CapturePreview API. GDI BitBlt can
+/// read WebView2 as a blank hardware-composited surface, so we capture the
+/// webview itself and crop to the requested DOM rectangle.
 #[tauri::command]
 pub async fn preview_capture_screenshot(
     app: tauri::AppHandle,
@@ -81,7 +90,6 @@ pub async fn preview_capture_screenshot(
     scale: f64,
 ) -> Result<Vec<u8>, String> {
     use tauri::Manager;
-    use std::io::Cursor;
 
     if width == 0 || height == 0 {
         return Err("Invalid capture dimensions".to_string());
@@ -108,80 +116,21 @@ pub async fn preview_capture_screenshot(
 
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::Graphics::Gdi::*;
-
-        // Use the webview's own HWND — this constrains GDI capture to our app window only.
-        // GetDC on our own window returns the window's device context; BitBlt from it
-        // gives only pixels rendered by our app, not other windows or the desktop.
-        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
-
         let phys_x = (x.max(0) as f64 * scale).round() as i32;
         let phys_y = (y.max(0) as f64 * scale).round() as i32;
-        let phys_w_i = phys_w as i32;
-        let phys_h_i = phys_h as i32;
+        let (tx, rx) = std::sync::mpsc::channel();
 
-        let pixels = unsafe {
-            let win_dc = GetDC(Some(hwnd));
-            let mem_dc = CreateCompatibleDC(Some(win_dc));
-            let bmp = CreateCompatibleBitmap(win_dc, phys_w_i, phys_h_i);
-            let old_bmp = SelectObject(mem_dc, bmp.into());
-
-            BitBlt(mem_dc, 0, 0, phys_w_i, phys_h_i, Some(win_dc), phys_x, phys_y, SRCCOPY)
-                .map_err(|e| e.to_string())?;
-
-            let mut bmi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: phys_w_i,
-                    biHeight: -phys_h_i, // negative = top-down
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    biSizeImage: 0,
-                    biXPelsPerMeter: 0,
-                    biYPelsPerMeter: 0,
-                    biClrUsed: 0,
-                    biClrImportant: 0,
-                },
-                bmiColors: [RGBQUAD { rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbReserved: 0 }],
-            };
-
-            // usize math — phys_w/phys_h are capped above, so this cannot overflow.
-            let mut pixels = vec![0u8; phys_w as usize * phys_h as usize * 4];
-            let scanlines = GetDIBits(
-                mem_dc, bmp, 0, phys_h_i as u32,
-                Some(pixels.as_mut_ptr() as *mut _),
-                &mut bmi,
-                DIB_RGB_COLORS,
-            );
-
-            SelectObject(mem_dc, old_bmp);
-            let _ = DeleteObject(bmp.into());
-            let _ = DeleteDC(mem_dc);
-            ReleaseDC(Some(hwnd), win_dc);
-
-            // GetDIBits returns the number of scanlines copied, or 0 on failure.
-            // Without this check a failed read would silently yield an all-black PNG.
-            if scanlines == 0 {
-                return Err("Failed to read captured pixels".to_string());
-            }
-
-            // GDI returns BGRA — swap B and R to get RGBA
-            for chunk in pixels.chunks_exact_mut(4) {
-                chunk.swap(0, 2);
-            }
-            pixels
-        };
-
-        use image::{DynamicImage, RgbaImage};
-        let rgba_img = RgbaImage::from_raw(phys_w, phys_h, pixels)
-            .ok_or_else(|| "Failed to build image".to_string())?;
-        let dynamic = DynamicImage::ImageRgba8(rgba_img);
-        let mut buf = Vec::new();
-        dynamic
-            .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+        window
+            .with_webview(move |webview| {
+                let result =
+                    capture_webview2_region(webview, phys_x, phys_y, phys_w, phys_h);
+                let _ = tx.send(result);
+            })
             .map_err(|e| e.to_string())?;
-        return Ok(buf);
+
+        return rx
+            .recv()
+            .map_err(|_| "Screenshot capture was interrupted".to_string())?;
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -197,6 +146,92 @@ pub async fn preview_capture_screenshot(
 
     #[allow(unreachable_code)]
     Err("Screenshot not supported on this platform".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn capture_webview2_region(
+    webview: tauri::webview::PlatformWebview,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    use image::DynamicImage;
+    use std::io::Cursor;
+    use std::slice;
+    use webview2_com::{
+        CapturePreviewCompletedHandler,
+        Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+    };
+    use windows::Win32::{
+        Foundation::HGLOBAL,
+        System::{
+            Com::StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream},
+            Memory::{GlobalLock, GlobalSize, GlobalUnlock},
+        },
+    };
+
+    let controller = webview.controller();
+    let core = unsafe { controller.CoreWebView2() }.map_err(|e| e.to_string())?;
+    let stream =
+        unsafe { CreateStreamOnHGlobal(HGLOBAL::default(), true) }.map_err(|e| e.to_string())?;
+    let capture_stream = stream.clone();
+
+    unsafe {
+        CapturePreviewCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| {
+                core.CapturePreview(
+                    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                    &capture_stream,
+                    &handler,
+                )
+                .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(|result| {
+                result?;
+                Ok(())
+            }),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    let png = unsafe {
+        let hglobal = GetHGlobalFromStream(&stream).map_err(|e| e.to_string())?;
+        let size = GlobalSize(hglobal);
+        if size == 0 {
+            return Err("WebView2 returned an empty screenshot".to_string());
+        }
+        let ptr = GlobalLock(hglobal);
+        if ptr.is_null() {
+            return Err("Failed to read WebView2 screenshot stream".to_string());
+        }
+        let bytes = slice::from_raw_parts(ptr as *const u8, size).to_vec();
+        let _ = GlobalUnlock(hglobal);
+        bytes
+    };
+
+    let image = image::load_from_memory(&png)
+        .map_err(|e| format!("Failed to decode WebView2 screenshot: {e}"))?
+        .to_rgba8();
+    let (image_w, image_h) = image.dimensions();
+    let crop_x = x.max(0) as u32;
+    let crop_y = y.max(0) as u32;
+    if crop_x >= image_w || crop_y >= image_h {
+        return Err("Capture region is outside the webview".to_string());
+    }
+    let crop_w = width.min(image_w - crop_x);
+    let crop_h = height.min(image_h - crop_y);
+    if crop_w == 0 || crop_h == 0 {
+        return Err("Invalid cropped capture dimensions".to_string());
+    }
+
+    let cropped = image::imageops::crop_imm(&image, crop_x, crop_y, crop_w, crop_h).to_image();
+    let dynamic = DynamicImage::ImageRgba8(cropped);
+    let mut buf = Vec::new();
+    dynamic
+        .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    Ok(buf)
 }
 
 #[cfg(test)]

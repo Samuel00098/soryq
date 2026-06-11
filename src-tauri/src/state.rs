@@ -1,7 +1,7 @@
+use crate::preview::PreviewManager;
 use crate::pty::manager::PtyManager;
 use crate::theme::registry::ThemeRegistry;
 use crate::workspace::manager::WorkspaceManager;
-use crate::preview::PreviewManager;
 use std::path::PathBuf;
 
 /// Per-session write rate limiter: tracks (window_start, bytes_in_window).
@@ -12,7 +12,9 @@ pub struct WriteRateLimiter {
 
 impl WriteRateLimiter {
     pub fn new() -> Self {
-        Self { sessions: dashmap::DashMap::new() }
+        Self {
+            sessions: dashmap::DashMap::new(),
+        }
     }
 
     /// Returns true if the write is allowed, false if the rate limit is exceeded.
@@ -58,4 +60,3 @@ impl AppState {
         }
     }
 }
-

@@ -1,7 +1,7 @@
+use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::State;
-use crate::state::AppState;
 
 /// Resolve a (possibly new) path to its best canonical form and verify it
 /// falls inside one of the currently open project roots.
@@ -43,7 +43,8 @@ fn resolve_path(path: &str) -> Result<PathBuf, String> {
         }
         if let Some(parent) = p.parent() {
             if parent.exists() {
-                let canonical_parent = std::fs::canonicalize(parent).map_err(|_| "Invalid path".to_string())?;
+                let canonical_parent =
+                    std::fs::canonicalize(parent).map_err(|_| "Invalid path".to_string())?;
                 canonical_parent.join(file_name)
             } else {
                 // Lexically resolve all .. components without I/O to prevent traversal
@@ -53,7 +54,9 @@ fn resolve_path(path: &str) -> Result<PathBuf, String> {
                     match comp {
                         std::path::Component::ParentDir => {
                             if components.is_empty() {
-                                return Err("Invalid path: directory traversal detected".to_string());
+                                return Err(
+                                    "Invalid path: directory traversal detected".to_string()
+                                );
                             }
                             components.pop();
                         }
@@ -167,9 +170,7 @@ pub fn fs_rename(from: String, to: String, state: State<AppState>) -> Result<(),
     let to_path = resolve_path(&to)?;
     require_in_project(&from_path, &state)?;
     require_in_project(&to_path, &state)?;
-    std::fs::rename(&from_path, &to_path).map_err(|e| {
-        format!("Failed to rename: {}", e.kind())
-    })
+    std::fs::rename(&from_path, &to_path).map_err(|e| format!("Failed to rename: {}", e.kind()))
 }
 
 #[tauri::command]
@@ -394,7 +395,11 @@ pub fn fs_get_file_info(path: String, state: State<AppState>) -> Result<FileEntr
         .unwrap_or_default();
 
     Ok(FileEntry {
-        name: p.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        name: p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
         path: p.to_string_lossy().to_string(),
         is_dir: metadata.is_dir(),
         size: metadata.len(),

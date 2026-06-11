@@ -8,6 +8,8 @@ vi.mock('./notification', () => ({
 // Re-import after mock is set up — stores are singletons we must reset per test
 // Store references are module-level, so we use dynamic import + manual reset
 import {
+  BLANK_PREVIEW_URL,
+  createBlankPreviewBrowserTab,
   navigatePreviewTab,
   goBackPreviewTab,
   goForwardPreviewTab,
@@ -263,6 +265,39 @@ describe('preview navigation', () => {
   });
 
   describe('multiple tabs', () => {
+    it('creates blank browser tabs without inheriting the active tab URL', () => {
+      navigatePreviewTab('https://example.com/docs');
+
+      const blankTabId = createBlankPreviewBrowserTab();
+      const tabs = get(previewTabs);
+      const firstTab = tabs.find((t) => t.id === 'test-tab-1')!;
+      const blankTab = tabs.find((t) => t.id === blankTabId)!;
+
+      expect(get(activePreviewTabId)).toBe(blankTabId);
+      expect(getActiveTab()).toBe(blankTab);
+      expect(get(currentUrl)).toBe(BLANK_PREVIEW_URL);
+      expect(firstTab.url).toBe('https://example.com/docs');
+      expect(firstTab.history).toEqual(['/', 'https://example.com/docs']);
+      expect(blankTab.url).toBe(BLANK_PREVIEW_URL);
+      expect(blankTab.history).toEqual([BLANK_PREVIEW_URL]);
+    });
+
+    it('keeps a blank tab history isolated after navigation', () => {
+      navigatePreviewTab('/from-tab1');
+      const blankTabId = createBlankPreviewBrowserTab();
+
+      navigatePreviewTab('/from-blank-tab');
+
+      const tabs = get(previewTabs);
+      const firstTab = tabs.find((t) => t.id === 'test-tab-1')!;
+      const blankTab = tabs.find((t) => t.id === blankTabId)!;
+
+      expect(firstTab.history).toEqual(['/', '/from-tab1']);
+      expect(firstTab.historyIndex).toBe(1);
+      expect(blankTab.history).toEqual([BLANK_PREVIEW_URL, '/from-blank-tab']);
+      expect(blankTab.historyIndex).toBe(1);
+    });
+
     it('navigation only affects the active tab', () => {
       // Create a second tab
       const tab2: PreviewTab = {

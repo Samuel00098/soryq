@@ -242,12 +242,17 @@ export function onFileRenamed(oldPath: string, newPath: string) {
   });
 }
 
+function normalisePathSeparators(path: string): string {
+  return path.replace(/\\/g, '/');
+}
+
 export function onFileDeleted(path: string) {
   // Close exact file match
   closeFile(path);
   // Close any open files that lived inside a deleted directory
-  const dirPrefix = path.endsWith('/') ? path : `${path}/`;
-  const children = get(openFiles).filter((f) => f.startsWith(dirPrefix));
+  const deletedPath = normalisePathSeparators(path).replace(/\/+$/, '');
+  const dirPrefix = `${deletedPath}/`;
+  const children = get(openFiles).filter((f) => normalisePathSeparators(f).startsWith(dirPrefix));
   children.forEach(closeFile);
 }
 

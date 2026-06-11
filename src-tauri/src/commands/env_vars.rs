@@ -21,10 +21,12 @@ pub struct EnvVar {
 
 fn is_valid_key(key: &str) -> bool {
     !key.is_empty()
-        && key
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !key
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        && !key.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(true)
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(true)
 }
 
 fn read_vault(project_id: &str) -> Result<BTreeMap<String, String>, String> {
@@ -44,7 +46,8 @@ fn write_vault(project_id: &str, map: &BTreeMap<String, String>) -> Result<(), S
             Err(e) => Err(format!("Failed to clear the env vault: {e}")),
         };
     }
-    let json = serde_json::to_string(map).map_err(|e| format!("Failed to serialize env vault: {e}"))?;
+    let json =
+        serde_json::to_string(map).map_err(|e| format!("Failed to serialize env vault: {e}"))?;
     entry
         .set_password(&json)
         .map_err(|e| format!("Failed to save the env vault: {e}"))
@@ -142,12 +145,17 @@ mod tests {
 
     #[test]
     fn parses_basic_dotenv() {
-        let parsed = parse_dotenv("# comment\nexport API_URL=\"https://x.y\"\nTOKEN='abc'\nEMPTY=\nBAD KEY=1\n3X=nope");
-        assert_eq!(parsed, vec![
-            ("API_URL".to_string(), "https://x.y".to_string()),
-            ("TOKEN".to_string(), "abc".to_string()),
-            ("EMPTY".to_string(), "".to_string()),
-        ]);
+        let parsed = parse_dotenv(
+            "# comment\nexport API_URL=\"https://x.y\"\nTOKEN='abc'\nEMPTY=\nBAD KEY=1\n3X=nope",
+        );
+        assert_eq!(
+            parsed,
+            vec![
+                ("API_URL".to_string(), "https://x.y".to_string()),
+                ("TOKEN".to_string(), "abc".to_string()),
+                ("EMPTY".to_string(), "".to_string()),
+            ]
+        );
     }
 
     #[test]

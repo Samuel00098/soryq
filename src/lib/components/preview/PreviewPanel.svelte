@@ -20,13 +20,12 @@
     navigatePreviewTab,
     goBackPreviewTab,
     goForwardPreviewTab,
-    createPreviewBrowserTab,
+    createBlankPreviewBrowserTab,
     selectPreviewBrowserTab,
     closePreviewBrowserTab
   } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
-  import { promptBarInput, promptBarImage } from '$lib/stores/terminal';
-  import { setActiveView } from '$lib/stores/layout';
+  import { promptBarInput, promptBarImage, focusPromptBar } from '$lib/stores/terminal';
   import { activeProject } from '$lib/stores/workspace';
 
   import { extractExternalUrlFromProxyUrl } from '$lib/utils/proxy-url';
@@ -152,6 +151,22 @@
     iframeElements = {
       ...iframeElements,
       [tabId]: element ?? undefined,
+    };
+  }
+
+  function registerIframe(node: HTMLIFrameElement, tabId: string) {
+    setIframeElement(tabId, node);
+
+    return {
+      update(nextTabId: string) {
+        if (nextTabId === tabId) return;
+        setIframeElement(tabId, null);
+        tabId = nextTabId;
+        setIframeElement(tabId, node);
+      },
+      destroy() {
+        setIframeElement(tabId, null);
+      },
     };
   }
 
@@ -292,6 +307,7 @@
   function normalizeUrl(url: string): string {
     let trimmed = url.trim();
     if (!trimmed) return 'about:blank';
+    if (trimmed.toLowerCase() === 'about:blank') return 'about:blank';
 
     // Auto-transform YouTube watch links to embed format to allow loading in iframe
     trimmed = transformYouTubeUrl(trimmed);
@@ -607,7 +623,9 @@
 
   function buildIframeSandbox(url: string) {
     const norm = normalizeUrl(url);
-    const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(norm);
+    const isRelativeDevPath = !isAbsoluteUrl(norm) && norm !== 'about:blank';
+    const isLocal =
+      isRelativeDevPath || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(norm);
     const base = isLocal
       ? 'allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin'
       : 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
@@ -686,6 +704,25 @@
     return `<${tag}${classStr}>${textPreview}`;
   }
 
+  function pngBytesToDataUrl(pngBytes: number[]): string {
+    const uint8 = new Uint8Array(pngBytes);
+    let binary = '';
+    for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+    return `data:image/png;base64,${btoa(binary)}`;
+  }
+
+  function revealPromptBar() {
+    // The floating prompt bar overlays every aux view, so just focus it.
+    // We must NOT switch to the terminal view here: that hides the preview
+    // panel the user is actively inspecting (e.g. right after "Add Element
+    // to Chat"), which looked like the preview closing unexpectedly.
+    requestAnimationFrame(() => focusPromptBar());
+  }
+
+  function addImageToPrompt(dataUrl: string, name: string) {
+    promptBarImage.set({ dataUrl, name });
+  }
+
   // Captures a screenshot of the selected element's bounding box.
   // Returns a data URL string, or null if capture fails.
   async function captureElementScreenshot(info: SelectedElementInfo): Promise<string | null> {
@@ -720,14 +757,24 @@
       });
 
       // Convert raw PNG bytes → base64 data URL
-      const uint8 = new Uint8Array(pngBytes);
-      let binary = '';
-      for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
-      const base64 = btoa(binary);
-      return `data:image/png;base64,${base64}`;
+      return pngBytesToDataUrl(pngBytes);
     } catch {
       return null;
     }
+  }
+
+  async function addElementToPrompt(info: SelectedElementInfo) {
+    const text = buildElementPrompt(info).trim();
+    const dataUrl = await captureElementScreenshot(info);
+    if (text) promptBarInput.set(text);
+    if (dataUrl) {
+      const tag = info.tag.toLowerCase();
+      addImageToPrompt(dataUrl, `element-${tag}-${Date.now()}.png`);
+      showToast('Element and screenshot added to prompt bar', 'success');
+    } else if (text) {
+      showToast('Element added, but screenshot capture failed', 'warning');
+    }
+    revealPromptBar();
   }
 
   function handleInspectorMessage(event: MessageEvent) {
@@ -776,16 +823,7 @@
     inspectMode = false;
     postInspectorState();
     if (info?.selector) {
-      const text = buildElementPrompt(info).trim();
-      if (text) promptBarInput.set(text);
-      selectedElementInfo = null;
-      captureElementScreenshot(info).then((dataUrl) => {
-        if (dataUrl) {
-          const tag = info.tag.toLowerCase();
-          const name = `element-${tag}-${Date.now()}.png`;
-          promptBarImage.set({ dataUrl, name });
-        }
-      });
+      void addElementToPrompt(info);
     }
   }
 
@@ -817,19 +855,27 @@
         scale,
       });
 
+      const dataUrl = pngBytesToDataUrl(pngBytes);
       const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
 
       try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
         showToast('Screenshot copied to clipboard', 'success');
       } catch {
-        const link = document.createElement('a');
         const label = viewportMode === 'mobile' ? 'mobile' : viewportMode === 'tablet' ? 'tablet' : 'preview';
-        link.download = `soryq-${label}-${Date.now()}.png`;
-        link.href = URL.createObjectURL(blob);
-        link.click();
-        URL.revokeObjectURL(link.href);
-        showToast('Screenshot saved as PNG', 'success');
+        const name = `soryq-${label}-${Date.now()}.png`;
+        try {
+          const link = document.createElement('a');
+          link.download = name;
+          link.href = URL.createObjectURL(blob);
+          link.click();
+          URL.revokeObjectURL(link.href);
+          showToast('Screenshot saved as PNG', 'success');
+        } catch {
+          addImageToPrompt(dataUrl, name);
+          revealPromptBar();
+          showToast('Screenshot added to prompt bar', 'success');
+        }
       }
     } catch (err) {
       showToast('Screenshot failed', 'error');
@@ -839,9 +885,8 @@
   }
 
   function openNewTab() {
-    createPreviewBrowserTab('/');
-    inputUrl = '/';
-    startLoadFeedback();
+    createBlankPreviewBrowserTab();
+    inputUrl = 'about:blank';
   }
 
   function activateTab(tabId: string) {
@@ -1126,13 +1171,7 @@
         <strong>{selectedElementInfo.selector}</strong>
         <span class="inspect-meta">{selectedElementInfo.tag} {selectedElementInfo.rect.width}x{selectedElementInfo.rect.height}</span>
       </div>
-      <button class="inspect-add-btn" onclick={() => {
-        const text = buildElementPrompt(selectedElementInfo!).trim();
-        if (text) {
-          promptBarInput.set(text);
-          showToast('Element added to prompt bar', 'success');
-        }
-      }}>
+      <button class="inspect-add-btn" onclick={() => selectedElementInfo && addElementToPrompt(selectedElementInfo)}>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
@@ -1186,7 +1225,7 @@
                 {@const tabSrc = buildIframeSrc(tab.url)}
                 {#if tabSrc}
                   <iframe
-                    bind:this={iframeElements[tab.id]}
+                    use:registerIframe={tab.id}
                     src={tabSrc}
                     title="Web Preview"
                     class="preview-iframe"
@@ -1212,7 +1251,7 @@
             {@const tabSrc = buildIframeSrc(tab.url)}
             {#if tabSrc}
             <iframe
-              bind:this={iframeElements[tab.id]}
+              use:registerIframe={tab.id}
                 src={tabSrc}
                 title="Web Preview"
                 class="preview-iframe"

@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 /// Largest response body we'll buffer into memory. The client reads the body in
@@ -80,21 +80,30 @@ pub async fn http_send_request(
     let parsed_url = Url::parse(&url).map_err(|e| format!("Invalid URL: {e}"))?;
     match parsed_url.scheme() {
         "http" | "https" => {}
-        scheme => return Err(format!("Unsupported URL scheme '{scheme}': only http and https are allowed")),
+        scheme => {
+            return Err(format!(
+                "Unsupported URL scheme '{scheme}': only http and https are allowed"
+            ))
+        }
     }
     if let Some(host) = parsed_url.host_str() {
         // Fast literal/hostname reject first, then a DNS-aware reject that catches
         // a hostname pointing at a blocked address. The resolve is blocking, so
         // run it off the async runtime thread.
         if host_is_blocked(host) {
-            return Err("Requests to link-local or cloud-metadata addresses are blocked".to_string());
+            return Err(
+                "Requests to link-local or cloud-metadata addresses are blocked".to_string(),
+            );
         }
         let host_owned = host.to_string();
-        let resolved_blocked = tokio::task::spawn_blocking(move || resolved_host_is_blocked(&host_owned))
-            .await
-            .unwrap_or(false);
+        let resolved_blocked =
+            tokio::task::spawn_blocking(move || resolved_host_is_blocked(&host_owned))
+                .await
+                .unwrap_or(false);
         if resolved_blocked {
-            return Err("Host resolves to a blocked link-local or cloud-metadata address".to_string());
+            return Err(
+                "Host resolves to a blocked link-local or cloud-metadata address".to_string(),
+            );
         }
     }
 
@@ -105,7 +114,12 @@ pub async fn http_send_request(
         if attempt.previous().len() >= 10 {
             return attempt.error("too many redirects");
         }
-        if attempt.url().host_str().map(|h| host_is_blocked(h) || resolved_host_is_blocked(h)).unwrap_or(false) {
+        if attempt
+            .url()
+            .host_str()
+            .map(|h| host_is_blocked(h) || resolved_host_is_blocked(h))
+            .unwrap_or(false)
+        {
             return attempt.error("redirect to a blocked link-local or metadata address");
         }
         attempt.follow()
@@ -152,7 +166,7 @@ pub async fn http_send_request(
         .canonical_reason()
         .unwrap_or("")
         .to_string();
-    
+
     let ok = response.status().is_success();
 
     let mut res_headers = HashMap::new();
@@ -236,6 +250,8 @@ mod tests {
         assert!(!resolved_host_is_blocked("127.0.0.1"));
         assert!(!resolved_host_is_blocked("192.168.1.10"));
         // A name that fails to resolve returns false so reqwest reports the error.
-        assert!(!resolved_host_is_blocked("this-name-should-not-resolve.invalid"));
+        assert!(!resolved_host_is_blocked(
+            "this-name-should-not-resolve.invalid"
+        ));
     }
 }

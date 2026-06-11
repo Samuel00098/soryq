@@ -6,14 +6,14 @@ use axum::{
     routing::any,
     Router,
 };
+use futures_util::{SinkExt, StreamExt};
 use reqwest::Client;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::oneshot;
-use futures_util::{StreamExt, SinkExt};
-use tokio_tungstenite::connect_async;
 use tauri::async_runtime;
+use tokio::sync::oneshot;
+use tokio_tungstenite::connect_async;
 use url::form_urlencoded;
 
 const INSPECTOR_FLAG: &str = "forge-inspect=1";
@@ -290,7 +290,11 @@ impl PreviewManager {
             active_external_origins: self.active_external_origins.clone(),
             active_project_id: self.active_project_id.clone(),
             client: Client::builder()
-                .user_agent(concat!("soryq/", env!("CARGO_PKG_VERSION"), " (preview-proxy)"))
+                .user_agent(concat!(
+                    "soryq/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (preview-proxy)"
+                ))
                 .gzip(true)
                 .brotli(true)
                 .connect_timeout(Duration::from_millis(800))
@@ -314,9 +318,7 @@ impl PreviewManager {
                 .unwrap_or_default(),
         };
 
-        let app = Router::new()
-            .fallback(any(proxy_handler))
-            .with_state(state);
+        let app = Router::new().fallback(any(proxy_handler)).with_state(state);
 
         let addr = SocketAddr::from(([127, 0, 0, 1], proxy_port));
 
@@ -368,7 +370,10 @@ impl PreviewManager {
         let normalized = host
             .map(|value| value.trim().to_ascii_lowercase())
             .filter(|value| matches!(value.as_str(), "127.0.0.1" | "localhost" | "0.0.0.0"));
-        *self.preferred_local_host.lock().unwrap_or_else(|e| e.into_inner()) = normalized;
+        *self
+            .preferred_local_host
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = normalized;
         Ok(())
     }
 
@@ -377,9 +382,16 @@ impl PreviewManager {
     }
 
     pub fn clear_proxy_target(&self) -> Result<(), String> {
-        let active_project = self.active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let active_project = self
+            .active_project_id
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         if let Some(project_id) = active_project {
-            let mut origins = self.active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
+            let mut origins = self
+                .active_external_origins
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             origins.insert(project_id, None);
         }
         Ok(())
@@ -461,12 +473,14 @@ async fn has_private_resolved_ip(host: &str, port: u16) -> bool {
     match tokio::net::lookup_host(addr_str).await {
         Ok(addrs) => addrs.into_iter().any(|sa| {
             match sa.ip() {
-                IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_multicast(),
+                IpAddr::V4(v4) => {
+                    v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_multicast()
+                }
                 IpAddr::V6(v6) => {
                     let segs = v6.segments();
                     v6.is_loopback() || v6.is_multicast() || v6.is_unspecified()
                         || (segs[0] & 0xfe00) == 0xfc00  // ULA fc00::/7
-                        || (segs[0] & 0xffc0) == 0xfe80  // link-local fe80::/10
+                        || (segs[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
                 }
             }
         }),
@@ -484,7 +498,8 @@ fn is_loopback_target(url: &str) -> bool {
 }
 
 fn is_restricted_port(port: u16) -> bool {
-    matches!(port,
+    matches!(
+        port,
         22     // SSH
         | 23   // Telnet
         | 25   // SMTP
@@ -519,31 +534,45 @@ fn local_dev_hosts(preferred_host: Option<&str>) -> Vec<&'static str> {
     hosts
 }
 
-async fn proxy_handler(
-    State(state): State<ProxyState>,
-    req: Request<Body>,
-) -> Response<Body> {
+async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> Response<Body> {
     let (mut parts, body) = req.into_parts();
     let target_port = *state.target_port.lock().unwrap_or_else(|e| e.into_inner());
-    let preferred_local_host = state.preferred_local_host.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let preferred_local_host = state
+        .preferred_local_host
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
 
-    let path = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/").to_string();
+    let path = parts
+        .uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/")
+        .to_string();
 
     // If request contains upgrade websocket headers, handle as websocket connection
-    let is_ws = parts.headers.get("upgrade")
+    let is_ws = parts
+        .headers
+        .get("upgrade")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_lowercase()) == Some("websocket".to_string());
+        .map(|s| s.to_lowercase())
+        == Some("websocket".to_string());
 
     if is_ws {
         if path.starts_with("/proxy") {
             return StatusCode::BAD_REQUEST.into_response();
         }
         // Validate WebSocket origin
-        let ws_origin_valid = parts.headers.get("origin")
+        let ws_origin_valid = parts
+            .headers
+            .get("origin")
             .and_then(|v| v.to_str().ok())
             .map(|o| {
-                o == "null" || o == "http://127.0.0.1" || o.starts_with("http://127.0.0.1:")
-                || o == "http://localhost" || o.starts_with("http://localhost:")
+                o == "null"
+                    || o == "http://127.0.0.1"
+                    || o.starts_with("http://127.0.0.1:")
+                    || o == "http://localhost"
+                    || o.starts_with("http://localhost:")
             })
             .unwrap_or(false);
         if !ws_origin_valid {
@@ -553,7 +582,11 @@ async fn proxy_handler(
             Ok(ws) => {
                 let ws_path = path.clone();
                 let preferred_host = preferred_local_host.clone();
-                return ws.on_upgrade(move |socket| handle_websocket(socket, target_port, ws_path, preferred_host)).into_response();
+                return ws
+                    .on_upgrade(move |socket| {
+                        handle_websocket(socket, target_port, ws_path, preferred_host)
+                    })
+                    .into_response();
             }
             Err(_) => {
                 return StatusCode::BAD_REQUEST.into_response();
@@ -569,15 +602,24 @@ async fn proxy_handler(
         match target_url {
             Some(url) if !url.is_empty() => {
                 if !url.starts_with("http://") && !url.starts_with("https://") {
-                    return (StatusCode::BAD_REQUEST, "Only HTTP(S) URLs are allowed").into_response();
+                    return (StatusCode::BAD_REQUEST, "Only HTTP(S) URLs are allowed")
+                        .into_response();
                 }
                 if is_private_target(&url) {
-                    return (StatusCode::FORBIDDEN, "Access to private/internal resources is not allowed").into_response();
+                    return (
+                        StatusCode::FORBIDDEN,
+                        "Access to private/internal resources is not allowed",
+                    )
+                        .into_response();
                 }
                 if let Ok(parsed) = url::Url::parse(&url) {
                     if let Some(port) = parsed.port() {
                         if is_restricted_port(port) {
-                            return (StatusCode::FORBIDDEN, "Access to restricted ports is not allowed").into_response();
+                            return (
+                                StatusCode::FORBIDDEN,
+                                "Access to restricted ports is not allowed",
+                            )
+                                .into_response();
                         }
                     }
                 }
@@ -592,21 +634,29 @@ async fn proxy_handler(
                     };
                     origin_to_store = Some(origin);
                 }
-                
-                let active_project = state.active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
+
+                let active_project = state
+                    .active_project_id
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
                 if let Some(ref project_id) = active_project {
-                    let mut origins = state.active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut origins = state
+                        .active_external_origins
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     origins.insert(project_id.clone(), origin_to_store.clone());
                 }
-                
+
                 return proxy_external_url(
                     state.client.clone(),
                     &url,
                     state.active_external_origins.clone(),
                     state.active_project_id.clone(),
                     parts,
-                    body
-                ).await;
+                    body,
+                )
+                .await;
             }
             _ => {
                 return (
@@ -619,9 +669,16 @@ async fn proxy_handler(
     }
 
     // Check if we have active external origin
-    let active_project = state.active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let active_project = state
+        .active_project_id
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let opt_origin = if let Some(ref project_id) = active_project {
-        let origins = state.active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
+        let origins = state
+            .active_external_origins
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         origins.get(project_id).cloned().flatten()
     } else {
         None
@@ -635,8 +692,9 @@ async fn proxy_handler(
             state.active_external_origins.clone(),
             state.active_project_id.clone(),
             parts,
-            body
-        ).await;
+            body,
+        )
+        .await;
     }
 
     // Retrieve request body
@@ -645,10 +703,18 @@ async fn proxy_handler(
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
 
-        match proxy_local_dev_request(&state.client, parts, bytes, target_port, preferred_local_host.as_deref()).await {
-            Ok(res) => build_preview_response(res, false).await,
-            Err(err) => (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
-        }
+    match proxy_local_dev_request(
+        &state.client,
+        parts,
+        bytes,
+        target_port,
+        preferred_local_host.as_deref(),
+    )
+    .await
+    {
+        Ok(res) => build_preview_response(res, false).await,
+        Err(err) => (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
+    }
 }
 
 async fn proxy_local_dev_request(
@@ -658,7 +724,12 @@ async fn proxy_local_dev_request(
     target_port: u16,
     preferred_host: Option<&str>,
 ) -> Result<reqwest::Response, reqwest::Error> {
-    let path = parts.uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/").to_string();
+    let path = parts
+        .uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/")
+        .to_string();
 
     let mut last_err: Option<reqwest::Error> = None;
 
@@ -688,11 +759,17 @@ async fn proxy_local_dev_request(
         if let Ok(val) = advertised_origin.parse() {
             reqwest_req.headers_mut().insert("origin", val);
         }
-        let proxy_host = parts.headers.get("host")
+        let proxy_host = parts
+            .headers
+            .get("host")
             .and_then(|h| h.to_str().ok())
             .unwrap_or("127.0.0.1");
         let proxy_origin = format!("http://{}", proxy_host);
-        let new_referer = match reqwest_req.headers().get("referer").and_then(|r| r.to_str().ok()) {
+        let new_referer = match reqwest_req
+            .headers()
+            .get("referer")
+            .and_then(|r| r.to_str().ok())
+        {
             // Preserve the path the browser was actually on, just swap the host.
             Some(referer_str) => referer_str.replace(&proxy_origin, &advertised_origin),
             // Subresource request with no referer — point it at the dev root.
@@ -728,7 +805,11 @@ async fn proxy_external_url(
     };
 
     if is_private_target(target_url) {
-        return (StatusCode::FORBIDDEN, "Access to private/internal resources is not allowed").into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            "Access to private/internal resources is not allowed",
+        )
+            .into_response();
     }
     // DNS rebinding protection: resolve hostname and check resolved IPs
     if let Some(host) = target.host_str() {
@@ -736,13 +817,21 @@ async fn proxy_external_url(
             // Only do DNS check for domain names — IPs were already checked above
             let port = target.port_or_known_default().unwrap_or(80);
             if has_private_resolved_ip(host, port).await {
-                return (StatusCode::FORBIDDEN, "Access to private/internal resources is not allowed").into_response();
+                return (
+                    StatusCode::FORBIDDEN,
+                    "Access to private/internal resources is not allowed",
+                )
+                    .into_response();
             }
         }
     }
     if let Some(port) = target.port() {
         if is_restricted_port(port) {
-            return (StatusCode::FORBIDDEN, "Access to restricted ports is not allowed").into_response();
+            return (
+                StatusCode::FORBIDDEN,
+                "Access to restricted ports is not allowed",
+            )
+                .into_response();
         }
     }
 
@@ -794,18 +883,21 @@ async fn proxy_external_url(
                 Some(port) => format!("{}://{}:{}", scheme, host, port),
                 None => format!("{}://{}", scheme, host),
             };
-            
-            let active_project = active_project_id.read().unwrap_or_else(|e| e.into_inner()).clone();
+
+            let active_project = active_project_id
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             if let Some(project_id) = active_project {
-                let mut origins = active_external_origins.lock().unwrap_or_else(|e| e.into_inner());
+                let mut origins = active_external_origins
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 origins.insert(project_id, Some(origin));
             }
 
             build_preview_response(res, true).await
         }
-        Err(err) => {
-            (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response()
-        }
+        Err(err) => (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
     }
 }
 
@@ -835,7 +927,10 @@ fn should_strip_preview_header(key_lower: &str) -> bool {
     )
 }
 
-async fn build_preview_response(res: reqwest::Response, strip_embed_headers: bool) -> Response<Body> {
+async fn build_preview_response(
+    res: reqwest::Response,
+    strip_embed_headers: bool,
+) -> Response<Body> {
     let is_html = res
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -849,7 +944,9 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
     if is_html {
         let body_bytes = match res.bytes().await {
             Ok(bytes) => bytes,
-            Err(err) => return (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
+            Err(err) => {
+                return (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response()
+            }
         };
         let html = String::from_utf8_lossy(&body_bytes);
         // Only inject inspector into local dev server responses, never external sites.
@@ -872,9 +969,13 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
             builder = builder.header(key, value);
         }
 
-        return builder
-            .body(Body::from(injected))
-            .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response());
+        return builder.body(Body::from(injected)).unwrap_or_else(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to build response body",
+            )
+                .into_response()
+        });
     }
 
     let mut builder = Response::builder().status(status);
@@ -889,7 +990,11 @@ async fn build_preview_response(res: reqwest::Response, strip_embed_headers: boo
     let body_stream = res.bytes_stream();
     let body = Body::from_stream(body_stream);
     builder.body(body).unwrap_or_else(|_| {
-        (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response body").into_response()
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to build response body",
+        )
+            .into_response()
     })
 }
 
@@ -947,7 +1052,10 @@ async fn handle_websocket(
         Some(conn) => conn,
         None => {
             if let Some((target_ws_url, err)) = last_error {
-                eprintln!("Failed to connect to target WS server {}: {}", target_ws_url, err);
+                eprintln!(
+                    "Failed to connect to target WS server {}: {}",
+                    target_ws_url, err
+                );
             }
             return;
         }
@@ -958,15 +1066,26 @@ async fn handle_websocket(
         while let Some(msg) = client_read.next().await {
             if let Ok(msg) = msg {
                 let tung_msg = match msg {
-                    axum::extract::ws::Message::Text(t) => tokio_tungstenite::tungstenite::Message::Text(t.to_string().into()),
-                    axum::extract::ws::Message::Binary(b) => tokio_tungstenite::tungstenite::Message::Binary(b.into()),
-                    axum::extract::ws::Message::Ping(p) => tokio_tungstenite::tungstenite::Message::Ping(p.into()),
-                    axum::extract::ws::Message::Pong(p) => tokio_tungstenite::tungstenite::Message::Pong(p.into()),
+                    axum::extract::ws::Message::Text(t) => {
+                        tokio_tungstenite::tungstenite::Message::Text(t.to_string().into())
+                    }
+                    axum::extract::ws::Message::Binary(b) => {
+                        tokio_tungstenite::tungstenite::Message::Binary(b)
+                    }
+                    axum::extract::ws::Message::Ping(p) => {
+                        tokio_tungstenite::tungstenite::Message::Ping(p)
+                    }
+                    axum::extract::ws::Message::Pong(p) => {
+                        tokio_tungstenite::tungstenite::Message::Pong(p)
+                    }
                     axum::extract::ws::Message::Close(c) => {
-                        let cf = c.map(|frame| tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                            code: frame.code.into(),
-                            reason: frame.reason.to_string().into(),
-                        });
+                        let cf =
+                            c.map(
+                                |frame| tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                                    code: frame.code.into(),
+                                    reason: frame.reason.to_string().into(),
+                                },
+                            );
                         tokio_tungstenite::tungstenite::Message::Close(cf)
                     }
                 };
@@ -984,10 +1103,18 @@ async fn handle_websocket(
         while let Some(msg) = target_read.next().await {
             if let Ok(msg) = msg {
                 let axum_msg = match msg {
-                    tokio_tungstenite::tungstenite::Message::Text(t) => axum::extract::ws::Message::Text(t.to_string().into()),
-                    tokio_tungstenite::tungstenite::Message::Binary(b) => axum::extract::ws::Message::Binary(b.into()),
-                    tokio_tungstenite::tungstenite::Message::Ping(p) => axum::extract::ws::Message::Ping(p.into()),
-                    tokio_tungstenite::tungstenite::Message::Pong(p) => axum::extract::ws::Message::Pong(p.into()),
+                    tokio_tungstenite::tungstenite::Message::Text(t) => {
+                        axum::extract::ws::Message::Text(t.to_string().into())
+                    }
+                    tokio_tungstenite::tungstenite::Message::Binary(b) => {
+                        axum::extract::ws::Message::Binary(b)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Ping(p) => {
+                        axum::extract::ws::Message::Ping(p)
+                    }
+                    tokio_tungstenite::tungstenite::Message::Pong(p) => {
+                        axum::extract::ws::Message::Pong(p)
+                    }
                     tokio_tungstenite::tungstenite::Message::Close(c) => {
                         let cf = c.map(|frame| axum::extract::ws::CloseFrame {
                             code: frame.code.into(),

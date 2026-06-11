@@ -6,18 +6,23 @@ use std::sync::RwLock;
 
 fn is_valid_css_color(value: &str) -> bool {
     let v = value.trim();
-    if v.is_empty() { return false; }
+    if v.is_empty() {
+        return false;
+    }
     // Hex colors
-    if v.starts_with('#') {
-        let hex = &v[1..];
+    if let Some(hex) = v.strip_prefix('#') {
         return (hex.len() == 3 || hex.len() == 4 || hex.len() == 6 || hex.len() == 8)
             && hex.chars().all(|c| c.is_ascii_hexdigit());
     }
     // Named/functional values
     let lower = v.to_lowercase();
-    lower == "transparent" || lower == "currentcolor" || lower == "inherit"
-        || lower.starts_with("rgb(") || lower.starts_with("rgba(")
-        || lower.starts_with("hsl(") || lower.starts_with("hsla(")
+    lower == "transparent"
+        || lower == "currentcolor"
+        || lower == "inherit"
+        || lower.starts_with("rgb(")
+        || lower.starts_with("rgba(")
+        || lower.starts_with("hsl(")
+        || lower.starts_with("hsla(")
         || lower.starts_with("color(")
 }
 
@@ -68,44 +73,69 @@ impl ThemeRegistry {
     }
 
     pub fn list_themes(&self) -> Result<Vec<ThemeInfo>, ForgeError> {
-        let themes = self.themes.read().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
-        Ok(themes.values().map(|t| ThemeInfo::from(t)).collect())
+        let themes = self
+            .themes
+            .read()
+            .map_err(|_| ForgeError::Io(std::io::Error::other("Lock poisoned")))?;
+        Ok(themes.values().map(ThemeInfo::from).collect())
     }
 
     pub fn get_active_theme(&self) -> Result<Theme, ForgeError> {
-        let active_id = self.active_theme.read().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
-        let themes = self.themes.read().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
-        themes.get(&*active_id)
+        let active_id = self
+            .active_theme
+            .read()
+            .map_err(|_| ForgeError::Io(std::io::Error::other("Lock poisoned")))?;
+        let themes = self
+            .themes
+            .read()
+            .map_err(|_| ForgeError::Io(std::io::Error::other("Lock poisoned")))?;
+        themes
+            .get(&*active_id)
             .cloned()
             .ok_or_else(|| ForgeError::ThemeNotFound(active_id.clone()))
     }
 
     pub fn activate_theme(&self, theme_id: &str) -> Result<Theme, ForgeError> {
-        let themes = self.themes.read().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
+        let themes = self
+            .themes
+            .read()
+            .map_err(|_| ForgeError::Io(std::io::Error::other("Lock poisoned")))?;
         if !themes.contains_key(theme_id) {
             return Err(ForgeError::ThemeNotFound(theme_id.to_string()));
         }
         drop(themes);
 
-        let mut active = self.active_theme.write().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
+        let mut active = self
+            .active_theme
+            .write()
+            .map_err(|_| ForgeError::Io(std::io::Error::other("Lock poisoned")))?;
         *active = theme_id.to_string();
 
         let active_theme_file = self.config_dir.join("active_theme.txt");
         let _ = std::fs::write(active_theme_file, theme_id);
         drop(active);
 
-        let themes = self.themes.read().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
-        themes.get(theme_id)
+        let themes = self
+            .themes
+            .read()
+            .map_err(|_| ForgeError::Io(std::io::Error::other("Lock poisoned")))?;
+        themes
+            .get(theme_id)
             .cloned()
             .ok_or_else(|| ForgeError::ThemeNotFound(theme_id.to_string()))
     }
 
     pub fn save_custom_theme(&self, theme: Theme) -> Result<(), ForgeError> {
-        let safe_id: String = theme.id.chars()
+        let safe_id: String = theme
+            .id
+            .chars()
             .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
             .collect();
         if safe_id.is_empty() || safe_id != theme.id {
-            return Err(ForgeError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid theme ID")));
+            return Err(ForgeError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid theme ID",
+            )));
         }
         for (key, value) in theme.colors.iter().chain(theme.syntax.iter()) {
             if !is_valid_css_color(value) {
@@ -115,10 +145,16 @@ impl ThemeRegistry {
                 )));
             }
         }
-        let theme_path = self.config_dir.join("themes").join(format!("{}.json", safe_id));
+        let theme_path = self
+            .config_dir
+            .join("themes")
+            .join(format!("{}.json", safe_id));
         crate::theme::loader::save_theme_to_file(&theme, &theme_path)?;
 
-        let mut themes = self.themes.write().map_err(|_| ForgeError::Io(std::io::Error::new(std::io::ErrorKind::Other, "Lock poisoned")))?;
+        let mut themes = self
+            .themes
+            .write()
+            .map_err(|_| ForgeError::Io(std::io::Error::other("Lock poisoned")))?;
         themes.insert(theme.id.clone(), theme);
         Ok(())
     }

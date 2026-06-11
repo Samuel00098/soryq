@@ -1,8 +1,8 @@
 use crate::error::ForgeError;
 use crate::workspace::project::{Project, RecentProject};
-use std::path::PathBuf;
-use std::sync::RwLock;
 use dashmap::DashMap;
+use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 pub struct WorkspaceManager {
     projects: DashMap<String, Project>,
@@ -13,7 +13,10 @@ pub struct WorkspaceManager {
 }
 
 impl WorkspaceManager {
-    pub fn new(config_dir: PathBuf, active_project_id: std::sync::Arc<RwLock<Option<String>>>) -> Self {
+    pub fn new(
+        config_dir: PathBuf,
+        active_project_id: std::sync::Arc<RwLock<Option<String>>>,
+    ) -> Self {
         let recent_projects = Self::load_recent(&config_dir);
         WorkspaceManager {
             projects: DashMap::new(),
@@ -41,7 +44,7 @@ impl WorkspaceManager {
         }
     }
 
-    fn load_recent(config_dir: &PathBuf) -> Vec<RecentProject> {
+    fn load_recent(config_dir: &Path) -> Vec<RecentProject> {
         let path = config_dir.join("recent_projects.json");
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(path) {
@@ -83,11 +86,18 @@ impl WorkspaceManager {
     }
 
     pub fn list_projects(&self) -> Vec<Project> {
-        self.projects.iter().map(|entry| entry.value().clone()).collect()
+        self.projects
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     pub fn get_recent_projects(&self) -> Vec<RecentProject> {
-        self.recent_projects.read().ok().map(|r| r.clone()).unwrap_or_default()
+        self.recent_projects
+            .read()
+            .ok()
+            .map(|r| r.clone())
+            .unwrap_or_default()
     }
 
     fn add_to_recent(&self, project: &Project) {

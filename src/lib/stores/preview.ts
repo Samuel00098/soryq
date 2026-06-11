@@ -15,6 +15,8 @@ export type PreviewTab = {
   historyIndex: number;
 };
 
+export const BLANK_PREVIEW_URL = 'about:blank';
+
 const currentUrlStore = writable<string>('/');
 
 function createTabId() {
@@ -156,6 +158,10 @@ export function createPreviewBrowserTab(url = '/') {
   return nextTab.id;
 }
 
+export function createBlankPreviewBrowserTab() {
+  return createPreviewBrowserTab(BLANK_PREVIEW_URL);
+}
+
 export function selectPreviewBrowserTab(tabId: string) {
   const tab = get(previewTabs).find((item) => item.id === tabId);
   if (!tab) return;
@@ -188,6 +194,7 @@ export function closePreviewBrowserTab(tabId: string) {
 
 function isAllowedTabUrl(url: string): boolean {
   if (!url) return false;
+  if (url === BLANK_PREVIEW_URL) return true;
   if (url.startsWith('/')) return true;
   try {
     const parsed = new URL(url);

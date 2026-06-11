@@ -19,8 +19,8 @@ pub fn clean_path_buf(path: PathBuf) -> PathBuf {
         let path_str = path.to_string_lossy();
         if path_str.starts_with(r"\\?\UNC\") {
             return PathBuf::from(format!("\\{}", &path_str[7..]));
-        } else if path_str.starts_with(r"\\?\") {
-            return PathBuf::from(&path_str[4..]);
+        } else if let Some(stripped) = path_str.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
         }
     }
     path

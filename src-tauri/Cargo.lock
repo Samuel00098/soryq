@@ -4628,7 +4628,7 @@ dependencies = [
 
 [[package]]
 name = "soryq"
-version = "0.3.1"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -4659,6 +4659,7 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "uuid",
+ "webview2-com",
  "window-vibrancy 0.5.3",
  "windows",
 ]

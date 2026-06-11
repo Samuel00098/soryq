@@ -672,9 +672,6 @@ const SUBMIT_CONFIRM_WINDOW_MS = isTestEnv ? 15 : 2500;
 // no-op on an already-emptied composer.
 const SUBMIT_CONFIRM_DELTA = 512;
 const MAX_SUBMIT_ATTEMPTS = isTestEnv ? 1 : 3;
-const SINGLE_LINE_CHARTER_PRESETS = new Set(['claude', 'opencode', 'agy', 'antigravity']);
-const AGENT_CHARTER_PREFIX = 'SORYQ AGENT BRIEF';
-
 // Strip ANSI/VT escapes and C0 control noise, then collapse whitespace, so the
 // literal prompt text can be found in a TUI's escape-laden, reflowed redraw.
 const ECHO_ANSI =
@@ -695,14 +692,6 @@ function countOccurrences(haystack: string, needle: string): number {
     from = haystack.indexOf(needle, from + needle.length);
   }
   return count;
-}
-
-function compactPromptForSingleLine(raw: string): string {
-  return raw.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function shouldUsePlainSingleLineCharterPaste(preset: string | null | undefined, text: string): boolean {
-  return Boolean(preset && SINGLE_LINE_CHARTER_PRESETS.has(preset) && text.trimStart().startsWith(AGENT_CHARTER_PREFIX));
 }
 
 // Some TUI agents don't echo a multi-line paste literally — Claude Code
@@ -832,20 +821,17 @@ async function deliverPromptRaw(sessionId: number, text: string): Promise<boolea
   }
 
   const base = getSessionOutputBuffer(sessionId);
-  // Claude Code, OpenCode, and Antigravity can drop synthetic bracketed-paste charters.
-  // The charter is prose-only, so send it as one compact visible composer line.
-  const plainSingleLineCharter = shouldUsePlainSingleLineCharterPaste(preset, text);
-  const promptBody = plainSingleLineCharter ? compactPromptForSingleLine(text) : text;
+  const promptBody = text;
   // Newlines become \r inside the paste body — this is what a REAL terminal
   // paste delivers (xterm.js converts \n to \r on paste), and it's the only
   // form every composer is actually tested against. Raw \n (Ctrl+J) confuses
   // Ink-based CLIs (Claude Code, Cursor), which can treat it as a submit or
   // drop the rest of the paste.
   const pasteBody = promptBody.replace(/\r?\n/g, '\r');
-  const pastePayload = plainSingleLineCharter ? pasteBody : `\x1b[200~${pasteBody}\x1b[201~`;
+  const pastePayload = `\x1b[200~${pasteBody}\x1b[201~`;
   pty.write(pastePayload).catch((err) => console.error('Failed to paste prompt:', err));
   setSessionExecuting(sessionId, true);
-  logAgentSend(sessionId, 'paste-written', { preset, chars: pasteBody.length, plainSingleLineCharter });
+  logAgentSend(sessionId, 'paste-written', { preset, chars: pasteBody.length });
 
   const echoLanded = await waitForPasteEcho(sessionId, base, promptBody);
   logAgentSend(sessionId, echoLanded ? 'echo-confirmed' : 'echo-timeout');

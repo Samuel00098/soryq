@@ -1,8 +1,8 @@
 use crate::pty::session;
 use crate::pty::shell::{self, ShellConfig};
+use crate::state::AppState;
 use tauri::ipc::{Channel, Response};
 use tauri::State;
-use crate::state::AppState;
 
 /// Create a new terminal session with the specified shell (or auto-detect)
 #[tauri::command]
@@ -31,8 +31,17 @@ pub fn terminal_create(
             });
             match found {
                 Some(s) => s.clone(),
-                None => return Err(format!("Unrecognized shell program: {}. Available shells: {}", prog,
-                    available.iter().map(|s| s.program.as_str()).collect::<Vec<_>>().join(", "))),
+                None => {
+                    return Err(format!(
+                        "Unrecognized shell program: {}. Available shells: {}",
+                        prog,
+                        available
+                            .iter()
+                            .map(|s| s.program.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                }
             }
         }
         _ => shell::detect_shell(),
@@ -61,19 +70,33 @@ pub fn terminal_write(id: u32, data: String, state: State<AppState>) -> Result<(
     if !state.write_rate_limiter.check_and_record(id, data.len()) {
         return Err("Write rate limit exceeded (1 MB/s per session)".to_string());
     }
-    let session = state.pty_manager.get(id).ok_or_else(|| format!("Session not found: {id}"))?;
+    let session = state
+        .pty_manager
+        .get(id)
+        .ok_or_else(|| format!("Session not found: {id}"))?;
     session.write(&data)
 }
 
 #[tauri::command]
-pub fn terminal_resize(id: u32, rows: u16, cols: u16, state: State<AppState>) -> Result<(), String> {
-    let session = state.pty_manager.get(id).ok_or_else(|| format!("Session not found: {id}"))?;
+pub fn terminal_resize(
+    id: u32,
+    rows: u16,
+    cols: u16,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let session = state
+        .pty_manager
+        .get(id)
+        .ok_or_else(|| format!("Session not found: {id}"))?;
     session.resize(rows, cols)
 }
 
 #[tauri::command]
 pub fn terminal_close(id: u32, state: State<AppState>) -> Result<(), String> {
-    let session = state.pty_manager.remove(id).ok_or_else(|| format!("Session not found: {id}"))?;
+    let session = state
+        .pty_manager
+        .remove(id)
+        .ok_or_else(|| format!("Session not found: {id}"))?;
     state.write_rate_limiter.remove(id);
     let _ = session.close();
     Ok(())

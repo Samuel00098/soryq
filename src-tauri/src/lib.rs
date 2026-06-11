@@ -6,18 +6,16 @@ mod state;
 mod theme;
 mod workspace;
 
-use std::io;
 use state::AppState;
+use std::io;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let base_config_dir = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let base_config_dir = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     let config_dir = base_config_dir.join("soryq");
 
-    std::fs::create_dir_all(&config_dir)
-        .expect("failed to create soryq config directory");
+    std::fs::create_dir_all(&config_dir).expect("failed to create soryq config directory");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -27,15 +25,24 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let Some(window) = app.get_webview_window("main") else {
-                return Err(io::Error::new(io::ErrorKind::NotFound, "main webview window not found").into());
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "main webview window not found",
+                )
+                .into());
             };
             #[cfg(target_os = "macos")]
-            let _ = window_vibrancy::apply_vibrancy(&window, window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground, None, None);
+            let _ = window_vibrancy::apply_vibrancy(
+                &window,
+                window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
+                None,
+                None,
+            );
 
             #[cfg(target_os = "windows")]
             {
                 // Try acrylic first (frosted glass), fallback to mica or basic blur
-                if let Err(_) = window_vibrancy::apply_acrylic(&window, Some((15, 15, 20, 10))) {
+                if window_vibrancy::apply_acrylic(&window, Some((15, 15, 20, 10))).is_err() {
                     let _ = window_vibrancy::apply_mica(&window, None);
                 }
             }
