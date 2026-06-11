@@ -49,9 +49,11 @@
   import { yaml } from '@codemirror/lang-yaml';
   import { go } from '@codemirror/lang-go';
   import { sass } from '@codemirror/lang-sass';
+  import { svelte } from '@replit/codemirror-lang-svelte';
   import { shell } from '@codemirror/legacy-modes/mode/shell';
   import { swift } from '@codemirror/legacy-modes/mode/swift';
-  import { kotlin } from '@codemirror/legacy-modes/mode/clike';
+  import { kotlin, csharp } from '@codemirror/legacy-modes/mode/clike';
+  import { toml } from '@codemirror/legacy-modes/mode/toml';
 
   import { updateContent, updateCursorPosition, jumpToLine } from '$lib/stores/editor';
   import {
@@ -171,6 +173,12 @@
       case 'scss':
       case 'sass':
         return sass();
+      case 'svelte':
+        return svelte();
+      case 'toml':
+        return StreamLanguage.define(toml);
+      case 'csharp':
+        return StreamLanguage.define(csharp);
       case 'shell':
         return StreamLanguage.define(shell);
       case 'swift':

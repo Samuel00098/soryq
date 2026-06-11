@@ -3,6 +3,22 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.4] - 2026-06-11
+
+### Added
+
+- **Svelte, TOML, and C# syntax highlighting** — the editor now highlights `.svelte` files (via `@replit/codemirror-lang-svelte`), `.toml`, and `.cs`. C# files previously fell back to the C/C++ grammar; they now use a dedicated C# mode and are detected as their own language.
+
+- **Format-on-save for more file types** — Prettier now handles `.svelte`, `.yaml`/`.yml`, `.scss`, `.less`, `.mjs`/`.cjs`, and `.htm` in addition to the existing JS/TS/JSON/CSS/HTML/Markdown set. The Svelte path loads the browser build of `prettier-plugin-svelte` alongside the embedded JS and CSS parsers.
+
+### Fixed
+
+- **Preview leaked the previous project's content on switch** — the shared preview proxy's target port is process-global, so mounting a project's preview iframes while the backend still pointed at the prior project's dev server piped the wrong app into the panel (and it stuck, because the iframe never re-requested once the port caught up). The proxy is now repointed at the incoming project's dev server *before* its tabs are restored or the panel is shown.
+
+- **Agent TUI showed a stale frame after a project switch** — when a terminal pane reattaches to a still-running session, its fresh xterm fits to the size the PTY already has, so no resize event reaches the running full-screen TUI (e.g. the Claude Code agent) and it renders a stale frame until you manually drag to resize. The pane now reproduces that resize — briefly shrinking the PTY by one row and restoring it — to force an immediate repaint on reattach.
+
+- **Saved pane layout clobbered when closing a project** — closing a project now switches the visible terminal state to the fallback project synchronously, before `restoreProjectState`, so `gridLayout` and `activeProject` update in the same effect flush and the fallback project's saved pane layout isn't overwritten by a stale preset re-apply. This mirrors the existing `switchToProject` / `openProjectByPath` ordering.
+
 ## [v0.3.3] - 2026-06-11
 
 ### Fixed

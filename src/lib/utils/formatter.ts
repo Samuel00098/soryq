@@ -4,6 +4,8 @@ import parserEstree from 'prettier/plugins/estree';
 import parserHtml from 'prettier/plugins/html';
 import parserPostcss from 'prettier/plugins/postcss';
 import parserMarkdown from 'prettier/plugins/markdown';
+import parserYaml from 'prettier/plugins/yaml';
+import * as parserSvelte from 'prettier-plugin-svelte/browser';
 
 export async function formatCode(content: string, filepath: string): Promise<string> {
   const ext = filepath.split('.').pop()?.toLowerCase();
@@ -13,6 +15,8 @@ export async function formatCode(content: string, filepath: string): Promise<str
   switch (ext) {
     case 'js':
     case 'jsx':
+    case 'mjs':
+    case 'cjs':
       parser = 'babel';
       plugins = [parserBabel, parserEstree];
       break;
@@ -29,14 +33,33 @@ export async function formatCode(content: string, filepath: string): Promise<str
       parser = 'css';
       plugins = [parserPostcss];
       break;
+    case 'scss':
+      parser = 'scss';
+      plugins = [parserPostcss];
+      break;
+    case 'less':
+      parser = 'less';
+      plugins = [parserPostcss];
+      break;
     case 'html':
+    case 'htm':
       parser = 'html';
       plugins = [parserHtml, parserPostcss, parserBabel, parserEstree];
+      break;
+    case 'svelte':
+      parser = 'svelte';
+      // The Svelte plugin embeds JS/TS and CSS, so it needs those parsers too.
+      plugins = [parserSvelte, parserBabel, parserEstree, parserPostcss];
       break;
     case 'md':
     case 'markdown':
       parser = 'markdown';
       plugins = [parserMarkdown];
+      break;
+    case 'yaml':
+    case 'yml':
+      parser = 'yaml';
+      plugins = [parserYaml];
       break;
     default:
       // Unsupported extension, return original content as-is

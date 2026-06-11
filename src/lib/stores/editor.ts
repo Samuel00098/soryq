@@ -122,8 +122,13 @@ export function detectLanguage(path: string): string {
     case 'h':
     case 'hpp':
     case 'hxx':
-    case 'cs':
       return 'cpp';
+    case 'cs':
+      return 'csharp';
+    case 'svelte':
+      return 'svelte';
+    case 'toml':
+      return 'toml';
     case 'php':
       return 'php';
     case 'sql':

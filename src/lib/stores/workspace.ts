@@ -414,6 +414,21 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       const localPreview = parseLocalPreviewUrl(restoredUrl);
       const restoredTargetPort = localPreview?.port ?? cached.preview.targetPort;
 
+      // Point the shared preview proxy at THIS project's dev server BEFORE we
+      // restore the tabs / show the panel. The proxy's target port is
+      // process-global, so mounting this project's iframes (which immediately
+      // hit the proxy) while the backend still targets the previous project's
+      // port leaks that project's content into this preview — and it sticks,
+      // because the iframe never re-requests once the port catches up.
+      try {
+        await setPreferredLocalHost(localPreview?.host ?? null);
+        if (generation !== restoreProjectStateGeneration) return;
+        await invoke('preview_set_target_port', { port: restoredTargetPort });
+      } catch (e) {
+        console.error('Failed to restore preview target port:', e);
+      }
+      if (generation !== restoreProjectStateGeneration) return;
+
       targetPort.set(restoredTargetPort);
       proxyPort.set(cached.preview.proxyPort);
       proxyStarted.set(cached.preview.proxyStarted);
@@ -443,14 +458,6 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
         sidebarWidth: cached.layout.sidebarWidth,
         sidebarTab: sanitiseSidebarTab(cached.layout.sidebarTab, l.sidebarTab),
       }));
-
-      try {
-        await setPreferredLocalHost(localPreview?.host ?? null);
-        if (generation !== restoreProjectStateGeneration) return;
-        await invoke('preview_set_target_port', { port: restoredTargetPort });
-      } catch (e) {
-        console.error('Failed to restore preview target port:', e);
-      }
     } else {
       const persisted = loadProjectStateFromStorage(projectId);
       if (generation !== restoreProjectStateGeneration) return;
@@ -852,6 +859,12 @@ export function closeProject(projectId: string) {
             )
           );
         }
+        // Switch the visible terminal state to the fallback project synchronously,
+        // BEFORE restoreProjectState. This keeps gridLayout updating in the same
+        // effect flush as activeProject so TerminalPanel's layout effects stay
+        // coordinated and the project's saved pane layout isn't clobbered by a
+        // stale preset re-apply. Mirrors switchToProject / openProjectByPath.
+        setActiveTerminalProject(nextId);
         restoreProjectState(nextId, nextProject.root_path).catch((e) => console.error('restoreProjectState failed:', e));
       }
     } else {

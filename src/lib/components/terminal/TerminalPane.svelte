@@ -282,6 +282,26 @@
     setTimeout(doFit, 100);
   }
 
+  // Force a running full-screen TUI (e.g. the Claude Code agent) to repaint when
+  // this pane reattaches to a still-alive session. On a project switch the pane
+  // unmounts and its xterm is disposed, but the PTY keeps running; coming back,
+  // the fresh xterm fits to the SAME size the PTY already has, so no resize
+  // reaches the app and it shows a stale frame until the user drags to resize.
+  // We reproduce that manual resize: briefly shrink the PTY by one row, then
+  // restore it — a genuine size change the TUI reacts to by redrawing. xterm
+  // itself stays at its fitted size, so reverting immediately resyncs the two.
+  function forceReattachRepaint() {
+    if (!term) return;
+    const cols = term.cols;
+    const rows = term.rows;
+    if (!cols || !rows || rows < MIN_ROWS + 1) return;
+    resizeSession(sessionId, rows - 1, cols);
+    setTimeout(() => {
+      if (!term) return;
+      resizeSession(sessionId, term.rows, term.cols);
+    }, 80);
+  }
+
   let sessionInfo = $derived($sessions.find((s) => s.id === sessionId));
   let promptPath = $derived((() => {
     const activePath = currentShellCwd || $activeProject?.root_path;
@@ -582,6 +602,10 @@
       container.addEventListener('mouseup', handleTerminalLinkMouseUp, true);
 
       const existingBuffer = getSessionOutputBuffer(sessionId);
+      // A non-empty buffer means this pane is reattaching to a session that was
+      // already running (e.g. after a project switch), so its TUI needs a resize
+      // kick to repaint once the fit settles. A fresh session paints on its own.
+      const isReattach = !!existingBuffer;
       if (existingBuffer) {
         term.write(existingBuffer);
       }
@@ -590,7 +614,10 @@
       // in), THEN wait for fonts for accurate glyph metrics before the first fit.
       // Fitting before the layout settles latches a transient (narrow) size — the
       // bug where the 2nd/3rd agent panes render narrower than their pane.
-      requestAnimationFrame(() => requestAnimationFrame(() => fitAfterFonts()));
+      requestAnimationFrame(() => requestAnimationFrame(async () => {
+        await fitAfterFonts();
+        if (isReattach) forceReattachRepaint();
+      }));
 
       term.onData((data: string) => writeToSession(sessionId, data));
       term.onResize(({ cols, rows }: { cols: number; rows: number }) => resizeSession(sessionId, rows, cols));
