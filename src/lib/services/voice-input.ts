@@ -43,7 +43,10 @@ type BrowserSpeechRecognition = {
 
 type AudioContextCtor = new () => AudioContext;
 const GOOGLE_VAD_RMS_THRESHOLD = 0.015;
-const GOOGLE_VAD_SILENCE_MS = 900;
+// How long of a silence ends an utterance. Kept tight so transcription fires
+// quickly after the user stops talking; still long enough to ride out the
+// natural mid-sentence pauses that would otherwise cut the user off.
+const GOOGLE_VAD_SILENCE_MS = 650;
 
 function getSpeechRecognitionCtor() {
   if (typeof window === 'undefined') return null;

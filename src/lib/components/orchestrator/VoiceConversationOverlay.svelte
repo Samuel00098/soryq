@@ -9,6 +9,9 @@
     voiceDraftText: string;
     lastAssistantDisplay: string;
     onStop: () => void;
+    /** Render as a small docked panel (above the floating bar) instead of a
+        full-screen takeover, so the workspace stays visible while talking. */
+    compact?: boolean;
   }
 
   let {
@@ -19,6 +22,7 @@
     voiceDraftText = '',
     lastAssistantDisplay = '',
     onStop,
+    compact = false,
   }: Props = $props();
 
   const NUM_BARS = 22;
@@ -56,9 +60,10 @@
 
 <div
   class="overlay"
+  class:compact
   role="dialog"
   aria-label="Voice conversation"
-  transition:fade={{ duration: 200 }}
+  transition:fade={{ duration: compact ? 140 : 200 }}
 >
   <button class="close-btn" onclick={onStop} aria-label="End voice mode" title="End voice mode">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
@@ -106,29 +111,41 @@
     {/each}
   </div>
 
-  <!-- Status label -->
-  <p class="status {state}">{STATUS[state]}</p>
+  <!-- Status + live transcript / last response preview -->
+  <div class="text-col">
+    <p class="status {state}">{STATUS[state]}</p>
+    {#if displayText}
+      <p class="live-text">{displayText}</p>
+    {/if}
+  </div>
 
-  <!-- Live transcript / last response preview -->
-  {#if displayText}
-    <p class="live-text">{displayText}</p>
+  {#if !compact}
+    <button class="end-btn" onclick={onStop}>End voice mode</button>
   {/if}
-
-  <button class="end-btn" onclick={onStop}>End voice mode</button>
 </div>
 
 <style>
   .overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 50;
+    position: fixed;
+    /* Sit below the custom title bar so the window controls (min/max/close) stay
+       reachable while voice mode owns the rest of the screen. */
+    top: var(--titlebar-height, 38px);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 300;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 22px;
     padding: 28px 24px 28px;
-    background: var(--bg-primary);
+    /* Translucent glass takeover: the workspace stays faintly visible behind a
+       heavy blur so voice mode reads as a focused overlay on top of your work
+       rather than a context-switch to a different screen. */
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    backdrop-filter: blur(var(--glass-blur-strong, 40px)) saturate(var(--glass-saturate, 140%));
+    -webkit-backdrop-filter: blur(var(--glass-blur-strong, 40px)) saturate(var(--glass-saturate, 140%));
   }
 
   /* ── Close button ── */
@@ -268,6 +285,14 @@
   @keyframes eq-think { from{transform:scaleY(.04)} to{transform:scaleY(calc(var(--max)*.35))} }
 
   /* ── Text ── */
+  .text-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
   .status {
     font-size: 13px;
     font-weight: 500;
@@ -311,4 +336,78 @@
 
   .spin { animation: spin 1.1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Compact docked panel ──
+     A slim glass strip that sits directly above the floating prompt bar so the
+     workspace behind stays visible while the voice loop runs. Lays the orb,
+     equalizer and status out in a single row instead of the centred column. */
+  .overlay.compact {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+    backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+    box-shadow: var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)), inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13));
+    pointer-events: auto;
+  }
+
+  .overlay.compact .orb-wrap {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+  .overlay.compact .orb {
+    width: 36px;
+    height: 36px;
+  }
+  .overlay.compact .orb :global(svg) {
+    width: 18px;
+    height: 18px;
+  }
+  /* Ripple rings would overflow the slim strip — drop them in compact mode. */
+  .overlay.compact .ring { display: none; }
+
+  .overlay.compact .eq {
+    height: 26px;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .overlay.compact .bar { height: 26px; }
+
+  .overlay.compact .text-col {
+    align-items: flex-start;
+    flex: 1;
+    text-align: left;
+    gap: 2px;
+  }
+  .overlay.compact .status { font-size: 11px; }
+  .overlay.compact .live-text {
+    margin: 0;
+    max-width: none;
+    width: 100%;
+    text-align: left;
+    font-size: 11px;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+
+  /* Pull the corner close button into the row at the far right. */
+  .overlay.compact .close-btn {
+    position: static;
+    flex-shrink: 0;
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+  }
 </style>

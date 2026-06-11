@@ -1,6 +1,6 @@
 [package]
 name = "soryq"
-version = "0.3.1"
+version = "0.3.2"
 description = "A lightweight developer workspace built with Tauri 2, Rust, and Svelte 5"
 authors = ["samue"]
 edition = "2021"
@@ -38,7 +38,7 @@ reqwest = { version = "0.13.3", features = ["json", "stream", "gzip", "brotli"] 
 tokio-tungstenite = "0.29.0"
 futures-util = "0.3.32"
 url = "2"
-keyring = "3"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 ignore = "0.4"
 regex = "1"

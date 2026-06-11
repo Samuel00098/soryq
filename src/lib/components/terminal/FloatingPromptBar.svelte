@@ -24,6 +24,8 @@
     spawnAgentPreset,
   } from '$lib/stores/terminal';
   import { getPresetRuns } from '$lib/stores/runs';
+  import { pickAssistantName } from '$lib/services/orchestrator/agent-names';
+  import { applyOrchestratorAgentName } from '$lib/services/orchestrator/terminal-lease';
   import { layout } from '$lib/stores/layout';
   import { showToast } from '$lib/stores/notification';
   import { createVoiceInputSession, mergeVoiceTranscript } from '$lib/services/voice-input';
@@ -37,6 +39,7 @@
     agentForcedAgent,
     agentVoiceModeActive,
   } from '$lib/stores/orchestrator';
+  import VoiceConversationOverlay from '$lib/components/orchestrator/VoiceConversationOverlay.svelte';
   import { describeTtsError, getVoiceReplyConfigError, speak, stopSpeaking } from '$lib/services/tts';
   import { openSettings } from '$lib/stores/layout';
   import { addRunEntry } from '$lib/stores/runHistory';
@@ -56,7 +59,6 @@
   let voiceLocked = $state(false);
   let voiceHeld = $state(false);
   let voiceStopping = $state(false);
-  let broadcastAgents = $state(false);
   let spawnOpen = $state(false);
   let spawnCounts = $state<Map<string, number>>(new Map());
   let totalSpawnCount = $derived(Array.from(spawnCounts.values()).reduce((a, b) => a + b, 0));
@@ -72,7 +74,7 @@
   let targetPickerOpen = $state(false);
   let voiceDraftBase = $state('');
   let voiceDraftText = $state('');
-  let isAgentMode = $state(false);
+  let isAgentMode = $state(true);
   let prevoiceCenter = false;
   let agentSending = $state(false);
   let voiceModeActive = $state(false);
@@ -80,12 +82,12 @@
   let lastSpokenMessageId = $state<string | null>(null);
   let hasPromptText = $derived(inputValue.trim().length > 0);
   let isActive = $derived(
-    isExpanded || hasPromptText || historyOpen || targetPickerOpen || spawnOpen || isListening || isRefining || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag) || isAgentMode
+    isExpanded || hasPromptText || historyOpen || targetPickerOpen || spawnOpen || isListening || isRefining || isDragOver || (!draggedExplorerPath && isGlobalFileDrag) || voiceModeActive
   );
   let waitingTaskCount = $derived(
     $orchestratorTasks.filter(
       (t) => t.projectId === ($activeProject?.id ?? '') &&
-        (t.status === 'in-review' || t.status === 'blocked')
+        t.status === 'blocked'
     ).length
   );
   let projectChatMessages = $derived(
@@ -144,17 +146,12 @@
   // "Pinned" only when the user deliberately targets a terminal other than the
   // active one (via the picker). Focusing a pane keeps target === active = auto.
   let isPinned = $derived($manualPromptTargetId !== null && $manualPromptTargetId !== $activeSessionId);
-  let broadcastTargets = $derived(
-    $sessions
-      .filter((session) => session.isRunning && isAgentSession(session))
-      .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))
-  );
   let runningSessions = $derived($sessions.filter((s) => s.isRunning));
   let historyItems = $derived(($commandHistory || []).slice(0, 12));
   let canSend = $derived(
     isAgentMode
       ? Boolean($activeProject) && !agentSending
-      : (broadcastAgents ? broadcastTargets.length > 0 : Boolean(promptTarget?.isRunning))
+      : Boolean(promptTarget?.isRunning)
   );
 
   // Per-project state: save/restore inputValue and pinned target when project changes
@@ -182,6 +179,8 @@
     draftBeforeHistory = '';
     historyOpen = false;
     targetPickerOpen = false;
+    spawnOpen = false;
+    spawnCounts = new Map();
     requestAnimationFrame(adjustInputHeight);
   });
 
@@ -201,6 +200,7 @@
   function toggleTargetPicker() {
     targetPickerOpen = !targetPickerOpen;
     historyOpen = false;
+    spawnOpen = false;
   }
 
   function resolvePromptTarget() {
@@ -217,12 +217,6 @@
     return allSessions
       .filter((session) => session.isRunning && isAgentSession(session))
       .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null;
-  }
-
-  function resolveBroadcastTargets() {
-    return get(sessions)
-      .filter((session) => session.isRunning && isAgentSession(session))
-      .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0));
   }
 
   function focusInput() {
@@ -245,14 +239,13 @@
       agentCenterOpen.set(true);
     }
     historyOpen = false;
-    spawnOpen = false;
-    broadcastAgents = false;
     targetPickerOpen = false;
+    spawnOpen = false;
     focusInput();
   }
 
   function canStayOpen() {
-    return hasPromptText || historyOpen || targetPickerOpen || spawnOpen || isListening || isRefining || broadcastAgents || isDragOver || (!draggedExplorerPath && isGlobalFileDrag) || isAgentMode;
+    return hasPromptText || historyOpen || targetPickerOpen || spawnOpen || isListening || isRefining || isDragOver || (!draggedExplorerPath && isGlobalFileDrag) || voiceModeActive;
   }
 
   function handleShellFocusOut(event: FocusEvent) {
@@ -299,37 +292,49 @@
     spawnCounts = next;
   }
 
+  // Spawn the selected agents into terminal panes. Each spawned agent gets a
+  // friendly assistant name (same pool as orchestrator agents, so it's easy to
+  // address) and receives the standing operating brief automatically — the
+  // agent-charter auto-brief fires once the CLI is ready, and it reads the
+  // name set here so the charter opens with "you are <name>".
   async function handleSpawnConfirm() {
     const entries = Array.from(spawnCounts.entries()).filter(([, count]) => count > 0);
     if (!entries.length) return;
     spawnOpen = false;
     spawnCounts = new Map();
     const cwd = $activeProject?.root_path;
+    const takenNames = get(sessions)
+      .filter((s) => s.isRunning && s.agentName)
+      .map((s) => s.agentName as string);
     let lastId: number | null = null;
     let total = 0;
+    const spawnedNames: string[] = [];
     for (const [cmd, count] of entries) {
       for (let i = 0; i < count; i++) {
         const id = await spawnAgentPreset(cmd, cwd);
-        if (id !== null) { lastId = id; total++; }
+        if (id !== null) {
+          const name = pickAssistantName(takenNames);
+          takenNames.push(name);
+          applyOrchestratorAgentName(id, name);
+          spawnedNames.push(name);
+          lastId = id;
+          total++;
+        }
       }
     }
     if (!total) {
       showToast('No available panes to spawn agents', 'warning');
       return;
     }
-    if (lastId !== null) manualPromptTargetId.set(lastId);
-    showToast(total === 1 ? 'Spawned agent' : `Spawned ${total} agents`, 'info', undefined, true);
-    focusInput();
-  }
-
-  function toggleBroadcastAgents() {
-    const targets = resolveBroadcastTargets();
-    if (!broadcastAgents && targets.length === 0) {
-      showToast('No running AI agent terminals available', 'warning');
-      return;
-    }
-    broadcastAgents = !broadcastAgents;
-    historyOpen = false;
+    // In terminal mode, point the prompt bar at the freshly spawned agent. Agent
+    // mode keeps its own routing, so don't pin a manual target from there.
+    if (lastId !== null && !isAgentMode) manualPromptTargetId.set(lastId);
+    showToast(
+      total === 1 ? `Spawned ${spawnedNames[0]}` : `Spawned ${total} agents: ${spawnedNames.join(', ')}`,
+      'info',
+      undefined,
+      true
+    );
     focusInput();
   }
 
@@ -414,23 +419,99 @@
     }
   }
 
+  // Write any attached/pasted images to disk and return their on-disk paths,
+  // so both the agent-chat path and the terminal path can fold attachments into
+  // the message text identically. `ok` is false only when saving was needed but
+  // no project is open to hold .soryq/attachments — the caller should abort then.
+  async function materializeAttachments(): Promise<{ paths: string[]; ok: boolean }> {
+    if (pastedImages.length === 0) return { paths: [], ok: true };
+    const toSave = [...pastedImages];
+    // Only images without an on-disk path need to be written, which requires a
+    // project to hold the .soryq/attachments folder. Picked-from-disk images
+    // already have a path and can be sent even with no project open.
+    const needsSave = toSave.some((img) => !img.diskPath);
+    const projectPath = get(activeProject)?.root_path;
+    if (needsSave && !projectPath) {
+      showToast('Open a project before attaching images', 'warning');
+      return { paths: [], ok: false };
+    }
+    pastedImages = [];
+    const paths = await Promise.all(
+      toSave.map((img) =>
+        img.diskPath
+          ? Promise.resolve(img.diskPath.replace(/\\/g, '/'))
+          : saveImageToDisk(img, projectPath as string)
+      )
+    );
+    const validPaths = paths.filter(Boolean) as string[];
+    const failedCount = toSave.length - validPaths.length;
+    if (failedCount > 0) {
+      showToast(
+        failedCount === toSave.length
+          ? `Couldn't attach ${toSave.length === 1 ? 'the image' : 'the images'}`
+          : `Couldn't attach ${failedCount} of ${toSave.length} images`,
+        'error'
+      );
+    }
+    toSave.forEach((img) => URL.revokeObjectURL(img.objectUrl));
+    return { paths: validPaths, ok: true };
+  }
+
+  // Quote only paths with spaces — matches attachPathsToInput and is friendlier
+  // to agent TUIs than always-single-quoting (which leaves literal quotes the
+  // CLI then can't open).
+  function appendAttachmentPaths(text: string, paths: string[]): string {
+    if (!paths.length) return text;
+    const quoted = paths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
+    return text ? `${text} ${quoted}` : quoted;
+  }
+
   async function submitAgentMessage() {
-    const text = inputValue.trim();
-    if (!text || !$activeProject || agentSending) return;
+    if (!$activeProject || agentSending) return;
+    const { paths, ok } = await materializeAttachments();
+    if (!ok) return;
+    const finalText = appendAttachmentPaths(inputValue.trim(), paths);
+    if (!finalText) return;
     inputValue = '';
-    agentCenterOpen.set(true);
+    // In voice mode the orb overlay owns the screen, so don't pop the command
+    // center open behind it — stopAgentVoice restores its prior state on exit.
+    if (!voiceModeActive) agentCenterOpen.set(true);
     agentSending = true;
     try {
-      await sendChatMessage($activeProject.id, $activeProject.root_path, text, {
+      await sendChatMessage($activeProject.id, $activeProject.root_path, finalText, {
         forcedAgent: get(agentForcedAgent),
         voiceConversation: voiceModeActive,
       });
     } finally {
       agentSending = false;
+      // Resume listening once dispatch finishes if the spoken reply already ended
+      // (TTS may run and complete during the background recon/spawn above). If TTS
+      // is still playing, speakResponse's finally handles the restart instead.
+      resumeVoiceLoop();
     }
     resetHistoryCursor();
     requestAnimationFrame(adjustInputHeight);
     focusInput();
+  }
+
+  // Single source of truth for "should the mic come back on now?" in the
+  // conversational voice loop. Every terminal point of a turn (dispatch done,
+  // speech done, a transcript that errored out) funnels through here instead of
+  // repeating the guard, so the loop can never get wedged with the mic off while
+  // nothing else is running. The internal guards in voiceInput.start() make a
+  // redundant call from two racing finalizers a harmless no-op.
+  function resumeVoiceLoop() {
+    if (
+      voiceModeActive &&
+      isAgentMode &&
+      !voiceStopping &&
+      !isTtsSpeaking &&
+      !isListening &&
+      !isRefining &&
+      !agentSending
+    ) {
+      void voiceInput.start();
+    }
   }
 
   function stripMarkdown(text: string): string {
@@ -447,10 +528,12 @@
   }
 
   async function speakResponse(text: string) {
-    const clean = stripMarkdown(text);
+    // Drop the transient "🔍 Analyzing codebase…" status the orchestrator appends
+    // to the reply while reconnaissance runs — we only want to speak the reply.
+    const clean = stripMarkdown(text.split('\n\n🔍')[0]);
     if (!clean || clean.length < 3) {
       isTtsSpeaking = false;
-      if (voiceModeActive && isAgentMode && !agentSending) void voiceInput.start();
+      resumeVoiceLoop();
       return;
     }
     try {
@@ -459,7 +542,7 @@
       if (voiceModeActive) showToast(describeTtsError(error), 'error');
     } finally {
       isTtsSpeaking = false;
-      if (voiceModeActive && isAgentMode && !agentSending) void voiceInput.start();
+      resumeVoiceLoop();
     }
   }
 
@@ -469,7 +552,9 @@
     isTtsSpeaking = false;
     lastSpokenMessageId = null;
     stopSpeaking();
-    if (prevoiceCenter) agentCenterOpen.set(true);
+    // Restore the command center to exactly its pre-voice state (open or closed)
+    // so leaving voice mode is predictable rather than leaving it stuck open.
+    agentCenterOpen.set(prevoiceCenter);
     voiceLocked = false;
     voiceHeld = false;
     voiceStopping = true;
@@ -486,6 +571,10 @@
     }
     prevoiceCenter = get(agentCenterOpen);
     agentCenterOpen.set(false);
+    // Seed with the current last assistant message so entering voice mode opens
+    // straight into listening instead of re-speaking the reply already on screen.
+    const lastMsg = projectChatMessages.at(-1);
+    lastSpokenMessageId = lastMsg && lastMsg.role === 'assistant' && !lastMsg.pending ? lastMsg.id : null;
     voiceModeActive = true;
     agentVoiceModeActive.set(true);
     void voiceInput.start();
@@ -499,9 +588,14 @@
     }
   }
 
-  // Auto-speak new assistant messages in agent voice mode
+  // Auto-speak new assistant messages in agent voice mode.
+  // Deliberately NOT gated on `agentSending`: the conversational reply is ready
+  // the moment routing finishes (well before recon + spawn + dispatch complete),
+  // so speaking it immediately removes seconds of dead air. Background dispatch
+  // keeps running while TTS plays; the mic resumes when dispatch finishes
+  // (see submitAgentMessage's finally) or when TTS ends (see speakResponse).
   $effect(() => {
-    if (!voiceModeActive || !isAgentMode || isTtsSpeaking || agentSending) return;
+    if (!voiceModeActive || !isAgentMode || isTtsSpeaking) return;
     const lastMsg = projectChatMessages.at(-1);
     if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.pending || lastMsg.id === lastSpokenMessageId) return;
     lastSpokenMessageId = lastMsg.id;
@@ -528,82 +622,34 @@
 
   async function submitPrompt() {
     if (isAgentMode) { await submitAgentMessage(); return; }
-    const text = inputValue.trim();
-    if (!text && pastedImages.length === 0) return;
+    if (!inputValue.trim() && pastedImages.length === 0) return;
 
-    let finalText = text;
-
-    if (pastedImages.length > 0) {
-      const toSave = [...pastedImages];
-      // Only images without an on-disk path need to be written, which requires a
-      // project to hold the .soryq/attachments folder. Picked-from-disk images
-      // already have a path and can be sent even with no project open.
-      const needsSave = toSave.some((img) => !img.diskPath);
-      const projectPath = get(activeProject)?.root_path;
-      if (needsSave && !projectPath) {
-        showToast('Open a project before attaching images', 'warning');
-        return;
-      }
-      pastedImages = [];
-      const paths = await Promise.all(
-        toSave.map((img) =>
-          img.diskPath
-            ? Promise.resolve(img.diskPath.replace(/\\/g, '/'))
-            : saveImageToDisk(img, projectPath as string)
-        )
-      );
-      const validPaths = paths.filter(Boolean) as string[];
-      const failedCount = toSave.length - validPaths.length;
-      if (failedCount > 0) {
-        showToast(
-          failedCount === toSave.length
-            ? `Couldn't attach ${toSave.length === 1 ? 'the image' : 'the images'}`
-            : `Couldn't attach ${failedCount} of ${toSave.length} images`,
-          'error'
-        );
-      }
-      if (validPaths.length > 0) {
-        // Quote only when the path has spaces — matches attachPathsToInput and is
-        // friendlier to agent TUIs than always-single-quoting (which would leave
-        // literal quote characters in the prompt the CLI then reads).
-        const quoted = validPaths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ');
-        finalText = finalText ? `${finalText} ${quoted}` : quoted;
-      }
-      toSave.forEach((img) => URL.revokeObjectURL(img.objectUrl));
-    }
-
+    const { paths, ok } = await materializeAttachments();
+    if (!ok) return;
+    const finalText = appendAttachmentPaths(inputValue.trim(), paths);
     if (!finalText) return;
 
-    const singleTarget = resolvePromptTarget();
-    const targets = broadcastAgents
-      ? resolveBroadcastTargets()
-      : (singleTarget ? [singleTarget] : []);
-
-    if (!targets.length) {
-      showToast(
-        broadcastAgents ? 'No running AI agent terminals available' : 'No active terminal available',
-        'warning'
-      );
+    const target = resolvePromptTarget();
+    if (!target) {
+      showToast('No active terminal available', 'warning');
       return;
     }
 
-    activateSessionInPane(targets[0].id);
-    for (const target of targets) {
-      const taskSummary = summarizeTerminalTask(finalText);
-      sendPromptToTarget(target.id, finalText, target.agentPreset);
-      setSessionExecuting(target.id, true);
-      setSessionTaskSummary(target.id, taskSummary || null);
-      startCommandBlock(target.id, finalText);
-      addRunEntry({
-        command: finalText,
-        sessionId: target.id,
-        sessionRole: target.role ?? null,
-        sessionLabel: getSessionLabel(target, $sessions),
-        agentPreset: target.agentPreset ?? null,
-        projectId: $activeProject?.id ?? '',
-        startedAt: Date.now(),
-      });
-    }
+    activateSessionInPane(target.id);
+    const taskSummary = summarizeTerminalTask(finalText);
+    sendPromptToTarget(target.id, finalText, target.agentPreset);
+    setSessionExecuting(target.id, true);
+    setSessionTaskSummary(target.id, taskSummary || null);
+    startCommandBlock(target.id, finalText);
+    addRunEntry({
+      command: finalText,
+      sessionId: target.id,
+      sessionRole: target.role ?? null,
+      sessionLabel: getSessionLabel(target, $sessions),
+      agentPreset: target.agentPreset ?? null,
+      projectId: $activeProject?.id ?? '',
+      startedAt: Date.now(),
+    });
     addHistoryEntry(finalText);
 
     inputValue = '';
@@ -611,9 +657,7 @@
     historyOpen = false;
     resetHistoryCursor();
     showToast(
-      broadcastAgents
-        ? `Broadcast to ${targets.length} AI agent terminal${targets.length === 1 ? '' : 's'}`
-        : `Sent to ${targets[0] ? getSessionPromptTargetLabel(targets[0], $sessions) : 'terminal'}`,
+      `Sent to ${getSessionPromptTargetLabel(target, $sessions)}`,
       'info',
       undefined,
       true
@@ -715,9 +759,7 @@
             }
             return;
           }
-          if (shouldResumeAgentVoice && !isTtsSpeaking && !agentSending) {
-            void voiceInput.start();
-          }
+          resumeVoiceLoop();
         });
         return;
       }
@@ -738,11 +780,14 @@
                 showToast('Prompt refined by AI', 'success', undefined, true);
               }
             }
-          } else if (shouldResumeAgentVoice) {
-            void voiceInput.start();
           }
+          // An empty refinement (nothing usable was said) just falls through to
+          // the finally below, which restarts the loop — no special-casing here.
         } catch (error) {
           console.error('Failed to refine voice prompt:', error);
+          // Surface the failure in voice mode so a silent dead mic isn't the only
+          // signal; the finally still re-arms listening so the loop survives it.
+          if (shouldResumeAgentVoice) showToast('Could not process that — listening again.', 'warning', 3000);
         } finally {
           isRefining = false;
           voiceStopping = false;
@@ -754,6 +799,10 @@
                 void voiceInput.start();
               }
             });
+          } else {
+            // Conversational voice loop: re-arm the mic for the next turn. Guarded
+            // (won't fire mid-speech or mid-send), so racing finalizers are safe.
+            queueMicrotask(resumeVoiceLoop);
           }
         }
       })();
@@ -973,12 +1022,6 @@
   });
 
   $effect(() => {
-    if (broadcastAgents && broadcastTargets.length === 0) {
-      broadcastAgents = false;
-    }
-  });
-
-  $effect(() => {
     const sessionId = resolvePromptTarget()?.id;
     if (!sessionId) return;
     historyOpen = false;
@@ -1007,7 +1050,15 @@
   }
 
   function handleGlobalVoiceShortcut(event: KeyboardEvent) {
-    if (voiceModeActive && isAgentMode) return;
+    // While the conversational loop owns the screen, Escape is the one-key exit
+    // back to agent mode — Alt push-to-talk is intentionally inert here.
+    if (voiceModeActive && isAgentMode) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        stopAgentVoice();
+      }
+      return;
+    }
     if (event.key !== 'Alt' || event.location !== KeyboardEvent.DOM_KEY_LOCATION_LEFT || event.repeat || isRefining) return;
     const activeElement = document.activeElement;
     if (!shellEl || !activeElement || !shellEl.contains(activeElement)) return;
@@ -1164,6 +1215,19 @@
 
 <div class="floating-prompt-shell" class:active={isActive} class:collapsed={!isActive} bind:this={shellEl}>
   {#if isActive}
+    {#if isVoiceActive}
+      <VoiceConversationOverlay
+        compact
+        isListening={isListening}
+        isTtsSpeaking={isTtsSpeaking}
+        isRefining={isRefining}
+        sending={agentSending}
+        voiceDraftText={voiceDraftText}
+        lastAssistantDisplay={lastAssistantDisplay}
+        onStop={stopAgentVoice}
+      />
+    {/if}
+
     {#if historyOpen && historyItems.length > 0}
       <div class="history-panel"
         onmouseenter={() => isHovered = true}
@@ -1233,26 +1297,12 @@
         {/if}
       </button>
 
-      {#if !isAgentMode}
-      <button
-        class="history-toggle"
-        onclick={() => historyOpen = !historyOpen}
-        title="Toggle prompt history"
-        aria-label="Toggle prompt history"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 3v5h5"/>
-          <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
-          <path d="M12 7v5l3 3"/>
-        </svg>
-      </button>
-
       <button
         class="spawn-toggle"
         class:active={spawnOpen}
         onclick={() => { spawnOpen = !spawnOpen; if (!spawnOpen) spawnCounts = new Map(); historyOpen = false; targetPickerOpen = false; }}
-        title="Spawn agent"
-        aria-label="Spawn agent"
+        title="Spawn agents"
+        aria-label="Spawn agents"
         disabled={!$activeProject}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -1267,30 +1317,13 @@
       <button
         class="attach-toggle"
         onclick={attachFiles}
-        title="Attach file paths"
-        aria-label="Attach file paths"
+        title="Attach files"
+        aria-label="Attach files"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
         </svg>
       </button>
-
-      <button
-        class="broadcast-toggle"
-        class:active={broadcastAgents}
-        onclick={toggleBroadcastAgents}
-        title={broadcastAgents ? 'Broadcast to all running AI agent terminals' : 'Enable broadcast to all running AI agent terminals'}
-        aria-label={broadcastAgents ? 'Broadcast to all running AI agent terminals' : 'Enable broadcast to all running AI agent terminals'}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 12h4"/>
-          <path d="M16 12h4"/>
-          <path d="M12 4v4"/>
-          <path d="M12 16v4"/>
-          <circle cx="12" cy="12" r="3"/>
-        </svg>
-      </button>
-      {/if}
 
       <button
         class="voice-toggle"
@@ -1410,10 +1443,6 @@
                           : 'Enter to send - Hold Alt to speak'}
               </span>
             </div>
-          {:else if broadcastAgents}
-            <span class="prompt-target"
-              >Broadcast to {broadcastTargets.length} AI agent terminal{broadcastTargets.length === 1 ? '' : 's'}</span
-            >
           {:else}
             <button
               class="prompt-target prompt-target-btn"
@@ -1473,7 +1502,7 @@
           placeholder={
             isAgentMode
               ? ($activeProject ? 'Ask your agent…' : 'Open a project to use agent mode')
-              : (canSend ? (broadcastAgents ? 'Broadcast to all running AI agent terminals...' : 'Prompt the active terminal...') : 'Open or focus a terminal to send prompts')
+              : (canSend ? 'Prompt the active terminal...' : 'Open or focus a terminal to send prompts')
           }
           rows="1"
           disabled={!canSend}
@@ -1488,7 +1517,7 @@
         class="send-btn"
         onclick={submitPrompt}
         disabled={!canSend || (!inputValue.trim() && pastedImages.length === 0)}
-        title={broadcastAgents ? 'Broadcast prompt to all running AI agent terminals' : (preferredAgentTerminal ? 'Send prompt to AI agent terminal' : 'Send prompt to active terminal')}
+        title={isAgentMode ? 'Send to agent' : (preferredAgentTerminal ? 'Send prompt to AI agent terminal' : 'Send prompt to active terminal')}
       >
         Send
       </button>
@@ -1513,6 +1542,7 @@
     </button>
   {/if}
 </div>
+
 
 
 <style>
@@ -1740,9 +1770,8 @@
     background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
   }
 
-  .history-toggle,
+  .spawn-toggle,
   .attach-toggle,
-  .broadcast-toggle,
   .voice-toggle,
   .send-btn {
     flex-shrink: 0;
@@ -1750,9 +1779,8 @@
     transition: background 0.15s, color 0.15s, opacity 0.15s;
   }
 
-  .history-toggle,
+  .spawn-toggle,
   .attach-toggle,
-  .broadcast-toggle,
   .voice-toggle {
     width: 36px;
     height: 36px;
@@ -1764,12 +1792,9 @@
     color: var(--text-secondary);
   }
 
-  /* spawn-toggle shares the same base sizing via its own rule above,
-     but needs to participate in responsive shrink alongside the others */
-
-  .history-toggle:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+  .spawn-toggle,
+  .attach-toggle {
+    cursor: pointer;
   }
 
   .attach-toggle:hover {
@@ -1777,15 +1802,44 @@
     color: var(--text-primary);
   }
 
-  .broadcast-toggle:hover {
+  .spawn-toggle {
+    position: relative;
+  }
+
+  .spawn-toggle:hover:not(:disabled) {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
 
-  .broadcast-toggle.active {
+  .spawn-toggle.active {
     background: color-mix(in srgb, var(--accent) 22%, var(--bg-primary));
     color: var(--accent);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+  }
+
+  .spawn-toggle:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .spawn-toggle-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--button-text, #fff);
+    font-size: 8.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    pointer-events: none;
+    box-shadow: 0 0 0 2px var(--bg-primary);
   }
 
   .voice-toggle:hover {
@@ -1921,357 +1975,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 500;
-  }
-
-  .target-auto-badge {
-    font-size: 9px;
-    color: var(--text-muted);
-    background: var(--bg-tertiary);
-    border-radius: 4px;
-    padding: 1px 5px;
-    flex-shrink: 0;
-  }
-
-  .prompt-hint {
-    flex-shrink: 0;
-    font-size: 10px;
-    color: var(--text-muted);
-  }
-
-  .image-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 6px 8px;
-    background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
-    border-radius: 10px;
-    border: 1px solid var(--border);
-  }
-
-  .image-chip {
-    position: relative;
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    max-width: 64px;
-  }
-
-  .chip-thumb {
-    display: block;
-    width: 56px;
-    height: 56px;
-    object-fit: cover;
-    border-radius: 8px;
-    border: 1.5px solid var(--border);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-
-  .image-chip:hover .chip-thumb {
-    transform: scale(1.04);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-  }
-
-  .chip-label {
-    font-size: 9px;
-    color: var(--text-muted);
-    max-width: 60px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: center;
-    line-height: 1.2;
-  }
-
-  .chip-remove {
-    position: absolute;
-    top: -5px;
-    right: -5px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: 0;
-    transition: background 0.12s, color 0.12s;
-  }
-
-  .chip-remove:hover {
-    background: rgba(239, 68, 68, 0.18);
-    color: var(--error);
-    border-color: rgba(239, 68, 68, 0.3);
-  }
-
-  .prompt-input {
-    width: 100%;
-    min-height: 24px;
-    max-height: 100px;
-    resize: none;
-    overflow-y: auto;
-    border: 0;
-    outline: none;
-    background: transparent;
-    color: var(--text-primary);
-    font-family: var(--editor-font-family, monospace);
-    font-size: 12.5px;
-    line-height: 1.45;
-    height: 24px;
-  }
-
-  .prompt-input::placeholder {
-    color: var(--text-muted);
-  }
-
-  .send-btn {
-    height: 36px;
-    padding: 0 16px;
-    border-radius: 12px;
-    background: var(--button-bg, var(--accent));
-    color: var(--button-text, #fff);
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  @container center-panel (max-width: 860px) {
-    .floating-prompt-shell {
-      width: calc(100% - 24px);
-      bottom: 14px;
-    }
-    .prompt-bubble {
-      width: 48px;
-      height: 48px;
-    }
-
-    .prompt-bubble :global(svg) {
-      width: 16px;
-      height: 16px;
-    }
-
-
-    .floating-prompt-bar {
-      gap: 8px;
-      padding: 9px 10px;
-      border-radius: 18px;
-    }
-
-    .history-panel {
-      border-radius: 14px;
-    }
-
-    .history-item {
-      padding: 7px 8px;
-    }
-
-    .history-text {
-      font-size: 11px;
-    }
-
-    .history-toggle,
-    .attach-toggle,
-    .spawn-toggle,
-    .broadcast-toggle,
-    .voice-toggle,
-    .send-btn {
-      height: 34px;
-    }
-
-    .history-toggle,
-    .attach-toggle,
-    .spawn-toggle,
-    .broadcast-toggle,
-    .voice-toggle {
-      width: 34px;
-      border-radius: 10px;
-    }
-
-    .prompt-copy {
-      gap: 5px;
-    }
-
-    .prompt-meta {
-      gap: 8px;
-    }
-
-    .prompt-target {
-      font-size: 10px;
-    }
-
-    .prompt-hint {
-      font-size: 9px;
-    }
-
-    .prompt-input {
-      font-size: 12px;
-      min-height: 22px;
-      height: 22px;
-    }
-
-    .send-btn {
-      padding: 0 12px;
-      border-radius: 10px;
-      font-size: 11px;
-    }
-  }
-
-  @container center-panel (max-width: 620px) {
-    .floating-prompt-shell {
-      width: calc(100% - 16px);
-      bottom: 10px;
-    }
-    .prompt-bubble {
-      width: 44px;
-      height: 44px;
-    }
-
-    .prompt-bubble :global(svg) {
-      width: 15px;
-      height: 15px;
-    }
-
-
-    .floating-prompt-bar {
-      gap: 6px;
-      padding: 8px;
-      border-radius: 16px;
-    }
-
-    .history-panel {
-      border-radius: 12px;
-    }
-
-    .history-list {
-      max-height: 160px;
-      padding: 3px 4px 6px;
-    }
-
-    .history-item {
-      padding: 6px 7px;
-      border-radius: 8px;
-    }
-
-    .history-text {
-      font-size: 10px;
-    }
-
-    .history-toggle,
-    .attach-toggle,
-    .spawn-toggle,
-    .broadcast-toggle,
-    .voice-toggle {
-      width: 30px;
-      height: 30px;
-      border-radius: 9px;
-    }
-
-    .history-toggle :global(svg),
-    .attach-toggle :global(svg),
-    .spawn-toggle :global(svg),
-    .broadcast-toggle :global(svg),
-    .voice-toggle :global(svg) {
-      width: 12px;
-      height: 12px;
-    }
-
-    .prompt-copy {
-      gap: 4px;
-    }
-
-    .prompt-meta {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 3px;
-    }
-
-    .prompt-target {
-      font-size: 9.5px;
-      max-width: 100%;
-    }
-
-    .prompt-hint {
-      display: none;
-    }
-
-    .prompt-input {
-      font-size: 11px;
-      line-height: 1.35;
-      min-height: 20px;
-      height: 20px;
-    }
-
-    .send-btn {
-      height: 30px;
-      min-width: 46px;
-      padding: 0 10px;
-      border-radius: 9px;
-      font-size: 10px;
-    }
-  }
-
-  .send-btn:hover:not(:disabled) {
-    background: var(--button-hover-bg, var(--accent-hover));
-  }
-
-  .send-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  .spawn-toggle {
-    width: 36px;
-    height: 36px;
-    border-radius: 12px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    flex-shrink: 0;
-    border: 0;
-    transition: background 0.15s, color 0.15s;
-    position: relative;
-  }
-
-  .spawn-toggle-badge {
-    position: absolute;
-    top: -5px;
-    right: -5px;
-    min-width: 15px;
-    height: 15px;
-    padding: 0 3px;
-    border-radius: 8px;
-    background: var(--accent);
-    color: var(--button-text, #fff);
-    font-size: 8.5px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    pointer-events: none;
-    box-shadow: 0 0 0 2px var(--bg-primary);
-  }
-
-  .spawn-toggle:hover:not(:disabled) {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .spawn-toggle.active {
-    background: color-mix(in srgb, var(--accent) 22%, var(--bg-primary));
-    color: var(--accent);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
-  }
-
-  .spawn-toggle:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
   }
 
   .spawn-picker {
@@ -2428,24 +2131,303 @@
     cursor: not-allowed;
   }
 
+  .target-auto-badge {
+    font-size: 9px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+  }
+
+  .prompt-hint {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .image-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 8px;
+    background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+
+  .image-chip {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-width: 64px;
+  }
+
+  .chip-thumb {
+    display: block;
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .image-chip:hover .chip-thumb {
+    transform: scale(1.04);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+
+  .chip-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  .chip-remove {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .chip-remove:hover {
+    background: rgba(239, 68, 68, 0.18);
+    color: var(--error);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+
+  .prompt-input {
+    width: 100%;
+    min-height: 24px;
+    max-height: 100px;
+    resize: none;
+    overflow-y: auto;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--editor-font-family, monospace);
+    font-size: 12.5px;
+    line-height: 1.45;
+    height: 24px;
+  }
+
+  .prompt-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .send-btn {
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 12px;
+    background: var(--button-bg, var(--accent));
+    color: var(--button-text, #fff);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  @container center-panel (max-width: 860px) {
+    .floating-prompt-shell {
+      width: calc(100% - 24px);
+      bottom: 14px;
+    }
+    .prompt-bubble {
+      width: 48px;
+      height: 48px;
+    }
+
+    .prompt-bubble :global(svg) {
+      width: 16px;
+      height: 16px;
+    }
+
+
+    .floating-prompt-bar {
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: 18px;
+    }
+
+    .history-panel {
+      border-radius: 14px;
+    }
+
+    .history-item {
+      padding: 7px 8px;
+    }
+
+    .history-text {
+      font-size: 11px;
+    }
+
+    .spawn-toggle,
+    .attach-toggle,
+    .voice-toggle,
+    .send-btn {
+      height: 34px;
+    }
+
+    .spawn-toggle,
+    .attach-toggle,
+    .voice-toggle {
+      width: 34px;
+      border-radius: 10px;
+    }
+
+    .prompt-copy {
+      gap: 5px;
+    }
+
+    .prompt-meta {
+      gap: 8px;
+    }
+
+    .prompt-target {
+      font-size: 10px;
+    }
+
+    .prompt-hint {
+      font-size: 9px;
+    }
+
+    .prompt-input {
+      font-size: 12px;
+      min-height: 22px;
+      height: 22px;
+    }
+
+    .send-btn {
+      padding: 0 12px;
+      border-radius: 10px;
+      font-size: 11px;
+    }
+  }
+
+  @container center-panel (max-width: 620px) {
+    .floating-prompt-shell {
+      width: calc(100% - 16px);
+      bottom: 10px;
+    }
+    .prompt-bubble {
+      width: 44px;
+      height: 44px;
+    }
+
+    .prompt-bubble :global(svg) {
+      width: 15px;
+      height: 15px;
+    }
+
+
+    .floating-prompt-bar {
+      gap: 6px;
+      padding: 8px;
+      border-radius: 16px;
+    }
+
+    .history-panel {
+      border-radius: 12px;
+    }
+
+    .history-list {
+      max-height: 160px;
+      padding: 3px 4px 6px;
+    }
+
+    .history-item {
+      padding: 6px 7px;
+      border-radius: 8px;
+    }
+
+    .history-text {
+      font-size: 10px;
+    }
+
+    .spawn-toggle,
+    .attach-toggle,
+    .voice-toggle {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+    }
+
+    .spawn-toggle :global(svg),
+    .attach-toggle :global(svg),
+    .voice-toggle :global(svg) {
+      width: 12px;
+      height: 12px;
+    }
+
+    .prompt-copy {
+      gap: 4px;
+    }
+
+    .prompt-meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 3px;
+    }
+
+    .prompt-target {
+      font-size: 9.5px;
+      max-width: 100%;
+    }
+
+    .prompt-hint {
+      display: none;
+    }
+
+    .prompt-input {
+      font-size: 11px;
+      line-height: 1.35;
+      min-height: 20px;
+      height: 20px;
+    }
+
+    .send-btn {
+      height: 30px;
+      min-width: 46px;
+      padding: 0 10px;
+      border-radius: 9px;
+      font-size: 10px;
+    }
+  }
+
+  .send-btn:hover:not(:disabled) {
+    background: var(--button-hover-bg, var(--accent-hover));
+  }
+
+  .send-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   @media (max-width: 720px) {
     .floating-prompt-shell {
       width: calc(100% - 20px);
       bottom: 12px;
     }
-  }
-
-  /* ── Voice overlay wrapper (agent mode) ────────────────────────────────── */
-
-  .voice-overlay-wrap {
-    position: relative;
-    height: 300px;
-    border-radius: 20px;
-    overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-    box-shadow:
-      var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)),
-      inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13));
   }
 
   /* ── Agent mode ─────────────────────────────────────────────────────────── */
@@ -2668,22 +2650,17 @@
       border-radius: 14px;
     }
 
-    .voice-toggle,
-    .attach-toggle {
-      display: none;
-    }
-
-    .history-toggle,
     .spawn-toggle,
-    .broadcast-toggle {
+    .attach-toggle,
+    .voice-toggle {
       width: 28px;
       height: 28px;
       border-radius: 8px;
     }
 
-    .history-toggle :global(svg),
     .spawn-toggle :global(svg),
-    .broadcast-toggle :global(svg) {
+    .attach-toggle :global(svg),
+    .voice-toggle :global(svg) {
       width: 11px;
       height: 11px;
     }

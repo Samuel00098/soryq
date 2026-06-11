@@ -3,6 +3,48 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.2] - 2026-06-11
+
+### Added
+
+- **Agent Charter** — every spawned agent now receives a standing operating brief the moment it starts. The brief enforces scope (do only the assigned task, note unrelated issues rather than fixing them), git safety rules (no destructive commands, no branch-switching, no force-push, commit only your own files), and execution discipline (begin immediately, verify before done, end with a summary). This prevents agents sharing a workspace from clobbering each other's edits or wandering outside their task.
+
+- **Voice overlay compact mode** — `VoiceConversationOverlay` gains a `compact` prop that renders it as a small docked panel above the floating bar rather than a full-screen takeover, so the workspace stays visible while you talk.
+
+- **Voice conversation mode in the orchestrator brain** — `routeOrchestratorRequest` now accepts a `conversational` flag. When set, the brain defaults to chatting (empty actions) and only dispatches agents when you explicitly say so ("open an agent and…", "spawn Claude to fix…"). Running agents' recent terminal output is surfaced in replies so status questions get useful answers. The LLM system prompt gains a dedicated voice-mode section reinforcing the same bias.
+
+- **Idle agent spawn** — saying "open Claude" or "spawn an agent" without a real task now opens a ready terminal without inventing a meaningless task prompt for the agent. `EXPLICIT_SPAWN_RE` distinguishes idle-open from task-dispatch intents.
+
+- **Background-project session exit tracking** — a new `onSessionExit` broadcast in `terminal.ts` fires for every session exit in every project, not just the active one. The orchestrator subscribes to it so an agent that exits while its project is in the background is reconciled immediately, instead of being stranded in-progress until the user reopens that project.
+
+- **TTS chunked streaming** — `speak()` splits text into sentence-level chunks and plays them in a pipeline: the first chunk (≤140 chars) begins playing the moment it is synthesised, while the rest are synthesised in the background. This dramatically reduces time-to-first-audio on long replies. A per-call `speakToken` ensures a superseded or cancelled pipeline tears down cleanly without lingering audio.
+
+### Changed
+
+- **Agent mode on by default** — the floating prompt bar now opens in agent mode (`isAgentMode` defaults to `true`), so it is always ready for an orchestrator message without an extra click.
+
+- **Voice overlay positioning and appearance** — the overlay now uses `position: fixed` (was `position: absolute`) and sits below the title bar so window controls remain reachable. The background switches to a translucent glass effect (`backdrop-filter: blur`) so the workspace stays faintly visible behind it.
+
+- **Agent Command Center simplified** — the task management panels (running / blocked / in-review task lists, approve/reject controls, agent picker) are removed from the Agent Command Center. It now focuses purely on the conversational chat interface.
+
+- **Prompt delivery timeout extended** — `PASTE_SUBMIT_MAX_WAIT_MS` raised from 2 500 ms to 6 000 ms so slow-starting TUI agents (Ink/React REPLs) are not short-circuited. Test-environment timing constants stay fast.
+
+- **Spawn UI reset on project switch** — `spawnOpen` and `spawnCounts` are reset when the active project changes so stale spawn state from a previous project never leaks into the new one.
+
+### Removed
+
+- **Per-task git worktrees** — `workspace_git_worktree_create` and `workspace_git_worktree_remove` Rust commands removed; `worktree-manager.ts` and its tests deleted. The Agent Charter's scope and git rules replace isolation at the filesystem level: agents coordinate by convention rather than by being locked to separate trees.
+
+- **`in-review` task status** — the intermediate review gate is gone. Tasks transition directly from `in-progress` to `complete`, `failed`, or `blocked`. Legacy persisted `in-review` tasks are normalised to `todo` on load.
+
+- **`ExecutionMode` (`direct` / `worktree`)** — removed from task records, `createTaskRecord`, and `createOrchestratorTask`. `inferExecutionMode()` removed along with it.
+
+- **`approveTask()` / `requestTaskChanges()`** — task review/approval functions and their UI controls removed.
+
+- **`OrchestratorWorktree` / `OrchestratorReviewState` types** — removed from the task model.
+
+- **Broadcast-to-all-agents mode** — the floating bar's "broadcast" toggle (send one message to every running agent at once) removed.
+
 ## [v0.3.1] - 2026-06-09
 
 ### Added

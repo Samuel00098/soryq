@@ -1,17 +1,28 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 
+const ptyDataHandlers = vi.hoisted(() => new Map<number, (bytes: Uint8Array) => void>());
+
 vi.mock('$lib/services/pty-bridge', () => {
   let nextId = 1;
   return {
-    openPty: vi.fn(async () => ({
-      id: nextId++,
-      write: vi.fn(async () => {}),
-      resize: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-    })),
+    openPty: vi.fn(async (_cols: number, _rows: number, opts?: { onData?: (bytes: Uint8Array) => void }) => {
+      const id = nextId++;
+      if (opts?.onData) ptyDataHandlers.set(id, opts.onData);
+      return {
+        id,
+        write: vi.fn(async () => {}),
+        resize: vi.fn(async () => {}),
+        close: vi.fn(async () => {}),
+      };
+    }),
   };
 });
+
+/** Simulate the shell/CLI printing to a session's terminal. */
+function feedPtyOutput(sessionId: number, text: string) {
+  ptyDataHandlers.get(sessionId)?.(new TextEncoder().encode(text));
+}
 
 vi.mock('./notification', () => ({
   showToast: vi.fn(),
@@ -33,7 +44,12 @@ import {
   setSessionOwnerTask,
   setSessionTaskSummary,
   startCommandBlock,
+  sendAgentPromptDirect,
+  spawnAgentPreset,
+  waitForAgentReady,
 } from './terminal';
+import { openPty } from '$lib/services/pty-bridge';
+import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
 
 describe('terminal task summaries', () => {
   const projectId = 'project-terminal-summary';
@@ -122,4 +138,291 @@ describe('agent prompt paste-echo detection', () => {
   it('returns false for empty prompt text', () => {
     expect(pasteEchoLanded('anything', 'anything more', '')).toBe(false);
   });
+
+  it('fires on a collapsed paste placeholder when the text is not echoed literally', () => {
+    // Claude Code collapses multi-line pastes — the literal text never appears,
+    // only "[Pasted text #N +M lines]". That placeholder must count as the echo.
+    const base = '\x1b[2K\x1b[1G> ';
+    const withPlaceholder = base + '\x1b[2K\x1b[1G> [Pasted text #1 +6 lines]\x1b[7m \x1b[27m';
+    expect(pasteEchoLanded(base, withPlaceholder, 'SORYQ AGENT BRIEF\nline two\nline three')).toBe(true);
+  });
+
+  it('does not fire on a placeholder left over from an earlier paste', () => {
+    const base = '> [Pasted text #1 +6 lines] sent earlier\n> ';
+    const afterRedraw = base + '\x1b[2K\x1b[1GOpus 4 | [....] | 0%';
+    expect(pasteEchoLanded(base, afterRedraw, 'A brand new prompt that is not echoed')).toBe(false);
+  });
 });
+
+describe('sendAgentPromptDirect', () => {
+  const projectId = 'project-terminal-direct';
+
+  beforeEach(() => {
+    setActiveTerminalProject(projectId);
+  });
+
+  afterEach(async () => {
+    await killAllSessions();
+    setActiveTerminalProject(null);
+  });
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  it('delivers prompt using bracketed paste for Codex as preset', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+    markSessionAgentPreset(sessionId!, 'codex', true); // Skip auto-brief
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+
+    writeSpy.mockClear();
+
+    const multilinePrompt = 'Line 1\nLine 2\nLine 3';
+    const result = await sendAgentPromptDirect(sessionId!, multilinePrompt);
+
+    expect(result).toBe(true);
+    // Newlines are converted to \r inside the paste body — that's what a real
+    // terminal paste delivers, and what every composer is tested against.
+    expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('\x1b[200~Line 1\rLine 2\rLine 3\x1b[201~'));
+  });
+
+  it('delivers Claude charter prompts as plain single-line composer input', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+    markSessionAgentPreset(sessionId!, 'claude', true);
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    const charter = buildAgentCharter('Fix the failing tests', { name: 'Iris' });
+    const result = await sendAgentPromptDirect(sessionId!, charter);
+
+    expect(result).toBe(true);
+    const pasteWrite = writeSpy.mock.calls.find((call: unknown[]) => typeof call[0] === 'string' && call[0].includes('SORYQ AGENT BRIEF'));
+    expect(pasteWrite).toBeDefined();
+    const payload = pasteWrite![0] as string;
+    expect(payload).not.toContain('\x1b[200~');
+    expect(payload).not.toContain('\x1b[201~');
+    expect(payload).not.toContain('\r');
+    expect(payload).toContain('YOUR TASK: Fix the failing tests');
+  });
+
+  it('uses the same plain charter delivery for OpenCode and Antigravity aliases', async () => {
+    for (const preset of ['opencode', 'agy', 'antigravity']) {
+      const sessionId = await createTerminalSession(undefined, undefined, projectId);
+      expect(sessionId).not.toBeNull();
+      markSessionAgentPreset(sessionId!, preset, true);
+
+      const callCount = vi.mocked(openPty).mock.results.length;
+      const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+      const writeSpy = mockPty.write;
+      writeSpy.mockClear();
+
+      await sendAgentPromptDirect(sessionId!, buildAgentCharter('', { name: 'Rex' }));
+
+      const pasteWrite = writeSpy.mock.calls.find((call: unknown[]) => typeof call[0] === 'string' && call[0].includes('SORYQ AGENT BRIEF'));
+      expect(pasteWrite?.[0]).not.toContain('\x1b[200~');
+      expect(pasteWrite?.[0]).toContain('you are Rex');
+    }
+  });
+});
+
+describe('agent launch failure detection', () => {
+  const projectId = 'project-terminal-launch-fail';
+
+  beforeEach(() => {
+    setActiveTerminalProject(projectId);
+  });
+
+  afterEach(async () => {
+    await killAllSessions();
+    setActiveTerminalProject(null);
+  });
+
+  it('reports launch-failed when the shell does not recognize the agent command', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+    markSessionAgentPreset(sessionId!, 'opencode', true);
+
+    const readiness = waitForAgentReady(sessionId!);
+    // PowerShell rejects the command — wrapped mid-word, as narrow terminals do.
+    feedPtyOutput(
+      sessionId!,
+      "opencode : The term 'opencode' is not recognized as the name of a \r\ncmdlet, function, script file, or operable program.\r\n    + FullyQualifiedErrorId : Co\r\n   mmandNotFoundException\r\n"
+    );
+    expect(await readiness).toBe('launch-failed');
+  });
+
+  it('stays ready when the CLI takes over the terminal normally', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+    markSessionAgentPreset(sessionId!, 'codex', true);
+
+    const readiness = waitForAgentReady(sessionId!);
+    feedPtyOutput(sessionId!, 'codex\r\n\x1b[?1049h welcome to codex');
+    expect(await readiness).toBe('ready');
+  });
+
+  it('treats an already-rendered agent banner as ready', async () => {
+    const sessionId = await spawnAgentPreset('claude', undefined, { skipAutoBrief: true });
+    expect(sessionId).not.toBeNull();
+
+    feedPtyOutput(
+      sessionId!,
+      `Claude Code v2.1.172\nWelcome back samuel!\n${'Fable 5 is here. '.repeat(40)}\n> `
+    );
+
+    expect(await waitForAgentReady(sessionId!)).toBe('ready');
+  });
+});
+
+describe('unified agent briefing', () => {
+  const projectId = 'project-terminal-briefing';
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  beforeEach(() => {
+    setActiveTerminalProject(projectId);
+  });
+
+  afterEach(async () => {
+    await killAllSessions();
+    setActiveTerminalProject(null);
+  });
+
+  it('automatically briefs manually launched agents', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    // Set preset without briefed flag — triggers auto-brief
+    markSessionAgentPreset(sessionId!, 'claude');
+
+    // Wait for auto-brief async task to finish (timeout is short in test env)
+    await sleep(350);
+
+    // Verify it sent the brief to the PTY
+    expect(writeSpy).toHaveBeenCalled();
+    const pastedText = writeSpy.mock.calls.find((call: unknown[]) => typeof call[0] === 'string' && call[0].includes('SORYQ AGENT BRIEF'));
+    expect(pastedText).toBeDefined();
+
+    const session = get(sessions).find(s => s.id === sessionId);
+    expect(session?.briefed).toBe(true);
+  });
+
+  it('skips auto-briefing if skipAutoBrief is true', async () => {
+    const sessionId = await spawnAgentPreset('claude', undefined, { skipAutoBrief: true });
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    // Wait to make sure no auto-brief fires
+    await sleep(350);
+
+    const calls = writeSpy.mock.calls.map((c: unknown[]) => c[0]);
+    const hasBrief = calls.some((c: unknown) => typeof c === 'string' && c.includes('SORYQ AGENT BRIEF'));
+    expect(hasBrief).toBe(false);
+
+    const session = get(sessions).find(s => s.id === sessionId);
+    expect(session?.briefed).toBe(true);
+  });
+
+  it('re-briefs an agent relaunched in a previously-briefed pane', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    markSessionAgentPreset(sessionId!, 'claude');
+    await sleep(350);
+    expect(writeSpy.mock.calls.some((c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF'))).toBe(true);
+
+    // The agent exits and the user launches it again in the same pane — input
+    // detection re-marks the preset, which must reset `briefed` and send the
+    // charter to the new process too.
+    writeSpy.mockClear();
+    markSessionAgentPreset(sessionId!, 'claude');
+    await sleep(350);
+    expect(writeSpy.mock.calls.some((c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF'))).toBe(true);
+
+    const session = get(sessions).find(s => s.id === sessionId);
+    expect(session?.briefed).toBe(true);
+  });
+
+  it('briefs a plain spawnAgentPreset exactly once', async () => {
+    const sessionId = await spawnAgentPreset('claude', undefined);
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+
+    await sleep(350);
+
+    // The spawn's own `claude\r` launch write must not re-trigger detection and
+    // double-deliver the charter.
+    const briefWrites = writeSpy.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('SORYQ AGENT BRIEF')
+    );
+    expect(briefWrites).toHaveLength(1);
+
+    const session = get(sessions).find(s => s.id === sessionId);
+    expect(session?.briefed).toBe(true);
+  });
+
+  it('includes the assigned assistant name in the auto-brief charter', async () => {
+    const sessionId = await spawnAgentPreset('claude', undefined);
+    expect(sessionId).not.toBeNull();
+    // Name applied right after spawn (as the floating-bar "+" does) — the brief
+    // is built at send time, so the charter must open with the name.
+    setSessionAgentName(sessionId!, 'Iris');
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+
+    await sleep(350);
+
+    const brief = writeSpy.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF')
+    );
+    expect(brief).toBeDefined();
+    expect(brief![0]).toContain('you are Iris');
+  });
+
+  it('skips auto-briefing if session is leased by orchestrator task', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    // Mark as preset and lease it immediately before the auto-brief ready timeout completes
+    markSessionAgentPreset(sessionId!, 'claude');
+    setSessionOwnerTask(sessionId!, 'task-123');
+
+    await sleep(350);
+
+    const calls = writeSpy.mock.calls.map((c: unknown[]) => c[0]);
+    const hasBrief = calls.some((c: unknown) => typeof c === 'string' && c.includes('SORYQ AGENT BRIEF'));
+    expect(hasBrief).toBe(false);
+
+    const session = get(sessions).find(s => s.id === sessionId);
+    expect(session?.briefed).toBeFalsy();
+  });
+});
+

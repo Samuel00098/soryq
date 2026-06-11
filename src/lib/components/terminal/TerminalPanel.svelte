@@ -97,6 +97,7 @@
         await createTerminalSession(cwd, i);
       }
     }
+    dispatchPaneResizeEnd();
   }
 
   let projectPath = $derived($activeProject?.root_path);
@@ -163,6 +164,7 @@
       cellHeights = [...cellHeights];
 
       await createTerminalSession(cwd, nextIdx);
+      dispatchPaneResizeEnd();
     }
   }
 
@@ -203,6 +205,7 @@
       cellHeights = [...cellHeights];
 
       await createTerminalSession(cwd, nextIdx);
+      dispatchPaneResizeEnd();
     }
   }
 
@@ -235,6 +238,7 @@
     columns = [...columns];
     colWidths = [...colWidths];
     cellHeights = [...cellHeights];
+    dispatchPaneResizeEnd();
   }
 
   function addTiledPane(): number {
@@ -285,7 +289,7 @@
       setMaximizedPaneIndex(null);
     }
 
-    document.dispatchEvent(new CustomEvent('pane-resize-end'));
+    dispatchPaneResizeEnd();
   }
 
   onMount(() => {
@@ -356,7 +360,7 @@
     }
 
     // Geometry changed — tell panes to refit their xterm dimensions.
-    document.dispatchEvent(new CustomEvent('pane-resize-end'));
+    dispatchPaneResizeEnd();
   }
 
   // Close a terminal identified by session id (from the session tab ✕). When the
@@ -669,6 +673,7 @@
     const gl = $gridLayout;
     if (gl !== lastAppliedLayout) {
       applyGridLayout(gl);
+      dispatchPaneResizeEnd();
     }
   });
 
@@ -720,6 +725,14 @@
       : (dy < 0 ? 'top' : 'bottom');
 
     return { index: idx, edge };
+  }
+
+  // Dispatch pane-resize-end after DOM settles, so xterm fit() gets final
+  // container dimensions. Direct dispatch races Svelte's async DOM update.
+  function dispatchPaneResizeEnd() {
+    requestAnimationFrame(() => {
+      document.dispatchEvent(new CustomEvent('pane-resize-end'));
+    });
   }
 
   function normalizePercentages(values: number[]): number[] {
@@ -872,6 +885,9 @@
 
     if (activeDragType !== null) {
       activeDragType = null;
+      // Normalize percentages to ensure they sum to 100 and prevent drift
+      colWidths = normalizePercentages(colWidths);
+      cellHeights = cellHeights.map((heights) => normalizePercentages(heights));
       // Signal all panes to refit now that drag has ended
       document.dispatchEvent(new CustomEvent('pane-resize-end'));
     }

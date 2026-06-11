@@ -102,10 +102,12 @@ let lastFrostRun = 0;
 
 /**
  * Map a 0–100 transparency value onto the glass tokens for the entire UI.
- * 0 = solid/opaque surfaces; 100 = most see-through (desktop or background image
- * shows strongly). 50 ≈ the app's frosted defaults. The
- * base < chrome < surface opacity hierarchy is preserved so panel depth stays
- * intact. Applied globally — independent of any background image.
+ * 0 = solid/opaque surfaces. Up to 50 the surfaces are fully frosted glass
+ * (heavy blur — translucent but you can't see through). Past 50 the frost melts
+ * away and the glass clears up, until 100 = clear, see-through glass (desktop or
+ * background image shows sharply). The base < chrome < surface opacity hierarchy
+ * is preserved so panel depth stays intact. Applied globally — independent of any
+ * background image.
  */
 export function applyInterfaceFrost(transparency: number): void {
   if (typeof document === 'undefined') return;
@@ -128,7 +130,14 @@ export function applyInterfaceFrost(transparency: number): void {
       const base = 0.9 - t * 0.78;             // t0 → 0.90 (solid), t1 → 0.12 (clear)
       const chrome = Math.min(0.98, base + 0.1);
       const surface = Math.min(0.99, base + 0.2);
-      const blur = 30 - t * 16;                // t0 → 30px, t0.5 → 22px, t1 → 14px
+
+      // Frost behaves like real glass: thick & frosted through the lower half
+      // (≤50% = full frosted glass — you can't see through), then the frost melts
+      // away as transparency rises past the midpoint until it's clear glass at 100%.
+      const FROST_MAX = 32;
+      const blur = t <= 0.5
+        ? FROST_MAX                            // 0–50% → 32px: full frost
+        : FROST_MAX * (1 - (t - 0.5) / 0.5);   // 50% → 32px, 100% → 0px: clears up
 
       root.style.setProperty('--frost-base', base.toFixed(3));
       root.style.setProperty('--frost-chrome', chrome.toFixed(3));

@@ -14,6 +14,13 @@ import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
 
 let currentAudio: HTMLAudioElement | null = null;
 let currentObjectUrl: string | null = null;
+// Resolver for the chunk currently playing, so stopSpeaking() can unblock the
+// pipeline's `await playBytes(...)` immediately instead of waiting for `onended`
+// (which never fires once we pause the element).
+let currentPlaybackDone: (() => void) | null = null;
+// Bumped on every speak()/stopSpeaking() call; the pipeline checks it to bail
+// out of an in-flight run that has been superseded or cancelled.
+let speakToken = 0;
 
 export interface SpeakOptions {
   provider?: AiProviderId;
@@ -38,9 +45,16 @@ function cleanup() {
     URL.revokeObjectURL(currentObjectUrl);
     currentObjectUrl = null;
   }
+  // Pausing never fires `onended`, so settle the awaiting playback ourselves.
+  if (currentPlaybackDone) {
+    const done = currentPlaybackDone;
+    currentPlaybackDone = null;
+    done();
+  }
 }
 
 export function stopSpeaking() {
+  speakToken++;
   cleanup();
 }
 
@@ -115,6 +129,71 @@ export function getVoiceReplyConfigError(options?: SpeakOptions): string | null 
   return null;
 }
 
+/**
+ * Break a reply into speakable chunks. The first chunk is kept to a single
+ * sentence (small character cap) so the very first audio is synthesised and
+ * starts playing as soon as possible; later sentences are coalesced into larger
+ * chunks to keep prosody natural and limit the number of TTS round-trips.
+ */
+function splitIntoChunks(text: string): string[] {
+  const sentences = (text.match(/\S[^.!?]*[.!?]+|\S[^.!?]*$/g) ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (sentences.length === 0) {
+    const trimmed = text.trim();
+    return trimmed ? [trimmed] : [];
+  }
+
+  const FIRST_CHUNK_MAX = 140;
+  const REST_CHUNK_MAX = 280;
+  const chunks: string[] = [];
+  let buf = '';
+  for (const sentence of sentences) {
+    const cap = chunks.length === 0 ? FIRST_CHUNK_MAX : REST_CHUNK_MAX;
+    if (!buf) {
+      buf = sentence;
+    } else if (buf.length + 1 + sentence.length <= cap) {
+      buf = `${buf} ${sentence}`;
+    } else {
+      chunks.push(buf);
+      buf = sentence;
+    }
+  }
+  if (buf) chunks.push(buf);
+  return chunks;
+}
+
+function releaseAudio(audio: HTMLAudioElement, url: string) {
+  audio.onended = null;
+  audio.onerror = null;
+  if (currentAudio === audio) currentAudio = null;
+  if (currentObjectUrl === url) currentObjectUrl = null;
+  URL.revokeObjectURL(url);
+}
+
+/** Play one already-synthesised chunk to completion. */
+function playBytes(payload: TtsAudioPayload, token: number): Promise<void> {
+  const blob = new Blob([new Uint8Array(payload.bytes)], { type: payload.mime_type || 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  currentAudio = audio;
+  currentObjectUrl = url;
+
+  return new Promise<void>((resolve, reject) => {
+    // Cancellation (stopSpeaking) resolves through cleanup() via currentPlaybackDone.
+    currentPlaybackDone = resolve;
+    const settle = (fn: () => void) => {
+      if (currentPlaybackDone === resolve) currentPlaybackDone = null;
+      releaseAudio(audio, url);
+      fn();
+    };
+    audio.onended = () => settle(resolve);
+    audio.onerror = () =>
+      settle(() => (token === speakToken ? reject(new Error('Audio playback failed')) : resolve()));
+    audio.play().catch((err) => settle(() => (token === speakToken ? reject(err) : resolve())));
+  });
+}
+
 export async function speak(text: string, options?: SpeakOptions): Promise<void> {
   cleanup();
 
@@ -123,28 +202,38 @@ export async function speak(text: string, options?: SpeakOptions): Promise<void>
     throw new Error(configError);
   }
 
+  const chunks = splitIntoChunks(text);
+  if (chunks.length === 0) return;
+
   const { provider, model, voice, apiKey, baseUrl } = resolveTtsConfig(options);
+  const token = ++speakToken;
 
-  const payload = await invoke<TtsAudioPayload>('tts_speak', {
-    text,
-    provider,
-    model,
-    voice,
-    apiKey,
-    baseUrl: baseUrl || undefined,
-  });
-  if (!payload.bytes.length) return;
+  const generate = (chunk: string) =>
+    invoke<TtsAudioPayload>('tts_speak', {
+      text: chunk,
+      provider,
+      model,
+      voice,
+      apiKey,
+      baseUrl: baseUrl || undefined,
+    });
 
-  const blob = new Blob([new Uint8Array(payload.bytes)], { type: payload.mime_type || 'audio/wav' });
-  const url = URL.createObjectURL(blob);
-  currentObjectUrl = url;
-
-  const audio = new Audio(url);
-  currentAudio = audio;
-
-  return new Promise<void>((resolve, reject) => {
-    audio.onended = () => { cleanup(); resolve(); };
-    audio.onerror = () => { cleanup(); reject(new Error('Audio playback failed')); };
-    audio.play().catch((err) => { cleanup(); reject(err); });
-  });
+  // Pipeline: synthesise the next chunk while the current one is playing so the
+  // model's generation latency overlaps playback instead of stacking before it.
+  let nextGen: Promise<TtsAudioPayload> | null = generate(chunks[0]);
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      const payload = await nextGen!;
+      if (token !== speakToken) return; // superseded or stopped
+      nextGen = i + 1 < chunks.length ? generate(chunks[i + 1]) : null;
+      if (payload.bytes.length) {
+        await playBytes(payload, token);
+        if (token !== speakToken) return;
+      }
+    }
+  } finally {
+    // Swallow errors from an abandoned prefetch so a cancelled run never surfaces
+    // an unhandled rejection.
+    if (nextGen) nextGen.catch(() => {});
+  }
 }

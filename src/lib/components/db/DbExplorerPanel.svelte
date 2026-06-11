@@ -65,10 +65,15 @@
   }
 
   // Returns a human warning when a query would irreversibly change data, or null
-  // when it's safe. Strips line comments first so a commented-out WHERE can't
-  // mask a full-table DELETE/UPDATE.
+  // when it's safe. Strips both line (`--`) and block (`/* */`) comments first so
+  // a commented-out WHERE can't mask a full-table DELETE/UPDATE — e.g.
+  // `DELETE FROM t /* WHERE id=1 */` must still trip the no-WHERE warning.
   function destructiveWarning(sql: string): string | null {
-    const q = sql.replace(/--.*$/gm, '').trim().toLowerCase();
+    const q = sql
+      .replace(/--.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .trim()
+      .toLowerCase();
     if (/^drop\b/.test(q)) return 'This will DROP a table or index. The data and its structure will be permanently removed.';
     if (/^truncate\b/.test(q)) return 'This will TRUNCATE the table. Every row will be permanently removed.';
     if (/^delete\b/.test(q) && !/\bwhere\b/.test(q)) return 'This DELETE has no WHERE clause. Every row in the table will be removed.';

@@ -43,10 +43,27 @@ export async function openPty(
     onExit.onmessage = () => {};
   };
 
+  // When the child exits on its own (e.g. the user types `exit`), the backend
+  // PtyManager + rate-limiter entries are NOT freed by the exit itself — only an
+  // explicit `terminal_close` does that. Without this, dead sessions accumulate
+  // for the app's lifetime. We free the backend exactly once, whether the exit is
+  // the trigger or an explicit close() is.
+  let closed = false;
+  let backendId: number | null = null;
+  let exited = false;
+  const freeBackend = () => {
+    if (closed || backendId === null) return;
+    closed = true;
+    // The process is already gone; close()'s kill is a harmless no-op.
+    void invoke('terminal_close', { id: backendId }).catch(() => {});
+  };
+
   onData.onmessage = (buf) => handlers.onData(new Uint8Array(buf));
   onExit.onmessage = (code) => {
+    exited = true;
     handlers.onExit?.(code);
     releaseHandlers();
+    freeBackend();
   };
 
   const id = await invoke<number>('terminal_create', {
@@ -57,8 +74,10 @@ export async function openPty(
     onData,
     onExit,
   });
-
-  let closed = false;
+  backendId = id;
+  // If the child exited during creation (before the id resolved), free it now
+  // that we finally have the id to address.
+  if (exited) freeBackend();
 
   return {
     id,

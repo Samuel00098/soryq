@@ -142,7 +142,7 @@ async function planRecon(
     const json = JSON.parse(cleaned);
     return {
       readFiles: Array.isArray(json.readFiles) ? json.readFiles.slice(0, MAX_RECON_FILES) : [],
-      gitLogCount: typeof json.gitLogCount === 'number' ? Math.min(json.gitLogCount, 20) : Math.max(json.gitLogCount, 0),
+      gitLogCount: typeof json.gitLogCount === 'number' ? Math.max(0, Math.min(json.gitLogCount, 20)) : 5,
       checkGitStatus: json.checkGitStatus === true,
       listProjectTree: json.listProjectTree === true,
     };

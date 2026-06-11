@@ -147,4 +147,40 @@ describe('routeOrchestratorRequest', () => {
 
     expect(result.actions).toEqual([{ kind: 'spawn', agent: 'claude', prompt: 'fix the bug that stops the build from finishing' }]);
   });
+
+  it('heuristically surfaces running agent output in conversational mode', async () => {
+    getProviderApiKeyLocal.mockReturnValue('');
+
+    const result = await routeOrchestratorRequest(
+      "how's the agent doing",
+      [{ command: 'claude', name: 'Claude' }],
+      {
+        conversational: true,
+        runningAgents: [
+          { name: 'Iris', agent: 'claude', title: 'Refactoring the router', recentOutput: 'npx tsc --noEmit\nFound 3 errors\n  > src/router.ts:42' },
+        ],
+      }
+    );
+
+    expect(result.actions).toEqual([]);
+    expect(result.viaLLM).toBe(false);
+    expect(result.reply).toContain('running');
+    expect(result.reply).toContain('Iris');
+    expect(result.reply).toContain('Refactoring the router');
+    expect(result.reply).toContain('router.ts');
+  });
+
+  it('reverts to canned reply in conversational mode when no agents are running', async () => {
+    getProviderApiKeyLocal.mockReturnValue('');
+
+    const result = await routeOrchestratorRequest(
+      'hello there',
+      [{ command: 'claude', name: 'Claude' }],
+      { conversational: true }
+    );
+
+    expect(result.actions).toEqual([]);
+    expect(result.viaLLM).toBe(false);
+    expect(result.reply).toContain('Say the word');
+  });
 });

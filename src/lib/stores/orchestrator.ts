@@ -23,12 +23,8 @@ import {
 import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
 import {
   createTaskRecord,
-  inferExecutionMode,
   transitionTask,
-  approveTask,
-  requestTaskChanges,
   cancelTask,
-  type ExecutionMode,
   type OrchestratorTask,
 } from '$lib/services/orchestrator/task-lifecycle';
 import { classifyTaskAfterExecution } from '$lib/services/orchestrator/review-gate';
@@ -50,10 +46,10 @@ import {
   sendOrchestratorFollowUpWhenReady,
   applyOrchestratorAgentName,
 } from '$lib/services/orchestrator/terminal-lease';
-import { createTaskWorktree, removeTaskWorktree } from '$lib/services/orchestrator/worktree-manager';
 import { pickAssistantName, isGenericAgentName } from '$lib/services/orchestrator/agent-names';
+import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
 import {
-  sessions,
+  onSessionExit,
   getAgentDisplayName,
   promptBarInput,
   focusPromptBar,
@@ -64,16 +60,15 @@ import {
 } from '$lib/stores/terminal';
 
 export type {
-  ExecutionMode,
   OrchestratorTask,
   OrchestratorTaskStatus,
 } from '$lib/services/orchestrator/task-lifecycle';
 export type { ActivityEvent, ActivityKind } from '$lib/services/orchestrator/activity-log';
 
 // ─── Model ──────────────────────────────────────────────────────────────────
-// Slice 1 of the agent orchestrator: one task owns one terminal (single-agent
-// lease). Lifecycle state now lives in the shared orchestrator domain model so
-// later slices (review gates, worktrees, swarms) can reuse the same semantics.
+// Agent orchestrator: one task owns one terminal (single-agent lease).
+// Multiple agents share the workspace and can exchange information via
+// the orchestrator brain's `send` action.
 
 // All loaded orchestrator tasks across projects (active project's are kept fresh).
 export const orchestratorTasks = writable<OrchestratorTask[]>([]);
@@ -95,7 +90,6 @@ type PersistedTask = Omit<Partial<OrchestratorTask>, 'status'> & {
   goal: string;
   title?: string;
   status?: OrchestratorTask['status'] | 'pending' | 'running' | 'done';
-  executionMode?: ExecutionMode;
 };
 
 function normalizeLoadedTask(raw: Partial<PersistedTask> | null | undefined): OrchestratorTask | null {
@@ -121,9 +115,7 @@ function normalizeLoadedTask(raw: Partial<PersistedTask> | null | undefined): Or
     case 'cancelled':
       status = raw.status;
       break;
-    case 'in-review':
-      status = 'in-review';
-      break;
+    // Legacy 'in-review' status is handled via the default case below.
     default:
       status = 'todo';
       break;
@@ -139,14 +131,8 @@ function normalizeLoadedTask(raw: Partial<PersistedTask> | null | undefined): Or
         : summarizeTerminalTask(goal) || goal.slice(0, 72) || 'Untitled task',
     name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : null,
     status,
-    executionMode:
-      raw.executionMode === 'direct' || raw.executionMode === 'worktree'
-        ? raw.executionMode
-        : inferExecutionMode(goal),
     agentPreset: raw.agentPreset ?? null,
     assignedSessionId: status === 'in-progress' ? raw.assignedSessionId ?? null : null,
-    worktree: raw.worktree ?? null,
-    review: raw.review ?? null,
     blockedReason: raw.blockedReason ?? null,
     failureReason: raw.failureReason ?? null,
     promptSentAt: status === 'in-progress' && typeof raw.promptSentAt === 'number' ? raw.promptSentAt : null,
@@ -192,23 +178,6 @@ function releaseTaskLease(task: OrchestratorTask): void {
   releaseOrchestratorTerminal(liveSession.id);
 }
 
-// Worktree paths are deterministic per task, so a delete racing a launch's
-// finalizer can both try to remove the same worktree. Track in-flight removals
-// by path so cleanup is idempotent; the path is cleared when a fresh worktree is
-// created at it (see launchOrchestratorTask) so later re-runs can clean up again.
-const cleanedWorktreePaths = new Set<string>();
-
-async function cleanupTaskWorktree(task: OrchestratorTask): Promise<void> {
-  if (task.executionMode !== 'worktree' || !task.worktree) return;
-  if (cleanedWorktreePaths.has(task.worktree.path)) return;
-  cleanedWorktreePaths.add(task.worktree.path);
-  try {
-    await removeTaskWorktree({ projectId: task.projectId, taskId: task.id });
-  } catch (err) {
-    console.error('Failed to remove worktree:', err);
-    showToast('Failed to remove worktree', 'error');
-  }
-}
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
@@ -272,11 +241,8 @@ export async function loadProjectOrchestratorTasks(project: { id: string; root_p
       rawTask?.title !== reconciledTask.title ||
       (rawTask?.name ?? null) !== reconciledTask.name ||
       rawTask?.status !== reconciledTask.status ||
-      rawTask?.executionMode !== reconciledTask.executionMode ||
       (rawTask?.agentPreset ?? null) !== reconciledTask.agentPreset ||
       (rawTask?.assignedSessionId ?? null) !== reconciledTask.assignedSessionId ||
-      (rawTask?.worktree ?? null) !== reconciledTask.worktree ||
-      (rawTask?.review ?? null) !== reconciledTask.review ||
       (rawTask?.blockedReason ?? null) !== reconciledTask.blockedReason ||
       (rawTask?.failureReason ?? null) !== reconciledTask.failureReason ||
       (rawTask?.promptSentAt ?? null) !== reconciledTask.promptSentAt ||
@@ -457,8 +423,6 @@ function completeLeasedTask(
       logTaskActivity(taskId, 'blocked', outcome.kind === 'blocked' ? outcome.reason : 'Agent needs your input.');
     } else if (updated.status === 'failed') {
       logTaskActivity(taskId, 'failed', updated.failureReason ?? 'Agent exited with errors.');
-    } else if (updated.status === 'in-review') {
-      logTaskActivity(taskId, 'finished', 'Finished its turn and is ready for review.');
     } else {
       logTaskActivity(taskId, 'finished', 'Finished its turn.');
     }
@@ -470,8 +434,6 @@ function completeLeasedTask(
     showToast(`${name} needs your input — ${task.title}`, 'warning', 9000, true);
   } else if (updated.status === 'failed') {
     showToast(`${name} failed — ${task.title}`, 'error', 8000, true);
-  } else if (updated.status === 'in-review') {
-    showToast(`${name} finished — ready to review`, 'success', 6000, true);
   } else {
     showToast(`${name} finished — ${task.title}`, 'success', 6000, true);
   }
@@ -528,14 +490,12 @@ function completeLeasedTask(
 export function createOrchestratorTask(
   projectId: string,
   goal: string,
-  executionMode?: ExecutionMode,
   agentPreset?: string | null,
   name?: string | null
 ): OrchestratorTask {
   const task = createTaskRecord(
     projectId,
     goal,
-    executionMode ?? inferExecutionMode(goal),
     agentPreset,
     name
   );
@@ -553,7 +513,6 @@ export function deleteOrchestratorTask(id: string) {
   if (task) {
     cancelPendingLaunch(task.id);
     releaseTaskLease(task);
-    void cleanupTaskWorktree(task);
   }
   let projectId = '';
   orchestratorTasks.update((all) => {
@@ -601,7 +560,13 @@ function sendGoalToLeasedTask(
 ): void {
   void (async () => {
     try {
-      const sent = await sendOrchestratorGoalWhenReady(sessionId, goal, {
+      // Every freshly-spawned agent gets the standing operating brief wrapped
+      // around its goal — the guardrail that replaced git-worktree isolation. The
+      // stored goal and the activity log keep the clean task text; only the
+      // terminal message carries the charter.
+      const task = get(orchestratorTasks).find((t) => t.id === id);
+      const message = buildAgentCharter(goal, { name: task?.name ?? null });
+      const sent = await sendOrchestratorGoalWhenReady(sessionId, message, {
         shouldContinue: () => leasedSessionLive(id, sessionId),
       });
       if (!sent) return;
@@ -618,6 +583,27 @@ function sendGoalToLeasedTask(
     } catch (err) {
       console.error('Failed to auto-send orchestrator goal:', err);
       showToast('Failed to send goal to agent', 'error');
+    }
+  })();
+}
+
+/**
+ * Deliver the standing brief alone to a leased agent that was spawned WITHOUT a
+ * task yet (a persistent/named agent the user will drive later). Without this,
+ * such agents never receive the charter — they have no goal to wrap it around.
+ */
+function sendBriefToLeasedTask(id: string, sessionId: number, name?: string | null): void {
+  void (async () => {
+    try {
+      const success = await sendOrchestratorGoalWhenReady(sessionId, buildAgentCharter('', { name: name ?? null }), {
+        shouldContinue: () => leasedSessionLive(id, sessionId),
+      });
+      if (!success) {
+        showToast('Could not brief the spawned agent — session was lost', 'warning', 4000);
+      }
+    } catch (err) {
+      console.error('Failed to send agent brief:', err);
+      showToast('Failed to brief the spawned agent', 'error', 4000);
     }
   })();
 }
@@ -644,30 +630,11 @@ export async function launchOrchestratorTask(
   if (!task) return null;
 
   const launchGeneration = nextLaunchGeneration(task.id);
-  let createdLaunchWorktree = false;
   let launchCommitted = false;
-  let worktree = task.worktree ?? null;
   try {
-    let launchCwd = cwd;
-
-    if (task.executionMode === 'worktree' && !worktree) {
-      worktree = await createTaskWorktree({
-        projectId: task.projectId,
-        taskId: task.id,
-        title: task.title,
-      });
-      // A fresh worktree exists at this path again — allow it to be cleaned up.
-      cleanedWorktreePaths.delete(worktree.path);
-      createdLaunchWorktree = true;
-      patchTask(task.id, (current) => ({ ...current, worktree }));
-      launchCwd = worktree.path;
-    } else if (worktree) {
-      launchCwd = worktree.path;
-    }
-
     const sessionId = await leaseOrchestratorTerminal({
       agentCommand,
-      cwd: launchCwd,
+      cwd,
       taskId: task.id,
       taskTitle: task.title,
       name: task.name,
@@ -681,9 +648,6 @@ export async function launchOrchestratorTask(
     const currentTask = get(orchestratorTasks).find((entry) => entry.id === task.id);
     const launchState = launchStateByTaskId.get(task.id);
     if (!currentTask || !launchState || launchState.generation !== launchGeneration || launchState.cancelled) {
-      if (!currentTask && task.executionMode === 'worktree' && worktree) {
-        void cleanupTaskWorktree({ ...task, worktree });
-      }
       releaseOrchestratorTerminal(sessionId);
       return null;
     }
@@ -692,35 +656,25 @@ export async function launchOrchestratorTask(
       transitionTask({ ...current, agentPreset: agentCommand, assignedSessionId: sessionId, promptSentAt: null }, 'in-progress')
     );
     launchCommitted = true;
-    {
-      const agentName = getAgentDisplayName(agentCommand) ?? agentCommand;
-      const where = worktree ? ` in worktree ${worktree.branchName}` : '';
-      logTaskActivity(task.id, 'dispatch', `Launched ${agentName}${where}.`);
-    }
+    logTaskActivity(task.id, 'dispatch', `Launched ${getAgentDisplayName(agentCommand) ?? agentCommand}.`);
 
     if (!holdGoal) {
       if (autoRun && task.goal) {
         sendGoalToLeasedTask(task.id, sessionId, task.goal, agentCommand, watchTurn);
-      } else if (task.goal) {
-        promptBarInput.set(task.goal);
-        focusPromptBar();
+      } else {
+        // Manually launched (no auto-run) or spawned without a goal yet — still
+        // deliver the standing brief so EVERY freshly-opened agent CLI is briefed,
+        // then hand the goal (if any) to the prompt bar for the user to send.
+        sendBriefToLeasedTask(task.id, sessionId, task.name);
+        if (task.goal) {
+          promptBarInput.set(task.goal);
+          focusPromptBar();
+        }
       }
     }
     return sessionId;
   } finally {
-    if (createdLaunchWorktree && !launchCommitted && worktree) {
-      const createdWorktree = worktree;
-      await cleanupTaskWorktree({ ...task, worktree: createdWorktree });
-      const liveTask = get(orchestratorTasks).find((entry) => entry.id === task.id);
-      if (liveTask?.worktree?.path === createdWorktree.path) {
-        patchTask(task.id, (current) =>
-          current.worktree?.path === createdWorktree.path ? { ...current, worktree: null } : current
-        );
-        // Don't resolve the launch until the cleared worktree is persisted, so a
-        // caller awaiting launch sees durable state (not an in-memory-only undo).
-        await flush(task.projectId);
-      }
-    }
+    void launchCommitted;
     clearLaunchGeneration(task.id, launchGeneration);
   }
 }
@@ -731,7 +685,9 @@ export function resendOrchestratorGoal(id: string): void {
   if (!task || task.assignedSessionId == null || !task.goal || task.status !== 'in-progress') return;
   const live = getTerminalProjectState(task.projectId).sessions.find((s) => s.id === task.assignedSessionId);
   if (!live?.isRunning || live.ownerTaskId !== task.id) return;
-  resendLeasedOrchestratorGoal(task.assignedSessionId, task.goal);
+  // A missed first send means the agent never received the brief — resend it
+  // wrapped, same as the initial dispatch.
+  resendLeasedOrchestratorGoal(task.assignedSessionId, buildAgentCharter(task.goal, { name: task.name ?? null }));
   patchTask(id, (current) => (current.status === 'in-progress' ? { ...current, promptSentAt: Date.now() } : current));
   logTaskActivity(id, 'follow-up', `Re-sent goal: ${task.goal}`);
   showToast('Re-sent goal to agent', 'info', 2500);
@@ -750,32 +706,7 @@ export async function resumeBlockedOrchestratorTask(id: string, prompt: string, 
   return true;
 }
 
-// ─── Review gate actions ──────────────────────────────────────────────────────
-// A finished worktree task sits in `in-review` until the human decides. These
-// are the explicit gates; the worktree is preserved across all of them so the
-// branch/diff stays available (cleanup happens on delete).
-
-/** Approve an in-review task → complete. Keeps the worktree for inspection/merge. */
-export function approveOrchestratorTask(id: string): void {
-  patchTask(id, (task) => approveTask(task));
-  logTaskActivity(id, 'approved', 'Approved.');
-  showToast('Task approved', 'success', 2500);
-}
-
-/**
- * Send an in-review task back for more work. Returns it to `todo` with the note
- * recorded, releasing the (already-exited) lease but keeping its worktree so the
- * next launch resumes on the same branch.
- */
-export function requestOrchestratorTaskChanges(id: string, note: string): void {
-  const task = get(orchestratorTasks).find((t) => t.id === id);
-  if (task) releaseTaskLease(task);
-  patchTask(id, (t) => requestTaskChanges(t, note));
-  logTaskActivity(id, 'changes', note.trim() ? `Changes requested: ${note.trim()}` : 'Changes requested.');
-  showToast('Requested changes', 'info', 2500);
-}
-
-/** Cancel a task outright, releasing its lease. The worktree is removed on delete. */
+/** Cancel a task outright, releasing its lease. */
 export function cancelOrchestratorTask(id: string, note?: string): void {
   const task = get(orchestratorTasks).find((t) => t.id === id);
   if (task) {
@@ -802,8 +733,9 @@ export async function closeOrchestratorAgent(id: string, note?: string): Promise
     task.assignedSessionId ??
     getTerminalProjectState(task.projectId).sessions.find((s) => s.ownerTaskId === task.id)?.id ??
     null;
-  // killSession removes the session synchronously, so the `sessions` subscriber
-  // sees no session for this task and won't race us to a "finished" completion.
+  // killSession removes the session from project state synchronously, so the
+  // onSessionExit reconciler (guarded on the session still being present) sees no
+  // session for this task and won't race us to a "finished" completion.
   if (sessionId != null) await killSession(sessionId);
   patchTask(id, (t) => ({ ...cancelTask(t, note), assignedSessionId: null }));
   logTaskActivity(id, 'cancelled', note?.trim() ? `Closed: ${note.trim()}` : 'Closed.');
@@ -911,15 +843,15 @@ export function getRunningAgentRefs(projectId: string): RunningAgentRef[] {
     });
 }
 
-/** Paused agents that the assistant can resume naturally in chat. */
+/** Blocked agents that the assistant can resume naturally in chat. */
 export function getReviewableAgentRefs(projectId: string): RunningAgentRef[] {
   return get(orchestratorTasks)
-    .filter((t) => t.projectId === projectId && (t.status === 'blocked' || t.status === 'in-review'))
+    .filter((t) => t.projectId === projectId && t.status === 'blocked')
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))
     .map((t) => ({
       name: t.name ?? null,
       agent: t.agentPreset ?? 'agent',
-      title: `${t.title} (${t.status === 'blocked' ? 'waiting on you' : 'ready for another pass'})`,
+      title: `${t.title} (waiting on you)`,
     }));
 }
 
@@ -935,7 +867,7 @@ function resolveRunningTaskByName(projectId: string, target: string): Orchestrat
     .filter((t) => t.projectId === projectId)
     .sort((a, b) => (b.startedAt ?? b.createdAt) - (a.startedAt ?? a.createdAt));
   const running = tasks.filter((t) => t.status === 'in-progress' && t.assignedSessionId != null);
-  const resumable = tasks.filter((t) => t.status === 'blocked' || t.status === 'in-review');
+  const resumable = tasks.filter((t) => t.status === 'blocked');
   const candidates = [...running, ...resumable];
   if (candidates.length === 0) return null;
 
@@ -954,7 +886,7 @@ function resolveRunningTaskByName(projectId: string, target: string): Orchestrat
   return byAgent ?? null;
 }
 
-/** Push a prompt to a running agent's live terminal; if the task is paused, reopen it and send automatically. */
+/** Push a prompt to a running agent's live terminal; if blocked, reopen it and send automatically. */
 async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootPath: string): Promise<boolean> {
   if (task.assignedSessionId != null) {
     const live = getTerminalProjectState(task.projectId).sessions.find((s) => s.id === task.assignedSessionId);
@@ -968,12 +900,11 @@ async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootP
     return true;
   }
 
-  if ((task.status !== 'blocked' && task.status !== 'in-review') || !task.agentPreset) return false;
+  if (task.status !== 'blocked' || !task.agentPreset) return false;
 
-  const cwd = task.worktree?.path ?? rootPath;
   const sessionId = await leaseOrchestratorTerminal({
     agentCommand: task.agentPreset,
-    cwd,
+    cwd: rootPath,
     taskId: task.id,
     taskTitle: task.title,
     name: task.name,
@@ -987,19 +918,23 @@ async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootP
     assignedSessionId: sessionId,
     startedAt: current.startedAt ?? Date.now(),
     completedAt: null,
-    review: null,
     blockedReason: null,
     failureReason: null,
     promptSentAt: null,
   }));
 
   const agentName = getAgentDisplayName(task.agentPreset) ?? task.agentPreset;
-  const where = task.worktree ? ` in worktree ${task.worktree.branchName}` : '';
-  logTaskActivity(task.id, 'dispatch', `Resumed ${agentName}${where}.`);
+  logTaskActivity(task.id, 'dispatch', `Resumed ${agentName}.`);
 
-  const sent = await sendOrchestratorFollowUpWhenReady(sessionId, prompt, {
-    shouldContinue: () => leasedSessionLive(task.id, sessionId),
-  });
+  // Resuming a blocked task re-leases a FRESH agent CLI (the previous process
+  // exited), so it has no memory of its first-turn brief — re-deliver the standing
+  // charter wrapped around the resume prompt, exactly like an initial dispatch.
+  // The activity log below still records the clean prompt, not the charter text.
+  const sent = await sendOrchestratorFollowUpWhenReady(
+    sessionId,
+    buildAgentCharter(prompt, { name: task.name ?? null }),
+    { shouldContinue: () => leasedSessionLive(task.id, sessionId) }
+  );
   if (!sent) return false;
   patchTask(task.id, (current) => (current.status === 'in-progress' ? { ...current, promptSentAt: Date.now() } : current));
   logTaskActivity(task.id, 'follow-up', prompt);
@@ -1110,6 +1045,7 @@ export async function sendChatMessage(
         runningAgents: getRunningAgentRefs(projectId),
         reviewingAgents: getReviewableAgentRefs(projectId),
         llmConfig,
+        conversational: !!opts?.voiceConversation,
       });
     } catch (err) {
       console.error('Orchestrator routing error:', err);
@@ -1119,13 +1055,57 @@ export async function sendChatMessage(
 
   patchChat(projectId, assistantId, { text: result.reply, pending: false });
 
-  // ── Pre-spawn: start agent terminals before reconnaissance ────────────────
+  // ── Reconnaissance (started now, awaited after spawning) ──────────────────
+  // Kick recon off immediately so its LLM calls (plan + craft) overlap with the
+  // terminal spawn loop below. Previously recon ran strictly after every launch
+  // had been awaited, so the two latencies stacked; now they run concurrently.
+  const reconCommand = result.actions
+    .flatMap((a) =>
+      a.kind === 'spawn' && (a.prompt ?? '').trim().length > 10 ? [a.prompt as string] : []
+    )
+    .join('; ');
+  let reconPromise: ReturnType<typeof reconnoiter> | null = null;
+  if (reconCommand && rootPath) {
+    patchChat(projectId, assistantId, { text: result.reply + '\n\n🔍 Analyzing codebase…' });
+    reconPromise = reconnoiter(
+      reconCommand,
+      rootPath,
+      opts?.projectName ?? 'project',
+      async (sysPrompt, userText) => {
+        const { provider, model, apiKey, baseUrl } = llmConfig;
+        const local = isLocalProvider(provider);
+        if ((!local || baseUrl) && (local || apiKey)) {
+          return await invoke<string>('ai_complete', {
+            systemPrompt: sysPrompt,
+            userText,
+            provider,
+            model,
+            apiKey,
+            baseUrl: baseUrl || undefined,
+          });
+        }
+        throw new Error('No AI provider configured');
+      },
+      projectId
+    );
+  }
+
+  // ── Pre-spawn: start agent terminals (overlaps the recon above) ────────────
   // Terminals begin initializing (PTY, shell, CLAUDE.md load) while the recon
   // LLM calls run, so agent startup time overlaps with codebase analysis.
   const multiSpawn = result.actions.filter((a) => a.kind === 'spawn').length > 1;
-  const usedNames = getRunningAgentRefs(projectId)
-    .map((r) => r.name)
-    .filter((n): n is string => !!n);
+  // Avoid name collisions with EVERY live named agent — including ones spawned
+  // outside the orchestrator (the floating bar's "+"), which only exist as
+  // terminal sessions with an agentName, not as tasks.
+  const sessionAgentNames = getTerminalProjectState(projectId).sessions
+    .filter((s) => s.isRunning && s.agentName?.trim())
+    .map((s) => (s.agentName as string).trim());
+  const usedNames = [
+    ...getRunningAgentRefs(projectId)
+      .map((r) => r.name)
+      .filter((n): n is string => !!n),
+    ...sessionAgentNames,
+  ];
   let spawnIndex = 0;
 
   interface SpawnEntry {
@@ -1148,10 +1128,10 @@ export async function sendChatMessage(
       action.name && !isGenericAgentName(action.name, action.agent, getAgentDisplayName(action.agent))
         ? action.name
         : null;
-    // A *meaningfully* named or task-less spawn is a *persistent* agent: launch
-    // it direct (no throwaway worktree) and skip the turn watcher so it stays
-    // addressable. Persistence keys off a real name, before we apply an
-    // auto-name below — an auto-name must not make a one-shot task persistent.
+    // A *meaningfully* named or task-less spawn is a *persistent* agent:
+    // skip the turn watcher so it stays addressable. Persistence keys off a
+    // real name, before we apply an auto-name below — an auto-name must
+    // not make a one-shot task persistent.
     const persistent = !!explicitName || !action.prompt;
     // Every spawned agent gets a friendly human name so it's easy to address.
     const name = explicitName ?? pickAssistantName(usedNames);
@@ -1162,7 +1142,6 @@ export async function sendChatMessage(
     const task = createOrchestratorTask(
       projectId,
       action.prompt ?? '',
-      persistent ? 'direct' : undefined,
       action.agent,
       name
     );
@@ -1183,43 +1162,15 @@ export async function sendChatMessage(
     spawnEntries.push({ task, sessionId, rawPrompt: action.prompt ?? '', agent: action.agent, persistent, watchTurn: !persistent, name });
   }
 
-  // ── Reconnaissance ──────────────────────────────────────────────────────────
-  // Gather codebase context to enrich each spawn prompt. Terminals are already
-  // spinning up in parallel, so agent startup overlaps with these LLM calls.
+  // ── Await reconnaissance ──────────────────────────────────────────────────
+  // The recon LLM calls were started above and have been running while the
+  // terminals spun up. Collect the enriched prompt now, just before dispatch.
   let reconSummary: string | null = null;
   let enrichedPrompt: string | null = null;
 
-  const actionableSpawns = spawnEntries.filter(
-    (e) => e.sessionId != null && e.rawPrompt.trim().length > 10
-  );
-  if (actionableSpawns.length > 0 && rootPath) {
+  if (reconPromise) {
     try {
-      patchChat(projectId, assistantId, {
-        text: result.reply + '\n\n🔍 Analyzing codebase…',
-      });
-
-      const recon = await reconnoiter(
-        actionableSpawns.map((e) => e.rawPrompt).filter(Boolean).join('; '),
-        rootPath,
-        opts?.projectName ?? 'project',
-        async (sysPrompt, userText) => {
-          const { provider, model, apiKey, baseUrl } = llmConfig;
-          const local = isLocalProvider(provider);
-          if ((!local || baseUrl) && (local || apiKey)) {
-            return await invoke<string>('ai_complete', {
-              systemPrompt: sysPrompt,
-              userText,
-              provider,
-              model,
-              apiKey,
-              baseUrl: baseUrl || undefined,
-            });
-          }
-          throw new Error('No AI provider configured');
-        },
-        projectId
-      );
-
+      const recon = await reconPromise;
       reconSummary = recon.summary;
       enrichedPrompt = recon.enrichedPrompt || null;
 
@@ -1246,9 +1197,14 @@ export async function sendChatMessage(
     }
     if (rawPrompt) {
       sendGoalToLeasedTask(task.id, sessionId, goal, agent, watchTurn);
-    } else if (!persistent) {
-      promptBarInput.set(goal);
-      focusPromptBar();
+    } else {
+      // No task yet (persistent/named agent) — still deliver the standing brief
+      // so every spawned agent is briefed, then hand off to the user to drive it.
+      sendBriefToLeasedTask(task.id, sessionId, name);
+      if (!persistent) {
+        promptBarInput.set(goal);
+        focusPromptBar();
+      }
     }
     dispatched.push({ taskId: task.id, agent, name, via: 'spawn' });
   }
@@ -1289,28 +1245,32 @@ export async function sendChatMessage(
 }
 
 if (typeof window !== 'undefined') {
-  sessions.subscribe(($sessions) => {
-    const inProgress = get(orchestratorTasks).filter(
-      (t) => t.status === 'in-progress' && t.assignedSessionId != null
+  // Process exit is the fallback completion path (covers agents that do exit,
+  // crashes, and turns the watcher missed). Driven by the project-independent
+  // `onSessionExit` broadcast rather than the `sessions` store, so an agent that
+  // exits while its project is in the background is reconciled immediately
+  // instead of being stranded in-progress until the user reopens that project.
+  onSessionExit(({ sessionId, projectId, code }) => {
+    const task = get(orchestratorTasks).find(
+      (t) => t.status === 'in-progress' && t.assignedSessionId === sessionId
     );
-    for (const t of inProgress) {
-      const session = $sessions.find((s) => s.id === t.assignedSessionId);
-      if (!session) continue; // not in the current project view — leave it alone
-      if (!session.isRunning) {
-        // Process exit is the fallback completion path (covers agents that do
-        // exit, crashes, and turns the watcher missed). The terminal layer
-        // already raises its own exit notification, so suppress ours here.
-        //
-        // Distinguish clean exit (code 0 or unknown) from crash (non-zero code)
-        // so the task ends up in the right terminal state rather than always
-        // showing "complete" for both success and crashes.
-        const exitCode = session.lastExitCode ?? null;
-        const outcome: AgentTurnOutcome =
-          exitCode !== null && exitCode !== 0
-            ? { kind: 'blocked', reason: `Agent process exited with code ${exitCode}.` }
-            : { kind: 'finished' };
-        completeLeasedTask(t.id, session.id, outcome, { notify: false, exitCode });
-      }
-    }
+    if (!task) return;
+    // A deliberate close (closeOrchestratorAgent → killSession) removes the
+    // session from project state *before* the async pty teardown fires this exit.
+    // A natural exit leaves the session in place (flagged isRunning:false). So if
+    // the session is already gone, this was an intentional close that the cancel
+    // path is handling — don't race it to a "finished" completion.
+    const sessionStillPresent = getTerminalProjectState(projectId).sessions.some((s) => s.id === sessionId);
+    if (!sessionStillPresent) return;
+    // Distinguish clean exit (code 0 or unknown) from crash (non-zero code) so
+    // the task ends up in the right terminal state rather than always showing
+    // "complete" for both success and crashes. The terminal layer already raised
+    // its own exit notification, so suppress ours here (notify: false).
+    const exitCode = code ?? null;
+    const outcome: AgentTurnOutcome =
+      exitCode !== null && exitCode !== 0
+        ? { kind: 'blocked', reason: `Agent process exited with code ${exitCode}.` }
+        : { kind: 'finished' };
+    completeLeasedTask(task.id, sessionId, outcome, { notify: false, exitCode });
   });
 }

@@ -54,6 +54,12 @@ export interface RouteContext {
   runningAgents?: RunningAgentRef[];
   reviewingAgents?: RunningAgentRef[];
   llmConfig?: RouteLlmConfig;
+  /**
+   * Spoken voice-conversation mode. The user is primarily *talking* with the
+   * orchestrator, not commanding a fleet, so routing defaults to plain
+   * conversation and only acts (spawn/send/close) on an explicit request.
+   */
+  conversational?: boolean;
 }
 
 export interface RouteLlmConfig {
@@ -119,6 +125,12 @@ const CLOSE_ALL_RE = /\b(all|everything|every ?one|every agent|them all|the agen
 const QUESTION_START_RE = /^(what|why|how|when|where|who|which|is|are|does|do|can|could|would|should|explain|describe|tell me|show me|help me understand|help me|give me|walk me through)\b/i;
 const QUESTION_MARK_RE = /\?\s*$/;
 
+// Explicit "open an agent" intent. In spoken conversation mode we only spawn
+// when the user clearly asks to launch an agent or to have one do coding work —
+// everything else is treated as plain conversation, never a dispatch.
+const EXPLICIT_SPAWN_RE =
+  /\b(open|spawn|launch|start|fire up|boot up|kick off|create|use|have|get|tell|ask|put)\b[^.?!]*\b(agent|claude|codex|aider|opencode|assistant|bot)\b/i;
+
 // Status-check patterns — intercepted before the LLM so we respond instantly.
 const STATUS_CHECK_RE = /^(status|what[‘’]?s running|list agents|show agents|which agents|what agents are running|show me the agents|what are (?:my |the )?agents doing)\b/i;
 
@@ -160,10 +172,53 @@ function heuristicRoute(message: string, agents: AgentChoice[], ctx?: RouteConte
     return { reply: 'No agents are configured for this project yet.', actions: [], viaLLM: false };
   }
 
+  // In spoken conversation mode, talking is the default — only dispatch when the
+  // user explicitly asks to open an agent. Otherwise just keep the conversation
+  // going rather than silently spawning a terminal behind the voice overlay.
+  // When there are running agents, surface their terminal output so the reply
+  // is useful (e.g. "how's the agent doing" → recent output) instead of canned.
+  if (ctx?.conversational && !EXPLICIT_SPAWN_RE.test(text)) {
+    if (running.length) {
+      const lines = running.map((r) => {
+        const nameStr = r.name ? `**${compactText(r.name, 32)}**` : '(unnamed)';
+        const agentStr = compactText(r.agent, 32);
+        const titleStr = compactText(r.title, 80);
+        let line = `• ${nameStr} [${agentStr}] — ${titleStr}`;
+        if (r.recentOutput?.trim()) {
+          const lastLine = r.recentOutput.trim().split('\n').filter((l) => l.trim()).pop() ?? '';
+          if (lastLine) line += `\n  › ${compactText(lastLine, 120)}`;
+        }
+        return line;
+      });
+      return {
+        reply: `${running.length} agent${running.length === 1 ? '' : 's'} running:\n${lines.join('\n')}`,
+        actions: [],
+        viaLLM: false,
+      };
+    }
+    return {
+      reply: "Got it. Say the word \u2014 like \u201copen an agent and \u2026\u201d \u2014 whenever you want me to put one on it.",
+      actions: [],
+      viaLLM: false,
+    };
+  }
+
+  const isQuestion = QUESTION_START_RE.test(text) || QUESTION_MARK_RE.test(text);
+  const isExplicitSpawn = EXPLICIT_SPAWN_RE.test(text);
+  const hasRealTask = ACTION_RE.test(message);
+
+  // Pure "open/spawn/launch X agent" request with no real task → spawn idle.
+  if (isExplicitSpawn && !hasRealTask) {
+    return {
+      reply: `Opening ${agent.name}. Its terminal will be ready for you.`,
+      actions: [{ kind: 'spawn', agent: agent.command, prompt: null }],
+      viaLLM: false,
+    };
+  }
+
   // Don't spawn an agent for a question — the heuristic isn't smart enough to
   // answer it, so fall back to a helpful prompt asking for an actionable goal.
-  const isQuestion = QUESTION_START_RE.test(text) || QUESTION_MARK_RE.test(text);
-  const actionable = !isQuestion && (ACTION_RE.test(message) || message.trim().length > 24);
+  const actionable = !isQuestion && (hasRealTask || message.trim().length > 24);
   if (actionable) {
     return {
       reply: `On it — handing this to ${agent.name} to work on. You can watch it in its terminal.`,
@@ -183,7 +238,8 @@ function heuristicRoute(message: string, agents: AgentChoice[], ctx?: RouteConte
 function buildSystemPrompt(
   agents: AgentChoice[],
   running: RunningAgentRef[],
-  reviewing: RunningAgentRef[]
+  reviewing: RunningAgentRef[],
+  conversational = false
 ): string {
   const list = agents.map((a) => `- ${a.command} — ${a.name}`).join('\n');
   const runningList = running.length
@@ -232,6 +288,20 @@ function buildSystemPrompt(
     '- If the user is only chatting, greeting, or you need clarification, use an empty actions array and answer in reply.',
     '- Prefer "claude" for general coding unless another agent is clearly better.',
     '- Keep reply to one or two sentences.',
+    '- CRITICAL: "open/spawn/launch X agent" without a real task (e.g. "open Claude", "spawn Codex", "launch an agent") means spawn with null prompt. Do NOT use the user\'s message as the agent\'s prompt — the user just wants the agent opened and ready, not given a meaningless task.',
+    '- Only include a real task prompt when the user describes actual work to do ("fix this bug", "build a login page", "refactor the router").',
+    ...(conversational
+      ? [
+          '',
+          'VOICE CONVERSATION MODE — IMPORTANT:',
+          'You are in a spoken, back-and-forth conversation. The user is talking WITH you, not dictating commands. Conversation is the default; acting is the exception.',
+          '- Default to an EMPTY actions array. Answer, discuss, acknowledge, and ask follow-up questions in "reply".',
+          '- ONLY spawn/send/close an agent when the user EXPLICITLY and unambiguously asks you to — e.g. "open an agent and add X", "spawn claude to fix Y", "have an agent do Z". A direct imperative to act on the codebase counts; anything softer does not.',
+          '- A question, an observation, thinking out loud, brainstorming, or describing a problem is NOT a request to spawn. When in any doubt, DO NOT act — just talk and, if useful, offer to put an agent on it.',
+          '- Never spawn an agent merely because the message mentions code or a task. Wait for the explicit go-ahead.',
+          '- Terminal output for running agents is shown above. Reference it in your replies: say what the agents just outputted, mention their last action, or summarize progress. Do NOT recite the raw output verbatim — paraphrase naturally.',
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -376,7 +446,7 @@ export async function routeOrchestratorRequest(
     const def = getProviderDef(provider);
     const primaryModel = ctx?.llmConfig?.model ?? get(currentAiModel);
     const modelsToTry = [primaryModel, ...def.models.map((m) => m.id).filter((id) => id !== primaryModel)];
-    const systemPrompt = buildSystemPrompt(agents, ctx?.runningAgents ?? [], ctx?.reviewingAgents ?? []);
+    const systemPrompt = buildSystemPrompt(agents, ctx?.runningAgents ?? [], ctx?.reviewingAgents ?? [], ctx?.conversational);
     const userText = buildUserText(message, ctx);
 
     for (const model of modelsToTry) {

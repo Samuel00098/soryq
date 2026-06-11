@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -7,6 +9,30 @@ use serde_json::json;
 
 const KEYCHAIN_SERVICE: &str = "com.samue.soryq";
 const APP_TITLE: &str = "Soryq";
+
+/// Pooled HTTP clients keyed by their total-timeout (ms).
+///
+/// Building a fresh `reqwest::Client` per request throws away the connection
+/// pool, so every call pays a new DNS + TCP + TLS handshake. That's especially
+/// costly in the voice loop: TTS fires one request per sentence chunk, and the
+/// transcription/routing/recon calls all hit the same few hosts moments apart.
+/// Reusing a client keeps connections warm (HTTP keep-alive), so only the first
+/// call to each host pays the handshake — later chunks and turns reuse it.
+fn shared_http_client(timeout: Duration) -> Result<reqwest::Client, String> {
+    static CLIENTS: OnceLock<Mutex<HashMap<u64, reqwest::Client>>> = OnceLock::new();
+    let cache = CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = timeout.as_millis() as u64;
+    let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(client) = map.get(&key) {
+        return Ok(client.clone());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|err| format!("Failed to prepare the request: {err}"))?;
+    map.insert(key, client.clone());
+    Ok(client)
+}
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_AUDIO_TRANSCRIPT_URL: &str = "https://openrouter.ai/api/v1/audio/transcriptions";
@@ -337,10 +363,7 @@ async fn run_completion(
     temperature: f64,
     max_tokens: u32,
 ) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(45))
-        .build()
-        .map_err(|err| format!("Failed to prepare the request: {err}"))?;
+    let client = shared_http_client(Duration::from_secs(45))?;
 
     match provider {
         "anthropic" => {
@@ -562,10 +585,7 @@ pub async fn ai_transcribe_audio(
         return Ok(String::new());
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|err| format!("Failed to prepare the request: {err}"))?;
+    let client = shared_http_client(Duration::from_secs(60))?;
 
     let audio_b64 = STANDARD.encode(audio_bytes);
 
@@ -784,10 +804,7 @@ pub async fn list_provider_models(
     let base_url = resolve_base_url(&provider, &base_url)?;
 
     let timeout_secs = if is_local_provider(&provider) { 2 } else { 20 };
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|err| format!("Failed to prepare the request: {err}"))?;
+    let client = shared_http_client(Duration::from_secs(timeout_secs))?;
 
     let mut models = match provider.as_str() {
         "anthropic" => {
@@ -1021,10 +1038,7 @@ pub async fn tts_speak(
     }
     let text: String = text.chars().take(MAX_TTS_LEN).collect();
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|err| format!("Failed to prepare the request: {err}"))?;
+    let client = shared_http_client(Duration::from_secs(30))?;
 
     match provider.as_str() {
         "openrouter" => {
@@ -1228,10 +1242,7 @@ pub async fn check_local_provider_online(
         return Ok(false);
     }
 
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_millis(500))
-        .build()
-    {
+    let client = match shared_http_client(Duration::from_millis(500)) {
         Ok(c) => c,
         Err(_) => return Ok(false),
     };

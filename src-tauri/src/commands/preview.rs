@@ -98,6 +98,14 @@ pub async fn preview_capture_screenshot(
         return Err("Invalid capture dimensions".to_string());
     }
 
+    // Guard against absurd sizes: the pixel buffer is phys_w * phys_h * 4 bytes and
+    // is handed to GDI as i32 dimensions. Capping well below i32::MAX prevents the
+    // size multiplication from overflowing and GetDIBits from writing out of bounds.
+    const MAX_CAPTURE_DIM: u32 = 16_384;
+    if phys_w > MAX_CAPTURE_DIM || phys_h > MAX_CAPTURE_DIM {
+        return Err("Capture dimensions too large".to_string());
+    }
+
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Graphics::Gdi::*;
@@ -138,8 +146,9 @@ pub async fn preview_capture_screenshot(
                 bmiColors: [RGBQUAD { rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbReserved: 0 }],
             };
 
-            let mut pixels = vec![0u8; (phys_w_i * phys_h_i * 4) as usize];
-            GetDIBits(
+            // usize math — phys_w/phys_h are capped above, so this cannot overflow.
+            let mut pixels = vec![0u8; phys_w as usize * phys_h as usize * 4];
+            let scanlines = GetDIBits(
                 mem_dc, bmp, 0, phys_h_i as u32,
                 Some(pixels.as_mut_ptr() as *mut _),
                 &mut bmi,
@@ -150,6 +159,12 @@ pub async fn preview_capture_screenshot(
             let _ = DeleteObject(bmp.into());
             let _ = DeleteDC(mem_dc);
             ReleaseDC(Some(hwnd), win_dc);
+
+            // GetDIBits returns the number of scanlines copied, or 0 on failure.
+            // Without this check a failed read would silently yield an all-black PNG.
+            if scanlines == 0 {
+                return Err("Failed to read captured pixels".to_string());
+            }
 
             // GDI returns BGRA — swap B and R to get RGBA
             for chunk in pixels.chunks_exact_mut(4) {

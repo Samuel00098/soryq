@@ -7,6 +7,7 @@ import {
   setSessionRole,
   sendAgentPromptDirect,
   getSessionOutputBuffer,
+  waitForAgentReady,
 } from '$lib/stores/terminal';
 
 export interface LeaseOrchestratorTerminalArgs {
@@ -33,23 +34,6 @@ export function applyOrchestratorAgentName(sessionId: number, name: string | nul
   setSessionRole(sessionId, trimmed ? trimmed : 'Agent');
 }
 
-const READY_OUTPUT_DELTA = 16;
-const READY_POLL_MS = 50;
-const READY_SETTLE_MS = 300;
-const READY_MAX_WAIT_MS = 9000;
-
-async function waitForAgentReady(sessionId: number): Promise<void> {
-  const startedAt = Date.now();
-  const startLen = getSessionOutputBuffer(sessionId).length;
-
-  while (Date.now() - startedAt < READY_MAX_WAIT_MS) {
-    if (getSessionOutputBuffer(sessionId).length > startLen + READY_OUTPUT_DELTA) break;
-    await new Promise<void>((resolve) => setTimeout(resolve, READY_POLL_MS));
-  }
-
-  await new Promise<void>((resolve) => setTimeout(resolve, READY_SETTLE_MS));
-}
-
 export function recordOrchestratorTerminalLease(
   sessionId: number,
   taskId: string,
@@ -73,7 +57,7 @@ export function activateOrchestratorTerminal(sessionId: number): void {
 
 export async function leaseOrchestratorTerminal(args: LeaseOrchestratorTerminalArgs): Promise<number | null> {
   const activate = args.activate ?? true;
-  const sessionId = await spawnAgentPreset(args.agentCommand, args.cwd, { activate });
+  const sessionId = await spawnAgentPreset(args.agentCommand, args.cwd, { activate, skipAutoBrief: true });
   if (sessionId == null) return null;
 
   recordOrchestratorTerminalLease(sessionId, args.taskId, args.taskTitle, args.name);
@@ -89,7 +73,10 @@ export async function sendOrchestratorGoalWhenReady(
 ): Promise<boolean> {
   if (!goal.trim()) return false;
 
-  await waitForAgentReady(sessionId);
+  // 'launch-failed' = the shell rejected the agent command (not installed) —
+  // the pane is a plain shell, so sending the goal would execute it as
+  // commands. waitForAgentReady already surfaced the error toast.
+  if ((await waitForAgentReady(sessionId)) === 'launch-failed') return false;
   if (opts?.shouldContinue && !opts.shouldContinue()) return false;
 
   return sendAgentPromptDirect(sessionId, goal);

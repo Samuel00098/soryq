@@ -85,8 +85,6 @@ pub fn run() {
             commands::workspace::workspace_git_checkout,
             commands::workspace::workspace_git_branch_create,
             commands::workspace::workspace_git_branch_delete,
-            commands::workspace::workspace_git_worktree_create,
-            commands::workspace::workspace_git_worktree_remove,
             commands::github::github_token_set,
             commands::github::github_token_exists,
             commands::github::github_token_delete,

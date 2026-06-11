@@ -586,7 +586,10 @@
         term.write(existingBuffer);
       }
 
-      // Double rAF lets flex layout settle, then wait for fonts for accurate glyph metrics
+      // Double rAF lets the flex mosaic settle (a sibling pane may still be tiling
+      // in), THEN wait for fonts for accurate glyph metrics before the first fit.
+      // Fitting before the layout settles latches a transient (narrow) size — the
+      // bug where the 2nd/3rd agent panes render narrower than their pane.
       requestAnimationFrame(() => requestAnimationFrame(() => fitAfterFonts()));
 
       term.onData((data: string) => writeToSession(sessionId, data));
@@ -736,6 +739,7 @@
   bind:this={paneEl}
   onclick={onActivate}
   oncontextmenu={handleContextMenu}
+  style="--terminal-font-family: {$resolvedFontFamily};"
 >
   {#if onResizeLeft}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1109,6 +1113,11 @@
   .terminal-pane:not(.active):not(.dead) .xterm-container {
     opacity: 0.96;
     filter: saturate(0.98);
+  }
+
+  .xterm-container :global(.xterm),
+  .xterm-container :global(.xterm-rows) {
+    font-family: var(--terminal-font-family, monospace) !important;
   }
 
   .xterm-container :global(.xterm) {

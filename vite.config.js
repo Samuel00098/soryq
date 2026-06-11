@@ -20,6 +20,13 @@ export default defineConfig({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
-    watch: { ignored: ['**/src-tauri/**'] },
+    // Ignore directories the app itself writes into at runtime. Without this,
+    // spawning an orchestrator agent — which writes .soryq/orchestrator.json and
+    // creates .soryq/worktrees/* (full repo copies containing src/*.svelte) —
+    // trips Vite's file watcher and triggers a full page reload of the app while
+    // you're dogfooding inside the Soryq repo. .worktrees is the legacy location.
+    watch: {
+      ignored: ['**/src-tauri/**', '**/.soryq/**', '**/.worktrees/**'],
+    },
   },
 });

@@ -11,15 +11,11 @@ export interface ExecutionOutcome {
 }
 
 /**
- * Decide a task's next state once its agent run ends. Terminal exit is treated
- * as an *event to classify*, not unconditional success:
+ * Decide a task's next state once its agent run ends.
  *
  * - non-zero exit            → `failed`
  * - clean exit, needs input  → `blocked`
  * - clean exit               → `complete`
- *
- * The leased session is always detached (`assignedSessionId: null`) since the
- * agent process is gone.
  */
 export function classifyTaskAfterExecution(
   task: OrchestratorTask,
@@ -47,9 +43,8 @@ export function classifyTaskAfterExecution(
     };
   }
 
-  const nextStatus = task.executionMode === 'worktree' ? 'in-review' : 'complete';
   return {
-    ...transitionTask(task, nextStatus),
+    ...transitionTask(task, 'complete'),
     assignedSessionId: null,
     blockedReason: null,
     failureReason: null,

@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import { openPty, type PtySession } from '$lib/services/pty-bridge';
 import { terminalShell } from '$lib/stores/settings';
 import { showToast } from '$lib/stores/notification';
+import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
 
 export type TerminalSessionInfo = {
   id: number;
@@ -16,6 +17,7 @@ export type TerminalSessionInfo = {
   isRunning: boolean;
   isExecuting?: boolean;
   agentPreset?: string | null;
+  briefed?: boolean;
   lastActivatedAt?: number;
   role?: string | null;
   cwd?: string | null;
@@ -194,9 +196,23 @@ export function restoreTerminalProjectState(projectId: string, state: TerminalPr
 const ptyInstances = new Map<number, PtySession>();
 const dataCallbacks = new Map<number, (data: Uint8Array) => void>();
 const exitCallbacks = new Map<number, (code: number) => void>();
+
+// Project-independent exit broadcast. Unlike `exitCallbacks` (registered by the
+// visible TerminalPane and torn down when the pane unmounts) and the `sessions`
+// store (which only ever reflects the active project), these listeners fire for
+// EVERY session exit in EVERY project. The orchestrator uses this so an agent
+// that exits while its project is in the background is still reconciled instead
+// of being stranded in-progress until the user reopens that project.
+export type SessionExitInfo = { sessionId: number; projectId: string; code: number };
+const sessionExitListeners = new Set<(info: SessionExitInfo) => void>();
+export function onSessionExit(listener: (info: SessionExitInfo) => void): () => void {
+  sessionExitListeners.add(listener);
+  return () => sessionExitListeners.delete(listener);
+}
 const sessionOutputBuffers = new Map<number, string>();
 const sessionOutputDecoders = new Map<number, TextDecoder>();
 const sessionInputBuffers = new Map<number, string>();
+const agentLaunchStartLengths = new Map<number, number>();
 const MAX_SESSION_BUFFER_CHARS = 250000;
 
 // Maps a launched executable (the first real token of a command, basename
@@ -405,6 +421,12 @@ function detectAgentPresetFromCommand(command: string): string | null {
   return null;
 }
 
+// Sessions whose programmatic launch write must NOT re-trigger agent-command
+// detection: spawnAgentPreset already records the preset (and the caller's
+// explicit briefed flag) itself, so letting its own `writeToSession(command)`
+// run through detection would clobber that flag and double-schedule the brief.
+const suppressAgentDetection = new Set<number>();
+
 // Processes raw input sent to a session (manual keystrokes and programmatic
 // writes alike) to (a) auto-detect when an AI agent CLI is launched and
 // (b) flag the session as "executing" the moment a non-empty command is
@@ -418,7 +440,8 @@ function processSessionInput(id: number, data: string) {
       const command = buffer.trim();
       if (command) {
         const preset = detectAgentPresetFromCommand(buffer);
-        if (preset) {
+        if (preset && !suppressAgentDetection.has(id)) {
+          agentLaunchStartLengths.set(id, getSessionOutputBuffer(id).length);
           markSessionAgentPreset(id, preset);
         }
         // A real command was just submitted — mark the shell busy so agent
@@ -455,6 +478,16 @@ export function getSessionOutputBuffer(id: number): string {
   return sessionOutputBuffers.get(id) ?? '';
 }
 
+// Looks a session up in its OWNING project's state, not just the visible
+// `sessions` store (which only reflects the active project). Prompt delivery
+// must see the agent preset of a session living in a background project too —
+// missing it would silently downgrade a TUI agent to the plain-shell send path.
+function findSessionAnyProject(id: number): TerminalSessionInfo | undefined {
+  const projectId = terminalSessionProjects.get(id);
+  const pool = projectId ? getProjectState(projectId).sessions : get(sessions);
+  return pool.find((s) => s.id === id);
+}
+
 export async function createTerminalSession(cwd?: string, targetPaneIndex?: number, projectId?: string): Promise<number | null> {
   try {
     let pty: PtySession;
@@ -481,6 +514,12 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
             x.id === pty.id ? { ...x, isRunning: false, lastExitCode: code } : x
           )),
         }));
+        // Broadcast to project-independent listeners (e.g. the orchestrator's
+        // task reconciler) so background-project exits are handled too.
+        for (const listener of sessionExitListeners) {
+          try { listener({ sessionId: pty.id, projectId: sessionProjectId, code }); }
+          catch (err) { console.error('Session exit listener failed:', err); }
+        }
         const visibleSessions = sessionProjectId === activeTerminalProjectId ? get(sessions) : state.sessions;
         const label = session ? getSessionLabel(session, visibleSessions) : `Terminal ${pty.id}`;
         const isAgent = isAgentSession(session);
@@ -589,21 +628,17 @@ function submitAfterPaste(sessionId: number, settleMs = 140, maxWaitMs = 4000) {
   tick();
 }
 
-/**
- * Send a prompt to a session. For agent TUIs (any agent preset) the text is
- * bracketed-pasted first — keeping multi-line prompts intact and preventing the
- * REPL from swallowing the Enter — then submitted with a separate carriage
- * return. Plain shells get the command and its Enter together.
- */
 export function sendPromptToSession(sessionId: number, text: string, agentPreset?: string | null) {
   if (!text) return;
   if (agentPreset) {
-    requestTerminalInput(sessionId, text);
-    submitAfterPaste(sessionId);
+    void deliverPromptRaw(sessionId, text);
+    markSessionBriefed(sessionId, true);
     return;
   }
   writeToSession(sessionId, `${text}\r`);
 }
+
+const isTestEnv = typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true');
 
 // Submitting an agent prompt is two steps: paste the text, then send a separate
 // Enter. The Enter must not arrive until the agent's TUI has actually committed
@@ -611,23 +646,34 @@ export function sendPromptToSession(sessionId: number, text: string, agentPreset
 // paste input asynchronously, so an Enter sent too early submits an *empty*
 // composer (a no-op) and the text then lands typed-but-unsent. We therefore wait
 // for the pasted text *itself* to be echoed into the output before submitting.
-const PASTE_ECHO_POLL_MS = 40;
-const PASTE_ECHO_MIN_WAIT_MS = 60;
+const PASTE_ECHO_POLL_MS = isTestEnv ? 1 : 40;
+const PASTE_ECHO_MIN_WAIT_MS = isTestEnv ? 2 : 60;
 // How much of the prompt to match against the echoed composer. A short, early
 // slice is enough to confirm the paste landed and stays on one line at any sane
 // terminal width (so reflow can't split it mid-word).
 const PASTE_ECHO_NEEDLE_CHARS = 48;
-const PASTE_SUBMIT_SETTLE_MS = 140;
-const PASTE_SUBMIT_MAX_WAIT_MS = 2500;
+const PASTE_SUBMIT_SETTLE_MS = isTestEnv ? 2 : 140;
+// Fallback when neither the literal echo nor a paste placeholder is ever seen.
+// Generous: an Enter sent before the composer commits the paste lands on an
+// empty composer and the prompt sits there typed-but-unsent.
+const PASTE_SUBMIT_MAX_WAIT_MS = isTestEnv ? 15 : 6000;
 // After pressing Enter we confirm the agent actually *started* — an Enter that
 // raced the paste-commit lands on an empty composer (a no-op) and the prompt
 // just sits there typed-but-unsent. A submitted prompt makes the TUI redraw
 // heavily (spinner, "working", token counter), so a burst of new output is a
 // reliable "it took the prompt" signal; the absence of one means re-press Enter.
-const SUBMIT_CONFIRM_POLL_MS = 80;
-const SUBMIT_CONFIRM_WINDOW_MS = 2000;
-const SUBMIT_CONFIRM_DELTA = 150;
-const MAX_SUBMIT_ATTEMPTS = 3;
+const SUBMIT_CONFIRM_POLL_MS = isTestEnv ? 2 : 80;
+const SUBMIT_CONFIRM_WINDOW_MS = isTestEnv ? 15 : 2500;
+// A genuinely accepted prompt makes the TUI repaint a full frame (user message
+// + spinner) — hundreds of chars with escapes. Keep this well above what an
+// idle status-line tick or a late paste-commit redraw produces: a false
+// confirm kills the retry Enters and the prompt sits unsubmitted forever,
+// while a false NON-confirm merely sends one extra Enter, which is a harmless
+// no-op on an already-emptied composer.
+const SUBMIT_CONFIRM_DELTA = 512;
+const MAX_SUBMIT_ATTEMPTS = isTestEnv ? 1 : 3;
+const SINGLE_LINE_CHARTER_PRESETS = new Set(['claude', 'opencode', 'agy', 'antigravity']);
+const AGENT_CHARTER_PREFIX = 'SORYQ AGENT BRIEF';
 
 // Strip ANSI/VT escapes and C0 control noise, then collapse whitespace, so the
 // literal prompt text can be found in a TUI's escape-laden, reflowed redraw.
@@ -651,6 +697,25 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
+function compactPromptForSingleLine(raw: string): string {
+  return raw.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function shouldUsePlainSingleLineCharterPaste(preset: string | null | undefined, text: string): boolean {
+  return Boolean(preset && SINGLE_LINE_CHARTER_PRESETS.has(preset) && text.trimStart().startsWith(AGENT_CHARTER_PREFIX));
+}
+
+// Some TUI agents don't echo a multi-line paste literally — Claude Code
+// collapses it to a placeholder like "[Pasted text #1 +6 lines]". A freshly
+// rendered placeholder is equally conclusive evidence the composer committed
+// the paste, so the echo wait must accept it too (otherwise it always rides
+// out the max wait and the follow-up Enter can race the commit).
+const PASTE_PLACEHOLDER_RE = /pasted\s+(?:text|content|\d+\s+lines?)/gi;
+
+function countPastePlaceholders(haystack: string): number {
+  return haystack.match(PASTE_PLACEHOLDER_RE)?.length ?? 0;
+}
+
 /**
  * True once `current` (the session's full output buffer) shows the pasted `text`
  * echoed into the composer beyond what `base` (the buffer captured the instant
@@ -663,28 +728,42 @@ function countOccurrences(haystack: string, needle: string): number {
 export function pasteEchoLanded(base: string, current: string, text: string): boolean {
   const needle = normalizeForEchoMatch(text).slice(0, PASTE_ECHO_NEEDLE_CHARS);
   if (!needle) return false;
-  const baseCount = countOccurrences(normalizeForEchoMatch(base), needle);
-  const nowCount = countOccurrences(normalizeForEchoMatch(current), needle);
-  return nowCount > baseCount;
+  const normalBase = normalizeForEchoMatch(base);
+  const normalNow = normalizeForEchoMatch(current);
+  if (countOccurrences(normalNow, needle) > countOccurrences(normalBase, needle)) return true;
+  // Literal text never echoed — check for a newly rendered paste placeholder
+  // (collapsed multi-line paste, e.g. Claude Code's "[Pasted text #1 +6 lines]").
+  return countPastePlaceholders(normalNow) > countPastePlaceholders(normalBase);
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+// Delivery diagnostics: one terse line per pipeline step, so a "prompt never
+// arrived at agent X" report can be pinned to ready/paste/echo/submit from the
+// devtools console instead of guessed at. Silenced in tests.
+function logAgentSend(sessionId: number, event: string, detail?: Record<string, unknown>) {
+  if (isTestEnv) return;
+  console.info(`[agent-send] #${sessionId} ${event}`, detail ?? '');
+}
+
 /**
  * Wait until the pasted `text` is echoed into the agent's composer (so a
  * following Enter can't race the input-state commit), then settle briefly. Falls
- * back to a max wait so a non-echoing agent still proceeds to submit.
+ * back to a max wait so a non-echoing agent still proceeds to submit. Returns
+ * whether the echo (literal or paste placeholder) was actually observed.
  */
-async function waitForPasteEcho(sessionId: number, base: string, text: string): Promise<void> {
+async function waitForPasteEcho(sessionId: number, base: string, text: string): Promise<boolean> {
   const startedAt = Date.now();
+  let landed = false;
   for (;;) {
     const elapsed = Date.now() - startedAt;
-    const landed =
+    landed =
       elapsed >= PASTE_ECHO_MIN_WAIT_MS && pasteEchoLanded(base, getSessionOutputBuffer(sessionId), text);
     if (landed || elapsed >= PASTE_SUBMIT_MAX_WAIT_MS) break;
     await sleep(PASTE_ECHO_POLL_MS);
   }
   await sleep(PASTE_SUBMIT_SETTLE_MS);
+  return landed;
 }
 
 /**
@@ -719,16 +798,57 @@ async function confirmAgentStarted(sessionId: number, baseLen: number): Promise<
  */
 export async function sendAgentPromptDirect(sessionId: number, text: string): Promise<boolean> {
   if (!text) return false;
+  return deliverPromptRaw(sessionId, text);
+}
+
+/**
+ * Paste `text` into a session's PTY (bracketed-paste so multi-line prompts stay
+ * intact and the REPL doesn't submit on embedded newlines), then submit it with a
+ * separate Enter, confirming the agent actually started and re-pressing if the
+ * first Enter raced the paste-commit. Used for prompts delivered straight to a
+ * session that may not have a mounted TerminalPane (e.g. the orchestrator).
+ */
+async function deliverPromptRaw(sessionId: number, text: string): Promise<boolean> {
   const pty = ptyInstances.get(sessionId);
   if (!pty) return false;
 
-  // Bracketed paste keeps multi-line prompts intact and stops the REPL from
-  // submitting on each embedded newline; a separate CR (below) submits the blob.
-  const base = getSessionOutputBuffer(sessionId);
-  pty.write(`\x1b[200~${text}\x1b[201~`).catch((err) => console.error('Failed to paste prompt:', err));
-  setSessionExecuting(sessionId, true);
+  const session = findSessionAnyProject(sessionId);
+  const preset = session?.agentPreset;
+  const isTui = Boolean(preset);
 
-  await waitForPasteEcho(sessionId, base, text);
+  if (!isTui) {
+    // No agent preset — a plain shell. Collapse the multi-line text (like the
+    // charter) into a single line so the shell doesn't execute it line-by-line,
+    // and send it directly without bracketed paste.
+    const cleanText = text.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+    pty.write(cleanText + '\r').catch((err) => console.error('Failed to submit prompt:', err));
+    setSessionExecuting(sessionId, true);
+    await sleep(80);
+    const success = ptyInstances.has(sessionId);
+    if (success) {
+      markSessionBriefed(sessionId, true);
+    }
+    return success;
+  }
+
+  const base = getSessionOutputBuffer(sessionId);
+  // Claude Code, OpenCode, and Antigravity can drop synthetic bracketed-paste charters.
+  // The charter is prose-only, so send it as one compact visible composer line.
+  const plainSingleLineCharter = shouldUsePlainSingleLineCharterPaste(preset, text);
+  const promptBody = plainSingleLineCharter ? compactPromptForSingleLine(text) : text;
+  // Newlines become \r inside the paste body — this is what a REAL terminal
+  // paste delivers (xterm.js converts \n to \r on paste), and it's the only
+  // form every composer is actually tested against. Raw \n (Ctrl+J) confuses
+  // Ink-based CLIs (Claude Code, Cursor), which can treat it as a submit or
+  // drop the rest of the paste.
+  const pasteBody = promptBody.replace(/\r?\n/g, '\r');
+  const pastePayload = plainSingleLineCharter ? pasteBody : `\x1b[200~${pasteBody}\x1b[201~`;
+  pty.write(pastePayload).catch((err) => console.error('Failed to paste prompt:', err));
+  setSessionExecuting(sessionId, true);
+  logAgentSend(sessionId, 'paste-written', { preset, chars: pasteBody.length, plainSingleLineCharter });
+
+  const echoLanded = await waitForPasteEcho(sessionId, base, promptBody);
+  logAgentSend(sessionId, echoLanded ? 'echo-confirmed' : 'echo-timeout');
 
   // Press Enter, then verify the agent took it. An Enter on an empty composer is
   // a harmless no-op, so re-pressing is safe — the prompt stays in the composer
@@ -737,12 +857,26 @@ export async function sendAgentPromptDirect(sessionId: number, text: string): Pr
     if (!ptyInstances.get(sessionId)) return false;
     const lenBeforeEnter = getSessionOutputBuffer(sessionId).length;
     pty.write('\r').catch((err) => console.error('Failed to submit prompt:', err));
-    if (await confirmAgentStarted(sessionId, lenBeforeEnter)) return true;
+    const confirmed = await confirmAgentStarted(sessionId, lenBeforeEnter);
+    logAgentSend(sessionId, 'enter', {
+      attempt: attempt + 1,
+      confirmed,
+      growth: getSessionOutputBuffer(sessionId).length - lenBeforeEnter,
+    });
+    if (confirmed) {
+      markSessionBriefed(sessionId, true);
+      return true;
+    }
   }
   // Delivered but never confirmed starting (quiet/stuck agent). Still report
   // success: the prompt is in the composer and the caller's turn watcher won't
   // false-finish a turn that produced no real output.
-  return ptyInstances.has(sessionId);
+  const success = ptyInstances.has(sessionId);
+  logAgentSend(sessionId, 'submit-unconfirmed', { sessionAlive: success });
+  if (success) {
+    markSessionBriefed(sessionId, true);
+  }
+  return success;
 }
 
 export function setSessionExecuting(id: number, executing: boolean) {
@@ -798,7 +932,255 @@ export function applyOscPaneTitle(id: number, paneTitle: string): void {
   setSessionPaneTitle(id, paneTitle);
 }
 
-export function markSessionAgentPreset(id: number, agentPreset: string | null) {
+export function markSessionBriefed(id: number, briefed: boolean) {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) =>
+      x.id === id ? { ...x, briefed } : x
+    ),
+  }));
+}
+
+const READY_OUTPUT_DELTA = 16;
+const READY_POLL_MS = isTestEnv ? 2 : 50;
+// Phase-1 cap: how long to wait for ANY output growth. Kept shorter than the
+// overall cap so a prompt to an already-idle agent (follow-up/resend — which
+// produces no fresh output to wait on) isn't held for the full startup window.
+const READY_NO_OUTPUT_WAIT_MS = isTestEnv ? 40 : 9000;
+// Overall cap. Generous because a cold Node/Python agent CLI on Windows can
+// take well over 10s to boot — pasting before it is up sends the prompt to the
+// shell instead of the agent, which is worse than waiting.
+const READY_MAX_WAIT_MS = isTestEnv ? 40 : 20000;
+const READY_BANNER_DELTA = 32;
+const READY_MIN_STARTUP_MS = isTestEnv ? 10 : 4000;
+const READY_QUIET_MS = isTestEnv ? 5 : 400;
+// VT sequences a TUI agent emits as it takes over the terminal: enable
+// bracketed paste (?2004h) / switch to the alternate screen (?1049h). Seeing
+// one of these AFTER the launch command is a precise "the agent CLI is running
+// and reading input" signal. Output-quiescence alone cannot distinguish an idle
+// agent from the silent gap while a cold CLI is still booting — during which
+// the shell's command echo has already satisfied the growth checks, so a paste
+// would land in the shell. The shell itself can't false-trigger this: it only
+// re-enables bracketed paste when it prints its next prompt, i.e. after the
+// agent exits.
+const READY_TUI_MARKERS = ['\x1b[?2004h', '\x1b[?1049h'];
+// Once the takeover marker is visible, how long to let the banner keep painting
+// before declaring ready anyway. Some TUIs (status spinners) never go quiet, so
+// without this they would always ride out the full max wait.
+const READY_MARKER_SETTLE_MS = isTestEnv ? 5 : 1200;
+// First boot of a known agent CLI: how long to hold out for the TUI takeover
+// marker before giving up and pasting anyway. Longer than READY_MAX_WAIT_MS —
+// a cold npm-shim CLI on Windows can sit silent well past 10s, and pasting
+// while the shell still owns the terminal loses the prompt outright (TUIs
+// drain pending stdin when they start).
+const READY_BOOT_MARKER_WAIT_MS = isTestEnv ? 40 : 30000;
+// First-boot fallback for agent CLIs that never emit a takeover marker (Ink
+// apps like Claude Code don't switch to the alternate screen): a banner burst
+// this large is conclusive — the shell's own command echo and a "command not
+// found" error stay far below it, so the silent boot gap can't false-trigger.
+const READY_BOOT_BANNER_DELTA = 512;
+
+// Shell "command not found" signatures — the launch command itself failed, the
+// agent CLI is NOT coming up, and anything pasted now executes in the shell.
+// Matched against ANSI-stripped output with ALL whitespace removed, because
+// terminal line-wrap splits words mid-token ("Co\n   mmandNotFound...").
+const LAUNCH_FAILURE_SIGNATURES = [
+  'isnotrecognized', // PowerShell: "is not recognized as the name of a cmdlet" / cmd.exe variant
+  'commandnotfound', // bash/zsh "command not found" + PowerShell's CommandNotFoundException
+];
+
+function launchFailedSince(sessionId: number, startLen: number): boolean {
+  const grown = getSessionOutputBuffer(sessionId).slice(startLen);
+  if (!grown) return false;
+  const compact = normalizeForEchoMatch(grown).replace(/\s+/g, '').toLowerCase();
+  return LAUNCH_FAILURE_SIGNATURES.some((sig) => compact.includes(sig));
+}
+
+export type AgentReadiness = 'ready' | 'launch-failed';
+
+export async function waitForAgentReady(sessionId: number): Promise<AgentReadiness> {
+  const startedAt = Date.now();
+  const initialBuffer = getSessionOutputBuffer(sessionId);
+  const startLen = initialBuffer.length;
+  const launchStartLen = agentLaunchStartLengths.get(sessionId);
+  const sinceLaunch = launchStartLen != null ? initialBuffer.slice(launchStartLen) : initialBuffer;
+  const tuiMarkerSeen = () => {
+    const grown = getSessionOutputBuffer(sessionId).slice(startLen);
+    return READY_TUI_MARKERS.some((marker) => grown.includes(marker));
+  };
+
+  // First boot of a known agent CLI (preset set, no takeover marker in the
+  // buffer yet): the marker is the ONLY trustworthy ready signal — quiet-time
+  // heuristics fire during the silent boot gap and the paste lands in the
+  // shell. When the marker is already in the buffer the agent is (or was)
+  // running and this is a follow-up send, so the quick heuristic path applies.
+  const session = findSessionAnyProject(sessionId);
+  const markerAlreadyVisible = READY_TUI_MARKERS.some((marker) => sinceLaunch.includes(marker));
+  const bannerAlreadyVisible =
+    launchStartLen != null && initialBuffer.length >= launchStartLen + READY_BOOT_BANNER_DELTA;
+  const mustSeeMarker = Boolean(session?.agentPreset) && !markerAlreadyVisible && !bannerAlreadyVisible;
+  const maxWaitMs = mustSeeMarker ? READY_BOOT_MARKER_WAIT_MS : READY_MAX_WAIT_MS;
+  const launchFailureStartLen = launchStartLen ?? startLen;
+  const display = getAgentDisplayName(session?.agentPreset) ?? session?.agentPreset ?? 'The agent CLI';
+
+  // First boot only: the shell rejecting the launch command means the agent is
+  // never coming up — abort instead of riding out the wait and pasting the
+  // prompt into the shell (where it would execute line-by-line as commands).
+  const launchFailed = () => {
+    if (!mustSeeMarker || tuiMarkerSeen() || !launchFailedSince(sessionId, launchFailureStartLen)) return false;
+    logAgentSend(sessionId, 'launch-failed', { preset: session?.agentPreset ?? null });
+    showToast(
+      `${display} isn't installed — the shell doesn't recognize the command. Install it (or fix PATH), then relaunch.`,
+      'error',
+      9000
+    );
+    return true;
+  };
+
+  if (Boolean(session?.agentPreset) && !markerAlreadyVisible && launchFailedSince(sessionId, launchFailureStartLen)) {
+    logAgentSend(sessionId, 'launch-failed', { preset: session?.agentPreset ?? null, beforeReadyWait: true });
+    showToast(
+      `${display} isn't installed â€” the shell doesn't recognize the command. Install it (or fix PATH), then relaunch.`,
+      'error',
+      9000
+    );
+    return 'launch-failed';
+  }
+
+  if (bannerAlreadyVisible) {
+    logAgentSend(sessionId, 'ready-existing-banner', {
+      preset: session?.agentPreset ?? null,
+      grownChars: initialBuffer.length - (launchStartLen ?? startLen),
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, READY_QUIET_MS));
+    return 'ready';
+  }
+
+  // 1. Wait for command execution to start (output grows past command echo threshold)
+  let initiallyGrown = false;
+  while (Date.now() - startedAt < (mustSeeMarker ? maxWaitMs : READY_NO_OUTPUT_WAIT_MS)) {
+    if (launchFailed()) return 'launch-failed';
+    if (getSessionOutputBuffer(sessionId).length > startLen + READY_OUTPUT_DELTA || tuiMarkerSeen()) {
+      initiallyGrown = true;
+      break;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, READY_POLL_MS));
+  }
+
+  if (!initiallyGrown) {
+    logAgentSend(sessionId, 'ready-silent', {
+      preset: session?.agentPreset ?? null,
+      mustSeeMarker,
+      waitedMs: Date.now() - startedAt,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, READY_QUIET_MS));
+    return 'ready';
+  }
+
+  // 2. Wait until the agent CLI starts printing its banner/welcome output.
+  // A TUI takeover marker is conclusive; otherwise break once the buffer grows
+  // significantly, or fall back to minimum elapsed time. On a first boot the
+  // small-growth/time fallbacks are disabled — the shell's command echo also
+  // grows the buffer — but a large banner burst still counts (Ink CLIs like
+  // Claude Code never emit a takeover marker, only their banner).
+  while (Date.now() - startedAt < maxWaitMs) {
+    if (launchFailed()) return 'launch-failed';
+    if (tuiMarkerSeen()) break;
+    const currentLen = getSessionOutputBuffer(sessionId).length;
+    if (mustSeeMarker) {
+      if (currentLen >= startLen + READY_BOOT_BANNER_DELTA) break;
+    } else if (currentLen >= startLen + READY_BANNER_DELTA || Date.now() - startedAt >= READY_MIN_STARTUP_MS) {
+      break;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, READY_POLL_MS));
+  }
+
+  // 3. Wait for the agent to be genuinely ready for input:
+  //    - takeover marker seen + output quiet (banner finished), or
+  //    - takeover marker visible for the settle window (TUIs that never go
+  //      quiet — their input handling is live the moment the marker appears), or
+  //    - no marker (line-oriented CLI): output quiet after the minimum startup
+  //      time, so the silent gap of a still-booting TUI isn't mistaken for idle.
+  //      (Disabled on first boot — there quiet-without-marker means still booting.)
+  let markerAt: number | null = tuiMarkerSeen() ? Date.now() : null;
+  let lastLen = getSessionOutputBuffer(sessionId).length;
+  let lastChangeAt = Date.now();
+
+  while (Date.now() - startedAt < maxWaitMs) {
+    await new Promise<void>((resolve) => setTimeout(resolve, READY_POLL_MS));
+    if (markerAt === null && launchFailed()) return 'launch-failed';
+    if (markerAt === null && tuiMarkerSeen()) markerAt = Date.now();
+    const currentLen = getSessionOutputBuffer(sessionId).length;
+    if (currentLen !== lastLen) {
+      lastLen = currentLen;
+      lastChangeAt = Date.now();
+    } else if (Date.now() - lastChangeAt >= READY_QUIET_MS) {
+      if (markerAt !== null) break;
+      const bannerGrown = lastLen >= startLen + READY_BOOT_BANNER_DELTA;
+      // No marker: quiet alone is only trustworthy past the minimum startup
+      // time, and on first boot additionally only after a real banner burst
+      // (quiet without one is the silent gap of a still-booting CLI).
+      if ((!mustSeeMarker || bannerGrown) && Date.now() - startedAt >= READY_MIN_STARTUP_MS) break;
+    }
+    if (markerAt !== null && Date.now() - markerAt >= READY_MARKER_SETTLE_MS) break;
+  }
+
+  logAgentSend(sessionId, 'ready', {
+    preset: session?.agentPreset ?? null,
+    mustSeeMarker,
+    marker: markerAt !== null,
+    grownChars: getSessionOutputBuffer(sessionId).length - startLen,
+    elapsedMs: Date.now() - startedAt,
+  });
+  return 'ready';
+}
+
+// One auto-brief in flight per session at a time: a relaunch detected while a
+// previous brief is still waiting for agent readiness must not produce two
+// charter pastes racing into the same composer.
+const autoBriefInFlight = new Set<number>();
+
+async function autoBriefSession(id: number, preset: string) {
+  // Cheap pre-checks before claiming the in-flight slot, so a stale schedule
+  // (e.g. for a preset that was re-marked since) never blocks the live one.
+  const current = get(sessions).find((s) => s.id === id);
+  if (!current || !current.isRunning || current.agentPreset !== preset || current.briefed || current.ownerTaskId) {
+    return;
+  }
+  if (autoBriefInFlight.has(id)) return;
+  autoBriefInFlight.add(id);
+
+  try {
+    if ((await waitForAgentReady(id)) === 'launch-failed') {
+      // The CLI never started (command not found) — the pane is a plain shell,
+      // so delivering the brief would execute it as shell commands.
+      return;
+    }
+
+    const session = get(sessions).find((s) => s.id === id);
+    if (!session || !session.isRunning || session.agentPreset !== preset || session.briefed) {
+      return;
+    }
+
+    // If the orchestrator has leased this session in the meantime, do not auto-brief it
+    if (session.ownerTaskId) {
+      return;
+    }
+
+    const name = session.agentName || null;
+    const brief = buildAgentCharter('', { name });
+    const success = await sendAgentPromptDirect(id, brief);
+    if (success) {
+      markSessionBriefed(id, true);
+    }
+  } finally {
+    autoBriefInFlight.delete(id);
+  }
+}
+
+export function markSessionAgentPreset(id: number, agentPreset: string | null, briefed?: boolean) {
   const projectId = terminalSessionProjects.get(id);
   if (!projectId) return;
   updateProjectState(projectId, (state) => ({
@@ -807,12 +1189,28 @@ export function markSessionAgentPreset(id: number, agentPreset: string | null) {
       if (x.id !== id) return x;
       if (!agentPreset) {
         // Clear agent: also remove the auto-assigned 'Agent' role if nothing custom was set
-        return { ...x, agentPreset: null, role: x.role === 'Agent' ? null : x.role };
+        return { ...x, agentPreset: null, role: x.role === 'Agent' ? null : x.role, briefed: false };
       }
-      // Auto-assign 'Agent' role if the pane doesn't already have a custom role
-      return { ...x, agentPreset, role: x.role ?? 'Agent' };
+      // Auto-assign 'Agent' role if the pane doesn't already have a custom role.
+      // Without an explicit `briefed` flag this is a fresh agent launch (typed or
+      // spawned), so reset `briefed` even when the pane ran the same preset
+      // before — every newly-started agent process must receive the charter,
+      // including relaunches in a previously-briefed pane.
+      const nextBriefed = briefed !== undefined ? briefed : false;
+      return { ...x, agentPreset, role: x.role ?? 'Agent', briefed: nextBriefed };
     }),
   }));
+
+  // Trigger auto-brief if setting a preset and not already briefed/orchestrator-owned
+  if (agentPreset) {
+    // Run after store updates are committed
+    setTimeout(() => {
+      const session = get(sessions).find((s) => s.id === id);
+      if (session && !session.briefed && !session.ownerTaskId) {
+        void autoBriefSession(id, agentPreset);
+      }
+    }, 50);
+  }
 }
 
 /**
@@ -854,6 +1252,11 @@ export function getSessionDisplayName(session: TerminalSessionInfo, allSessions:
 }
 
 export function getSessionPromptTargetLabel(session: TerminalSessionInfo, allSessions: TerminalSessionInfo[]): string {
+  // The assistant name (set on every spawn — orchestrator dispatch and the
+  // floating bar's "+" alike) is the primary handle for an agent. Fall back to
+  // the CLI product name only for sessions that never got one.
+  const assistantName = session.agentName?.trim();
+  if (assistantName) return assistantName;
   const agentName = getAgentDisplayName(session.agentPreset);
   if (!agentName) return getSessionLabel(session, allSessions);
 
@@ -1114,7 +1517,7 @@ export function registerMosaicClose(fn: ((paneIndex: number) => void) | null) {
 export async function spawnAgentPreset(
   command: string,
   cwd?: string,
-  opts?: { activate?: boolean }
+  opts?: { activate?: boolean; skipAutoBrief?: boolean }
 ): Promise<number | null> {
   const activate = opts?.activate ?? true;
   // When spawning in the background (activate: false), remember what was focused
@@ -1150,10 +1553,24 @@ export async function spawnAgentPreset(
   }
   if (sessionId === null || sessionId === undefined) return null;
 
-  markSessionAgentPreset(sessionId, command);
+  markSessionAgentPreset(sessionId, command, opts?.skipAutoBrief);
   const displayName = getAgentDisplayName(command) ?? command;
   updateSessionTitle(sessionId, displayName);
-  writeToSession(sessionId, command + '\r');
+  agentLaunchStartLengths.set(sessionId, getSessionOutputBuffer(sessionId).length);
+  // Suppress agent-command detection for our own launch write: the preset (and
+  // the caller's briefed flag) was just recorded above, and re-detection would
+  // reset `briefed` — double-briefing plain spawns and breaking skipAutoBrief
+  // for orchestrator dispatch (which delivers its own charter-wrapped goal).
+  suppressAgentDetection.add(sessionId);
+  try {
+    writeToSession(sessionId, command + '\r');
+  } finally {
+    suppressAgentDetection.delete(sessionId);
+  }
+
+  // The standing operating brief is delivered automatically: orchestrator
+  // dispatch (skipAutoBrief) wraps it around the goal itself; every other spawn
+  // is briefed by autoBriefSession via the readiness-gated agent-charter path.
 
   // Background spawn: createTerminalSession made the new pane active — undo that
   // and restore the prior focus so the primary terminal stays stationary.
@@ -1230,6 +1647,7 @@ export async function killSession(id: number) {
   sessionOutputBuffers.delete(id);
   sessionOutputDecoders.delete(id);
   sessionInputBuffers.delete(id);
+  agentLaunchStartLengths.delete(id);
   terminalSessionProjects.delete(id);
 
   // Close the mosaic cell so surrounding terminals reclaim the freed space.
