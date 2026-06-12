@@ -87,7 +87,7 @@ vi.mock('$lib/stores/terminal', () => ({
 
 import { orchestratorTasks, chatMessages, createOrchestratorTask, deleteOrchestratorTask, loadProjectOrchestratorTasks, launchOrchestratorTask, unlinkOrchestratorTask, resendOrchestratorGoal, resumeBlockedOrchestratorTask, renameOrchestratorAgent, sendChatMessage } from './orchestrator';
 import { makeActivityEvent } from '$lib/services/orchestrator/activity-log';
-import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
+import { buildAgentCharter, buildAgentTaskMessage } from '$lib/services/orchestrator/agent-charter';
 
 function resetMocks() {
   invoke.mockReset();
@@ -171,11 +171,13 @@ describe('orchestrator terminal leasing', () => {
     expect(get(orchestratorTasks)[0].status).toBe('in-progress');
     expect(get(orchestratorTasks)[0].assignedSessionId).toBe(42);
 
-    // A manual (no auto-run) launch still briefs the freshly-opened agent CLI —
-    // the goal goes to the prompt bar, but the standing charter is delivered now.
+    // claude reads a rules file, so its standing brief is written to CLAUDE.md /
+    // AGENTS.md when the CLI boots — it is never pasted into the REPL. A manual
+    // (no-goal) launch therefore sends nothing live; the goal just goes to the
+    // prompt bar for the user to send.
     getSessionOutputBuffer.mockReturnValue('booted output................................');
     await vi.advanceTimersByTimeAsync(9300);
-    expect(sendAgentPromptDirect).toHaveBeenCalledWith(42, buildAgentCharter('', { name: null }));
+    expect(sendAgentPromptDirect).not.toHaveBeenCalled();
   });
 
   it('marks a launched task as starting until its goal is sent', async () => {
@@ -189,12 +191,26 @@ describe('orchestrator terminal leasing', () => {
     await vi.advanceTimersByTimeAsync(1600);
     await Promise.resolve();
 
-    // Spawned agents receive the standing operating brief wrapped around the goal.
-    expect(sendAgentPromptDirect).toHaveBeenCalledWith(42, buildAgentCharter(task.goal, { name: null }));
+    // claude reads a rules file, so it already holds the standing brief — only the
+    // task goes live (no charter wrap pasted into the REPL).
+    expect(sendAgentPromptDirect).toHaveBeenCalledWith(42, buildAgentTaskMessage(task.goal, { name: null }));
     expect(get(orchestratorTasks)[0].promptSentAt).toBeTypeOf('number');
     expect(showToast).toHaveBeenCalledWith('Sent goal to claude', 'info', 3000);
   });
 
+  it('pastes the full charter for agents that do NOT read a rules file', async () => {
+    // pi has no native rules file, so the only way it gets the standing brief is
+    // the legacy REPL paste — the charter wrapped around the goal.
+    const task = createOrchestratorTask('project-1', 'Fix the terminal lease flow', 'pi');
+    getSessionOutputBuffer.mockReturnValueOnce('').mockReturnValue('booted output................................');
+    getTerminalProjectState.mockReturnValue({ sessions: [{ id: 42, isRunning: true, ownerTaskId: task.id }] });
+
+    await launchOrchestratorTask(task.id, 'pi', '/repo', true);
+    await vi.advanceTimersByTimeAsync(1600);
+    await Promise.resolve();
+
+    expect(sendAgentPromptDirect).toHaveBeenCalledWith(42, buildAgentCharter(task.goal, { name: null }));
+  });
 
   it('clears stale persisted lease fields for non-in-progress tasks on load', async () => {
     invoke.mockImplementation(async (command: string) => {
@@ -441,8 +457,9 @@ describe('orchestrator terminal leasing', () => {
 
     resendOrchestratorGoal(task.id);
 
-    // A resend re-delivers the brief too (the first send may have missed entirely).
-    expect(sendAgentPromptDirect).toHaveBeenCalledWith(42, buildAgentCharter(task.goal, { name: null }));
+    // A resend re-delivers the goal; claude holds the brief via its rules file, so
+    // only the task is re-sent (no charter wrap).
+    expect(sendAgentPromptDirect).toHaveBeenCalledWith(42, buildAgentTaskMessage(task.goal, { name: null }));
     expect(showToast).toHaveBeenCalledWith('Re-sent goal to agent', 'info', 2500);
   });
 
@@ -503,6 +520,7 @@ describe('orchestrator chat actions', () => {
           makeActivityEvent('dispatch', 'Launched Backend', 10),
           makeActivityEvent('finished', 'Tests green', 20),
         ],
+        transcript: 'npm test\nTest Files 2 passed\nAll green',
       },
     ]);
     chatMessages.set({
@@ -529,6 +547,13 @@ describe('orchestrator chat actions', () => {
     expect(ctx.taskMemory?.[0]).toContain('Backend [claude, complete]');
     expect(ctx.taskMemory?.[0]).toContain('dispatch: Launched Backend');
     expect(ctx.taskMemory?.[0]).toContain('finished: Tests green');
+    expect(ctx.taskOutputs).toHaveLength(1);
+    expect(ctx.taskOutputs?.[0]).toMatchObject({
+      name: 'Backend',
+      agent: 'claude',
+      status: 'complete',
+      recentOutput: expect.stringContaining('All green'),
+    });
 
     const transcript = get(chatMessages)['project-1'];
     expect(transcript[transcript.length - 1]).toMatchObject({ role: 'assistant', text: 'Done.', pending: false });
@@ -577,10 +602,9 @@ describe('orchestrator chat actions', () => {
     getSessionOutputBuffer.mockReturnValue('booted output................................');
     await vi.advanceTimersByTimeAsync(9300);
 
-    // The whole point: EVERY idle agent CLI receives the standing brief on spawn,
-    // not just the first one.
-    expect(sendAgentPromptDirect).toHaveBeenCalledWith(42, buildAgentCharter('', { name: tasks[0].name }));
-    expect(sendAgentPromptDirect).toHaveBeenCalledWith(43, buildAgentCharter('', { name: tasks[1].name }));
+    // claude reads a rules file: every spawned CLI is briefed via CLAUDE.md /
+    // AGENTS.md on boot, so NONE of them get the brief pasted into the REPL.
+    expect(sendAgentPromptDirect).not.toHaveBeenCalled();
   });
 
   it('spawns a named agent persistent (no auto-send)', async () => {
@@ -647,11 +671,11 @@ describe('orchestrator chat actions', () => {
     await resumePromise;
 
     expect(spawnAgentPreset).toHaveBeenCalledWith('claude', '/repo', { activate: true, skipAutoBrief: true });
-    // Resuming a blocked task spawns a fresh CLI, so it is re-briefed: the standing
-    // charter wrapped around the resume prompt (not the bare prompt).
+    // Resuming a blocked task spawns a fresh CLI; claude re-reads its rules file on
+    // boot, so only the resume prompt is sent (no charter wrap).
     expect(sendAgentPromptDirect).toHaveBeenCalledWith(
       77,
-      buildAgentCharter('API key is set. Please continue.', { name: 'Backend' })
+      buildAgentTaskMessage('API key is set. Please continue.', { name: 'Backend' })
     );
     const task = get(orchestratorTasks)[0];
     expect(task.status).toBe('in-progress');

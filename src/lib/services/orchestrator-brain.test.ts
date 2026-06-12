@@ -40,7 +40,17 @@ vi.mock('$lib/stores/settings', () => ({
   getProviderBaseUrl,
 }));
 
-import { routeOrchestratorRequest } from './orchestrator-brain';
+import { routeOrchestratorRequest, resolveAgentCommand } from './orchestrator-brain';
+
+const ALL_AGENTS = [
+  { command: 'codex', name: 'Codex CLI' },
+  { command: 'claude', name: 'Claude Code' },
+  { command: 'agy', name: 'Antigravity' },
+  { command: 'opencode', name: 'OpenCode' },
+  { command: 'pi', name: 'Pi AI Agent' },
+  { command: 'omp', name: 'Oh My Pi' },
+  { command: 'agent', name: 'Cursor' },
+];
 
 describe('routeOrchestratorRequest', () => {
   beforeEach(() => {
@@ -164,10 +174,114 @@ describe('routeOrchestratorRequest', () => {
 
     expect(result.actions).toEqual([]);
     expect(result.viaLLM).toBe(false);
-    expect(result.reply).toContain('running');
+    expect(result.reply).toContain('still in progress');
     expect(result.reply).toContain('Iris');
     expect(result.reply).toContain('Refactoring the router');
     expect(result.reply).toContain('router.ts');
+  });
+
+  it('answers status questions from recent task output without invoking the LLM', async () => {
+    const result = await routeOrchestratorRequest(
+      'is it done?',
+      [{ command: 'claude', name: 'Claude' }],
+      {
+        taskOutputs: [
+          {
+            name: 'Iris',
+            agent: 'claude',
+            title: 'Fix the login bug',
+            status: 'complete',
+            recentOutput: 'npm test\nTest Files 4 passed\nDone in 12s',
+          },
+        ],
+      }
+    );
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result.actions).toEqual([]);
+    expect(result.reply).toContain('Iris is done');
+    expect(result.reply).toContain('Fix the login bug');
+    expect(result.reply).toContain('Done in 12s');
+  });
+
+  it('summarizes terminal output conversationally in voice mode', async () => {
+    const result = await routeOrchestratorRequest(
+      'summarize what the terminal said',
+      [{ command: 'claude', name: 'Claude' }],
+      {
+        conversational: true,
+        taskOutputs: [
+          {
+            name: 'Backend',
+            agent: 'claude',
+            title: 'Add OpenRouter STT',
+            status: 'blocked',
+            reason: 'OpenRouter requires balance for audio.',
+            recentOutput: 'OpenRouter audio chat transcription failed (402 Payment Required)\nNeed to switch to Web Speech or local STT.',
+          },
+        ],
+      }
+    );
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result.actions).toEqual([]);
+    expect(result.reply).toContain('Backend is waiting for input');
+    expect(result.reply).toContain('latest terminal output');
+    expect(result.reply).toContain('402 Payment Required');
+    expect(result.reply).not.toContain('```');
+  });
+
+  describe('resolveAgentCommand', () => {
+    it('maps command ids, display names, and aliases to the command', () => {
+      expect(resolveAgentCommand('open codex', ALL_AGENTS)).toBe('codex');
+      expect(resolveAgentCommand('use Codex CLI to fix it', ALL_AGENTS)).toBe('codex');
+      expect(resolveAgentCommand('spawn antigravity', ALL_AGENTS)).toBe('agy');
+      expect(resolveAgentCommand('launch oh my pi', ALL_AGENTS)).toBe('omp');
+      expect(resolveAgentCommand('use cursor', ALL_AGENTS)).toBe('agent');
+      expect(resolveAgentCommand('fire up opencode', ALL_AGENTS)).toBe('opencode');
+    });
+
+    it('returns null when no agent is named, and ignores the generic word "agent"', () => {
+      expect(resolveAgentCommand('fix the login bug', ALL_AGENTS)).toBeNull();
+      // "agent" alone must not resolve to Cursor (whose command happens to be "agent").
+      expect(resolveAgentCommand('open an agent for me', ALL_AGENTS)).toBeNull();
+    });
+  });
+
+  it('heuristically brings out the NAMED agent, not the default', async () => {
+    getProviderApiKeyLocal.mockReturnValue(''); // no key → heuristic fallback
+
+    const open = await routeOrchestratorRequest('open codex', ALL_AGENTS);
+    expect(open.viaLLM).toBe(false);
+    expect(open.actions).toEqual([{ kind: 'spawn', agent: 'codex', prompt: null }]);
+    expect(open.reply).toContain('Codex CLI');
+
+    const work = await routeOrchestratorRequest('use Codex CLI to fix the login bug', ALL_AGENTS);
+    expect(work.actions).toEqual([
+      { kind: 'spawn', agent: 'codex', prompt: 'use Codex CLI to fix the login bug' },
+    ]);
+
+    const idle = await routeOrchestratorRequest('spawn antigravity', ALL_AGENTS);
+    expect(idle.actions).toEqual([{ kind: 'spawn', agent: 'agy', prompt: null }]);
+  });
+
+  it('still defaults to claude when no specific agent is named', async () => {
+    getProviderApiKeyLocal.mockReturnValue('');
+
+    const result = await routeOrchestratorRequest('refactor the router for clarity', ALL_AGENTS);
+    expect(result.actions).toEqual([
+      { kind: 'spawn', agent: 'claude', prompt: 'refactor the router for clarity' },
+    ]);
+  });
+
+  it('resolves a display name the model returned to its command id (LLM path)', async () => {
+    invoke.mockResolvedValueOnce(
+      '{"reply":"On it.","actions":[{"kind":"spawn","agent":"Codex CLI","prompt":"do x","name":null}]}'
+    );
+
+    const result = await routeOrchestratorRequest('have codex do x', ALL_AGENTS);
+    expect(result.viaLLM).toBe(true);
+    expect(result.actions).toEqual([{ kind: 'spawn', agent: 'codex', prompt: 'do x', name: null }]);
   });
 
   it('reverts to canned reply in conversational mode when no agents are running', async () => {

@@ -592,6 +592,11 @@
     let disposed = false;
     let executingTimeout: any = null;
     const decoder = new TextDecoder();
+    // True only while the reattach buffer below is being parsed. Replayed history
+    // re-feeds the agent's startup color/DA queries (e.g. Codex's ESC]10;?/ESC]11;?),
+    // and xterm answers them again — those synthetic replies must NOT be written
+    // back to the live PTY (they'd land as `]10;rgb:…` junk in the input box).
+    let suppressReplayInput = false;
 
     void (async () => {
       await waitForOpenDimensions(container);
@@ -607,7 +612,10 @@
       // kick to repaint once the fit settles. A fresh session paints on its own.
       const isReattach = !!existingBuffer;
       if (existingBuffer) {
-        term.write(existingBuffer);
+        // Gate outbound data until this historical write finishes parsing, so the
+        // re-answered color/DA queries it contains don't leak into the live PTY.
+        suppressReplayInput = true;
+        term.write(existingBuffer, () => { suppressReplayInput = false; });
       }
 
       // Double rAF lets the flex mosaic settle (a sibling pane may still be tiling
@@ -619,7 +627,12 @@
         if (isReattach) forceReattachRepaint();
       }));
 
-      term.onData((data: string) => writeToSession(sessionId, data));
+      term.onData((data: string) => {
+        // Drop xterm's synthetic query replies emitted while replaying history (see
+        // the reattach buffer write above); genuine keystrokes still pass through.
+        if (suppressReplayInput) return;
+        writeToSession(sessionId, data);
+      });
       term.onResize(({ cols, rows }: { cols: number; rows: number }) => resizeSession(sessionId, rows, cols));
       term.onKey(() => onActivate());
 

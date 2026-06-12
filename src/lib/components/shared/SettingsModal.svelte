@@ -21,6 +21,7 @@
     terminalRenderer,
     formatOnSave,
     notificationsEnabled,
+    closeBehavior,
     voiceRefinementEnabled,
     voiceInputProvider,
     currentVoiceInputModel,
@@ -45,7 +46,8 @@
     aiProviders,
     getProviderDef,
     getProviderTtsBadge,
-    getTtsVoiceOptions,
+    getTtsModelOptions,
+    getTtsVoiceOptionsForModel,
     isLocalProvider,
     providerSupportsReplyTts,
     getProviderBaseUrl,
@@ -66,13 +68,16 @@
   import Dropdown, { type DropdownOption } from '$lib/components/shared/Dropdown.svelte';
   import { clearProviderApiKey, providerApiKeyExists, saveProviderApiKey, listProviderModels } from '$lib/services/ai-keychain';
   import { describeTtsError, getVoiceReplyConfigError, speak, stopSpeaking } from '$lib/services/tts';
+  import { isTauriRuntime } from '$lib/utils/tauri';
+  import packageJson from '../../../../package.json';
 
   type Tab = 'general' | 'models' | 'terminal' | 'shortcuts' | 'themes' | 'about';
   let activeTab = $state<Tab>('general');
+  const PACKAGE_VERSION = packageJson.version;
 
   let updateStatus = $state<'idle' | 'checking' | 'latest' | 'available' | 'error'>('idle');
   let updateMessage = $state('');
-  let appVersion = $state('...');
+  let appVersion = $state(PACKAGE_VERSION);
 
   async function handleCheckForUpdates() {
     if (updateStatus === 'checking') return;
@@ -110,6 +115,11 @@
     { id: 'system' as 'system'|'light'|'dark', label: 'System' },
     { id: 'light'  as 'system'|'light'|'dark', label: 'Light'  },
     { id: 'dark'   as 'system'|'light'|'dark', label: 'Dark'   },
+  ];
+
+  const closeBehaviorModes = [
+    { id: 'quit' as const, label: 'Quit Soryq', desc: 'Close the app and stop live terminals.' },
+    { id: 'minimize' as const, label: 'Keep running', desc: 'Minimize and keep terminals and agents alive.' },
   ];
 
   // Terminal settings
@@ -326,13 +336,23 @@
     providerSupportsReplyTts($voiceConversationAiProvider)
   );
   let voiceConversationTtsVoiceOptions = $derived(
-    getTtsVoiceOptions($voiceConversationAiProvider)
+    getTtsVoiceOptionsForModel($voiceConversationAiProvider, $currentVoiceConversationTtsModel)
+  );
+  let voiceConversationTtsModelOptions = $derived<DropdownOption[]>(
+    getTtsModelOptions($voiceConversationAiProvider).map((model) => ({
+      value: model.id,
+      label: model.label,
+      sublabel: model.description || model.id,
+    }))
   );
   let selectedVoiceConversationTtsVoice = $derived(
     voiceConversationTtsVoiceOptions.find((voice) => voice.id === $currentVoiceConversationTtsVoice)
   );
   let activeVoiceInputModelProvider = $derived(
-    ($voiceInputProvider === 'openrouter' ? 'openrouter' : 'google') as 'google' | 'openrouter'
+    ($voiceInputProvider === 'webspeech' ? 'google' : $voiceInputProvider) as Exclude<VoiceInputProviderId, 'webspeech'>
+  );
+  let voiceInputModelIsLocal = $derived(
+    activeVoiceInputModelProvider === 'ollama' || activeVoiceInputModelProvider === 'lmstudio'
   );
   let voiceInputModelOptions = $derived<DropdownOption[]>(
     getVoiceInputModelOptions($voiceInputProvider)
@@ -370,7 +390,7 @@
     {
       id: 'openrouter',
       label: 'OpenRouter',
-      subtitle: 'STT through OpenRouter',
+      subtitle: 'Paid STT models',
       status:
         providerKeyStatus.openrouter === 'saved'
           ? 'Ready'
@@ -379,6 +399,32 @@
             : providerKeyStatus.openrouter === 'loading'
               ? 'Checking'
               : 'No key',
+    },
+    {
+      id: 'ollama',
+      label: 'Ollama',
+      subtitle: 'Local /audio/transcriptions',
+      status:
+        providerKeyStatus.ollama === 'saved'
+          ? 'Ready'
+          : providerKeyStatus.ollama === 'error'
+            ? 'Error'
+            : providerKeyStatus.ollama === 'loading'
+              ? 'Checking'
+              : 'No URL',
+    },
+    {
+      id: 'lmstudio',
+      label: 'LM Studio',
+      subtitle: 'Local /audio/transcriptions',
+      status:
+        providerKeyStatus.lmstudio === 'saved'
+          ? 'Ready'
+          : providerKeyStatus.lmstudio === 'error'
+            ? 'Error'
+            : providerKeyStatus.lmstudio === 'loading'
+              ? 'Checking'
+              : 'No URL',
     },
   ]);
 
@@ -471,7 +517,9 @@
 
   onMount(async () => {
     availableShells = await getAvailableShells();
-    appVersion = await getVersion().catch(() => '0.1.0');
+    if (isTauriRuntime()) {
+      appVersion = await getVersion().catch(() => PACKAGE_VERSION);
+    }
     await refreshProviderKeyStatuses();
 
     // Auto-detect if Ollama is online and configure it if no other keys exist
@@ -763,6 +811,9 @@
   let providerDropdownEl = $state<HTMLDivElement | null>(null);
   let providerDropdownOpen = $state(false);
 
+  let voiceInputModelDropdownEl = $state<HTMLDivElement | null>(null);
+  let voiceInputModelDropdownOpen = $state(false);
+
   let voiceModelDropdownEl = $state<HTMLDivElement | null>(null);
   let voiceModelDropdownOpen = $state(false);
   let voiceModelSearch = $state('');
@@ -773,6 +824,9 @@
   let voiceConversationModelDropdownEl = $state<HTMLDivElement | null>(null);
   let voiceConversationModelDropdownOpen = $state(false);
   let voiceConversationModelSearch = $state('');
+
+  let voiceConversationTtsModelDropdownEl = $state<HTMLDivElement | null>(null);
+  let voiceConversationTtsModelDropdownOpen = $state(false);
 
   let voiceConversationTtsVoiceDropdownEl = $state<HTMLDivElement | null>(null);
   let voiceConversationTtsVoiceDropdownOpen = $state(false);
@@ -817,6 +871,28 @@
     }
   }
 
+  function chooseVoiceConversationTtsModel(modelId: string) {
+    setVoiceConversationTtsModel($voiceConversationAiProvider, modelId);
+    const voices = getTtsVoiceOptionsForModel($voiceConversationAiProvider, modelId);
+    if (voices.length && !voices.some((voice) => voice.id === $currentVoiceConversationTtsVoice)) {
+      setVoiceConversationTtsVoice($voiceConversationAiProvider, voices[0].id);
+    }
+    voiceConversationTtsModelDropdownOpen = false;
+  }
+
+  let selectedVoiceConversationTtsModel = $derived(
+    getTtsModelOptions($voiceConversationAiProvider).find((model) => model.id === $currentVoiceConversationTtsModel)
+  );
+
+  let selectedVoiceInputModel = $derived(
+    getVoiceInputModelOptions($voiceInputProvider).find((model) => model.id === $currentVoiceInputModel)
+  );
+
+  function chooseVoiceInputModel(modelId: string) {
+    setVoiceInputModel(activeVoiceInputModelProvider, modelId);
+    voiceInputModelDropdownOpen = false;
+  }
+
 
   // Badge shown next to a model. For OpenRouter we infer the underlying vendor
   // from the slug prefix; for native providers it's the provider itself.
@@ -825,6 +901,15 @@
       if (modelId.startsWith('anthropic/')) return 'Anthropic';
       if (modelId.startsWith('google/')) return 'Google';
       if (modelId.startsWith('openai/')) return 'OpenAI';
+      if (modelId.startsWith('mistralai/')) return 'Mistral';
+      if (modelId.startsWith('microsoft/')) return 'Microsoft';
+      if (modelId.startsWith('nvidia/')) return 'NVIDIA';
+      if (modelId.startsWith('qwen/')) return 'Qwen';
+      if (modelId.startsWith('x-ai/')) return 'xAI';
+      if (modelId.startsWith('zyphra/')) return 'Zyphra';
+      if (modelId.startsWith('sesame/')) return 'Sesame';
+      if (modelId.startsWith('canopylabs/')) return 'Canopy';
+      if (modelId.startsWith('hexgrad/')) return 'Kokoro';
       return 'Other';
     }
     switch (providerId) {
@@ -854,6 +939,17 @@
     function handleOutside(e: MouseEvent) {
       if (providerDropdownEl && !providerDropdownEl.contains(e.target as Node)) {
         providerDropdownOpen = false;
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  });
+
+  $effect(() => {
+    if (!voiceInputModelDropdownOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (voiceInputModelDropdownEl && !voiceInputModelDropdownEl.contains(e.target as Node)) {
+        voiceInputModelDropdownOpen = false;
       }
     }
     document.addEventListener('mousedown', handleOutside);
@@ -894,6 +990,17 @@
   });
 
   $effect(() => {
+    if (!voiceConversationTtsModelDropdownOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (voiceConversationTtsModelDropdownEl && !voiceConversationTtsModelDropdownEl.contains(e.target as Node)) {
+        voiceConversationTtsModelDropdownOpen = false;
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  });
+
+  $effect(() => {
     if (!voiceConversationTtsVoiceDropdownOpen) return;
     function handleOutside(e: MouseEvent) {
       if (voiceConversationTtsVoiceDropdownEl && !voiceConversationTtsVoiceDropdownEl.contains(e.target as Node)) {
@@ -913,6 +1020,15 @@
   $effect(() => {
     const _ = $voiceConversationAiProvider;
     voiceConversationModelSearch = '';
+  });
+
+  $effect(() => {
+    const provider = $voiceConversationAiProvider;
+    const model = $currentVoiceConversationTtsModel;
+    const voices = getTtsVoiceOptionsForModel(provider, model);
+    if (!voices.length) return;
+    if (voices.some((voice) => voice.id === $currentVoiceConversationTtsVoice)) return;
+    setVoiceConversationTtsVoice(provider, voices[0].id);
   });
 
   $effect(() => {
@@ -1344,6 +1460,24 @@
           </div>
         </div>
 
+        <!-- Window behavior section -->
+        <div class="setting-group">
+          <div class="group-label">Window</div>
+          <div class="option-cards">
+            {#each closeBehaviorModes as option}
+              <button
+                type="button"
+                class="option-card"
+                class:selected={$closeBehavior === option.id}
+                onclick={() => $closeBehavior = option.id}
+              >
+                <span class="option-title">{option.label}</span>
+                <span class="option-desc">{option.desc}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+
         <!-- Notifications section -->
         <div class="setting-group">
           <div class="group-label">Notifications</div>
@@ -1767,7 +1901,7 @@
                 <div class="detail-info">
                   <span class="detail-label">Input engine</span>
                   <span class="detail-desc">
-                    Choose whether dictation starts with browser Web Speech or a model transcription pass. Google and OpenRouter input skip the extra AI voice-refinement rewrite because the transcript already comes from the model.
+                    Choose whether dictation starts with browser Web Speech or a model transcription pass. OpenRouter audio currently requires account balance, even when a chat model slug includes :free.
                   </span>
                 </div>
               </div>
@@ -1823,25 +1957,118 @@
                   <div class="detail-info">
                     <span class="detail-label">Transcription model</span>
                     <span class="detail-desc">
-                      This model handles the audio transcription step directly. Regular dictation skips the extra AI refinement rewrite while model-based voice input is active.
+                      This model handles the audio transcription step directly. For no-balance input, use browser Web Speech or a local transcription server.
                     </span>
                   </div>
                 </div>
 
-                <div style="max-width: 340px;">
-                  <Dropdown
-                    options={voiceInputModelOptions}
-                    value={$currentVoiceInputModel}
-                    onChange={(value) => setVoiceInputModel(activeVoiceInputModelProvider, value)}
-                    ariaLabel="Voice input model"
-                    disabled={providerKeyStatus[activeVoiceInputModelProvider] !== 'saved'}
-                  />
-                </div>
+                {#if voiceInputModelIsLocal}
+                  <div class="api-key-input-wrapper" style="max-width: 420px;">
+                    <div class="input-inner-container">
+                      <span class="input-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M12 18a6 6 0 0 0 6-6V6a6 6 0 0 0-12 0v6a6 6 0 0 0 6 6Z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                          <path d="M12 19v3" />
+                        </svg>
+                      </span>
+                      <input
+                        class="text-input key-input"
+                        type="text"
+                        value={$currentVoiceInputModel}
+                        placeholder="local-stt-model"
+                        spellcheck="false"
+                        autocomplete="off"
+                        disabled={providerKeyStatus[activeVoiceInputModelProvider] !== 'saved'}
+                        oninput={(e) => setVoiceInputModel(activeVoiceInputModelProvider, (e.currentTarget as HTMLInputElement).value)}
+                      />
+                    </div>
+                  </div>
+                {:else}
+                  <div class="model-selector-wrap stt-selector-wrap" bind:this={voiceInputModelDropdownEl}>
+                    <button
+                      type="button"
+                      class="model-trigger stt-trigger"
+                      onclick={() => (voiceInputModelDropdownOpen = !voiceInputModelDropdownOpen)}
+                      aria-haspopup="listbox"
+                      aria-expanded={voiceInputModelDropdownOpen}
+                      disabled={providerKeyStatus[activeVoiceInputModelProvider] !== 'saved' || !voiceInputModelOptions.length}
+                    >
+                      <div class="model-trigger-left">
+                        <span class="stt-model-icon" aria-hidden="true">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 18a6 6 0 0 0 6-6V6a6 6 0 0 0-12 0v6a6 6 0 0 0 6 6Z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <path d="M12 19v3" />
+                          </svg>
+                        </span>
+                        <span class="model-trigger-badge" data-provider={modelBadge(activeVoiceInputModelProvider, $currentVoiceInputModel)}>
+                          {modelBadge(activeVoiceInputModelProvider, $currentVoiceInputModel)}
+                        </span>
+                        <div class="model-trigger-meta">
+                          <div class="model-trigger-name">
+                            {selectedVoiceInputModel?.label ?? $currentVoiceInputModel}
+                          </div>
+                          <div class="model-trigger-desc">
+                            {selectedVoiceInputModel?.description || 'Speech-to-text model'}
+                          </div>
+                        </div>
+                      </div>
+                      <div class="model-trigger-right">
+                        <span class="stt-mode-pill">STT</span>
+                        <svg class="model-chevron" class:open={voiceInputModelDropdownOpen} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </div>
+                    </button>
+
+                    {#if voiceInputModelDropdownOpen}
+                      <div class="model-dropdown stt-dropdown" role="listbox" aria-label="Voice input model">
+                        <div class="model-list">
+                          {#each getVoiceInputModelOptions($voiceInputProvider) as model (model.id)}
+                            <button
+                              type="button"
+                              class="model-option stt-model-option"
+                              class:selected={$currentVoiceInputModel === model.id}
+                              role="option"
+                              aria-selected={$currentVoiceInputModel === model.id}
+                              onclick={() => chooseVoiceInputModel(model.id)}
+                            >
+                              <div class="model-option-left">
+                                <span class="model-option-badge" data-provider={modelBadge(activeVoiceInputModelProvider, model.id)}>
+                                  {modelBadge(activeVoiceInputModelProvider, model.id)}
+                                </span>
+                                <div class="model-option-body">
+                                  <div class="model-option-name">{model.label}</div>
+                                  <div class="model-option-desc">{model.description}</div>
+                                </div>
+                              </div>
+                              <div class="model-option-right">
+                                {#if model.free || model.id.endsWith(':free')}
+                                  <span class="model-free-badge">Free</span>
+                                {/if}
+                                {#if $currentVoiceInputModel === model.id}
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="checkmark-icon">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                  </svg>
+                                {/if}
+                              </div>
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
 
                 {#if providerKeyStatus[activeVoiceInputModelProvider] !== 'saved'}
                   <div class="key-status-indicator voice-input-key-hint" style="margin-top: 10px;">
                     <span class="status-badge idle voice-input-key-hint-badge">
-                      Add an {$voiceInputProvider === 'openrouter' ? 'OpenRouter' : 'Google'} key in the main provider section below to enable model-based transcription.
+                      {#if voiceInputModelIsLocal}
+                        Set a {getProviderDef(activeVoiceInputModelProvider).label} server URL in the main provider section above to enable local transcription.
+                      {:else}
+                        Add an {$voiceInputProvider === 'openrouter' ? 'OpenRouter' : 'Google'} key in the main provider section above to enable model-based transcription.
+                      {/if}
                     </span>
                   </div>
                 {/if}
@@ -2339,7 +2566,7 @@
                             class:selected={$currentVoiceConversationAiModel === model.id}
                             role="option"
                             aria-selected={$currentVoiceConversationAiModel === model.id}
-                            onclick={() => { setVoiceConversationAiModel($voiceConversationAiProvider, model.id); setVoiceConversationTtsModel($voiceConversationAiProvider, model.id); voiceConversationModelDropdownOpen = false; }}
+                            onclick={() => { setVoiceConversationAiModel($voiceConversationAiProvider, model.id); voiceConversationModelDropdownOpen = false; }}
                           >
                             <div class="model-option-left">
                               <span class="model-option-badge" data-provider={modelBadge($voiceConversationAiProvider, model.id)}>
@@ -2408,33 +2635,114 @@
                   </div>
                 </div>
 
-                <div class="api-key-input-wrapper">
-                  <div class="input-inner-container">
-                    <span class="input-icon">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4Z" />
-                        <path d="M9 11h6" />
-                        <path d="M12 8v6" />
-                      </svg>
-                    </span>
-                    <input
-                      class="text-input key-input"
-                      type="text"
-                      value={$currentVoiceConversationTtsModel}
-                      placeholder={activeVoiceConversationProvider.local ? 'local-tts-model' : 'Use the provider default speech model'}
-                      spellcheck="false"
-                      autocomplete="off"
-                      oninput={(e) => setVoiceConversationTtsModel($voiceConversationAiProvider, (e.currentTarget as HTMLInputElement).value)}
-                    />
+                {#if !activeVoiceConversationProvider.local && voiceConversationTtsModelOptions.length}
+                  <div class="model-selector-wrap tts-selector-wrap" bind:this={voiceConversationTtsModelDropdownEl}>
+                    <button
+                      type="button"
+                      class="model-trigger tts-trigger"
+                      onclick={() => (voiceConversationTtsModelDropdownOpen = !voiceConversationTtsModelDropdownOpen)}
+                      aria-haspopup="listbox"
+                      aria-expanded={voiceConversationTtsModelDropdownOpen}
+                      disabled={providerKeyStatus[$voiceConversationAiProvider] !== 'saved'}
+                    >
+                      <div class="model-trigger-left">
+                        <span class="tts-model-icon" aria-hidden="true">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 10v4" />
+                            <path d="M7 7v10" />
+                            <path d="M11 4v16" />
+                            <path d="M15 8v8" />
+                            <path d="M19 11v2" />
+                          </svg>
+                        </span>
+                        <span class="model-trigger-badge" data-provider={modelBadge($voiceConversationAiProvider, $currentVoiceConversationTtsModel)}>
+                          {modelBadge($voiceConversationAiProvider, $currentVoiceConversationTtsModel)}
+                        </span>
+                        <div class="model-trigger-meta">
+                          <div class="model-trigger-name">
+                            {selectedVoiceConversationTtsModel?.label ?? $currentVoiceConversationTtsModel}
+                          </div>
+                          <div class="model-trigger-desc">
+                            {selectedVoiceConversationTtsModel?.description || 'Speech synthesis model'}
+                          </div>
+                        </div>
+                      </div>
+                      <div class="model-trigger-right">
+                        {#if selectedVoiceConversationTtsModel?.voices?.length}
+                          <span class="tts-voice-count-pill">{selectedVoiceConversationTtsModel.voices.length} voices</span>
+                        {/if}
+                        <svg class="model-chevron" class:open={voiceConversationTtsModelDropdownOpen} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </div>
+                    </button>
+
+                    {#if voiceConversationTtsModelDropdownOpen}
+                      <div class="model-dropdown tts-dropdown" role="listbox" aria-label="Speech model">
+                        <div class="model-list">
+                          {#each getTtsModelOptions($voiceConversationAiProvider) as model (model.id)}
+                            <button
+                              type="button"
+                              class="model-option tts-model-option"
+                              class:selected={$currentVoiceConversationTtsModel === model.id}
+                              role="option"
+                              aria-selected={$currentVoiceConversationTtsModel === model.id}
+                              onclick={() => chooseVoiceConversationTtsModel(model.id)}
+                            >
+                              <div class="model-option-left">
+                                <span class="model-option-badge" data-provider={modelBadge($voiceConversationAiProvider, model.id)}>
+                                  {modelBadge($voiceConversationAiProvider, model.id)}
+                                </span>
+                                <div class="model-option-body">
+                                  <div class="model-option-name">{model.label}</div>
+                                  <div class="model-option-desc">{model.description}</div>
+                                </div>
+                              </div>
+                              <div class="model-option-right">
+                                {#if model.voices?.length}
+                                  <span class="tts-voice-count-pill compact">{model.voices.length}</span>
+                                {/if}
+                                {#if $currentVoiceConversationTtsModel === model.id}
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="checkmark-icon">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                  </svg>
+                                {/if}
+                              </div>
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
                   </div>
-                </div>
+                {:else}
+                  <div class="api-key-input-wrapper">
+                    <div class="input-inner-container">
+                      <span class="input-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4Z" />
+                          <path d="M9 11h6" />
+                          <path d="M12 8v6" />
+                        </svg>
+                      </span>
+                      <input
+                        class="text-input key-input"
+                        type="text"
+                        value={$currentVoiceConversationTtsModel}
+                        placeholder={activeVoiceConversationProvider.local ? 'local-tts-model' : 'Use the provider default speech model'}
+                        spellcheck="false"
+                        autocomplete="off"
+                        oninput={(e) => setVoiceConversationTtsModel($voiceConversationAiProvider, (e.currentTarget as HTMLInputElement).value)}
+                      />
+                    </div>
+                  </div>
+                {/if}
 
                 <div class="model-label-row">
                   <div class="detail-info">
                     <span class="detail-label">Reply voice</span>
                     <span class="detail-desc">
                       {#if voiceConversationTtsVoiceOptions.length}
-                        Pick the built-in voice for spoken replies. Groq labels include male and female voices, while other providers use their own voice names. OpenRouter defaults assume OpenAI-compatible voices unless you switch to a different speech model.
+                        Pick the built-in voice for spoken replies. The list follows the selected speech model, so OpenRouter voices change when you switch providers under the OpenRouter umbrella.
                       {:else}
                         {activeVoiceConversationProvider.local
                           ? 'Enter the voice name your local TTS server expects.'
@@ -2445,15 +2753,22 @@
                 </div>
 
                 {#if voiceConversationTtsVoiceOptions.length}
-                  <div class="model-selector-wrap" bind:this={voiceConversationTtsVoiceDropdownEl}>
+                  <div class="model-selector-wrap tts-selector-wrap" bind:this={voiceConversationTtsVoiceDropdownEl}>
                     <button
                       type="button"
-                      class="model-trigger"
+                      class="model-trigger tts-trigger"
                       onclick={() => (voiceConversationTtsVoiceDropdownOpen = !voiceConversationTtsVoiceDropdownOpen)}
                       aria-haspopup="listbox"
                       aria-expanded={voiceConversationTtsVoiceDropdownOpen}
                     >
                       <div class="model-trigger-left">
+                        <span class="tts-model-icon" aria-hidden="true">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 18a6 6 0 0 0 6-6V6a6 6 0 0 0-12 0v6a6 6 0 0 0 6 6Z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <path d="M12 19v3" />
+                          </svg>
+                        </span>
                         <span class="model-trigger-badge" data-provider={modelBadge($voiceConversationAiProvider, '')}>
                           {modelBadge($voiceConversationAiProvider, '')}
                         </span>
@@ -2474,7 +2789,7 @@
                     </button>
 
                     {#if voiceConversationTtsVoiceDropdownOpen}
-                      <div class="model-dropdown" role="listbox">
+                      <div class="model-dropdown tts-dropdown" role="listbox">
                         <div class="model-list">
                           {#each voiceConversationTtsVoiceOptions as voice (voice.id)}
                             <div class="model-option-row" class:selected={$currentVoiceConversationTtsVoice === voice.id}>
@@ -2911,13 +3226,13 @@
             </div>
           </div>
 
-          <!-- Background image -->
+          <!-- Background media -->
           <div class="setting-group bg-image-group">
-            <div class="group-label">Background Image</div>
+            <div class="group-label">Background Media</div>
             <div class="toggle-row">
               <div class="toggle-info">
                 <span class="toggle-label">Custom background</span>
-                <span class="toggle-desc">Show an image behind the interface. Use the Transparency slider above to balance it against legibility.</span>
+                <span class="toggle-desc">Show an image or live wallpaper behind the interface. Use the Transparency slider above to balance it against legibility.</span>
               </div>
               <div class="bg-actions">
                 <button class="bg-btn" onclick={chooseBackgroundImage}>
@@ -2933,7 +3248,7 @@
               <div class="toggle-row">
                 <div class="toggle-info">
                   <span class="toggle-label">Show background</span>
-                  <span class="toggle-desc">Toggle the image on or off without removing it.</span>
+                  <span class="toggle-desc">Toggle the background on or off without removing it.</span>
                 </div>
                 <button
                   class="toggle"
@@ -2950,8 +3265,8 @@
               {#if $backgroundImageEnabled}
                 <div class="slider-row">
                   <div class="toggle-info">
-                    <span class="toggle-label">Image opacity</span>
-                    <span class="toggle-desc">Dim the image against the desktop. Lower it so the UI stays readable.</span>
+                    <span class="toggle-label">Background opacity</span>
+                    <span class="toggle-desc">Dim the background against the desktop. Lower it so the UI stays readable.</span>
                   </div>
                   <div class="slider-control">
                     <input
@@ -2969,8 +3284,8 @@
 
                 <div class="slider-row">
                   <div class="toggle-info">
-                    <span class="toggle-label">Image blur</span>
-                    <span class="toggle-desc">Soften the image so text and panels read more clearly over it.</span>
+                    <span class="toggle-label">Background blur</span>
+                    <span class="toggle-desc">Soften the background so text and panels read more clearly over it.</span>
                   </div>
                   <div class="slider-control">
                     <input
@@ -3399,6 +3714,51 @@
     background: var(--accent-light);
   }
 
+  .option-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .option-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 14px;
+    background: var(--bg-primary);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+    min-width: 0;
+  }
+
+  .option-card:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-focus);
+    color: var(--text-primary);
+  }
+
+  .option-card.selected {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--text-primary);
+  }
+
+  .option-title {
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .option-desc {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-muted);
+  }
+
   .appearance-icon {
     display: inline-flex;
     align-items: center;
@@ -3640,11 +4000,6 @@
     transition: all 0.2s ease;
     white-space: nowrap;
     flex-shrink: 0;
-  }
-
-  /* Kept for Svelte selector-detection — actual sizing above with parent specificity */
-  .voice-input-provider-status {
-    /* intentionally empty — overrides live in .voice-input-provider-card .voice-input-provider-status */
   }
 
   .provider-card-status.ready {
@@ -4159,6 +4514,17 @@
     border-color: var(--accent);
   }
 
+  .model-trigger:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    box-shadow: none;
+  }
+
+  .model-trigger:disabled:hover {
+    background: var(--bg-primary);
+    border-color: var(--border);
+  }
+
   .model-trigger-left {
     display: flex;
     align-items: center;
@@ -4203,6 +4569,69 @@
     background: rgba(245, 80, 54, 0.12);
     color: #f55036;
     border: 1px solid rgba(245, 80, 54, 0.2);
+  }
+
+  .model-trigger-badge[data-provider="Mistral"],
+  .model-option-badge[data-provider="Mistral"] {
+    background: rgba(255, 112, 67, 0.12);
+    color: #ff7043;
+    border: 1px solid rgba(255, 112, 67, 0.22);
+  }
+
+  .model-trigger-badge[data-provider="Microsoft"],
+  .model-option-badge[data-provider="Microsoft"] {
+    background: rgba(0, 120, 212, 0.12);
+    color: #3794ff;
+    border: 1px solid rgba(0, 120, 212, 0.22);
+  }
+
+  .model-trigger-badge[data-provider="NVIDIA"],
+  .model-option-badge[data-provider="NVIDIA"] {
+    background: rgba(118, 185, 0, 0.12);
+    color: #76b900;
+    border: 1px solid rgba(118, 185, 0, 0.22);
+  }
+
+  .model-trigger-badge[data-provider="Qwen"],
+  .model-option-badge[data-provider="Qwen"] {
+    background: rgba(99, 102, 241, 0.12);
+    color: #818cf8;
+    border: 1px solid rgba(99, 102, 241, 0.22);
+  }
+
+  .model-trigger-badge[data-provider="xAI"],
+  .model-option-badge[data-provider="xAI"] {
+    background: rgba(148, 163, 184, 0.14);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+  }
+
+  .model-trigger-badge[data-provider="Zyphra"],
+  .model-option-badge[data-provider="Zyphra"] {
+    background: rgba(14, 165, 233, 0.12);
+    color: #38bdf8;
+    border: 1px solid rgba(14, 165, 233, 0.22);
+  }
+
+  .model-trigger-badge[data-provider="Sesame"],
+  .model-option-badge[data-provider="Sesame"] {
+    background: rgba(234, 179, 8, 0.12);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.22);
+  }
+
+  .model-trigger-badge[data-provider="Canopy"],
+  .model-option-badge[data-provider="Canopy"] {
+    background: rgba(34, 197, 94, 0.12);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.22);
+  }
+
+  .model-trigger-badge[data-provider="Kokoro"],
+  .model-option-badge[data-provider="Kokoro"] {
+    background: rgba(236, 72, 153, 0.12);
+    color: #ec4899;
+    border: 1px solid rgba(236, 72, 153, 0.22);
   }
 
   .model-trigger-badge[data-provider="Other"],
@@ -4498,6 +4927,200 @@
 
 
   /* ── Toggle rows ──────────────────────── */
+  .stt-selector-wrap {
+    max-width: 560px;
+  }
+
+  .stt-trigger {
+    min-height: 52px;
+    padding: 10px 13px;
+    background:
+      linear-gradient(135deg, rgba(20, 184, 166, 0.075), transparent 44%),
+      var(--bg-primary);
+  }
+
+  .stt-trigger:hover {
+    background:
+      linear-gradient(135deg, rgba(20, 184, 166, 0.12), transparent 46%),
+      var(--bg-hover);
+  }
+
+  .stt-trigger .model-trigger-left {
+    gap: 9px;
+    flex: 1;
+  }
+
+  .stt-model-icon {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 8px;
+    color: #14b8a6;
+    background: rgba(20, 184, 166, 0.1);
+    border: 1px solid rgba(20, 184, 166, 0.2);
+  }
+
+  .stt-mode-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: max-content;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #14b8a6;
+    background: rgba(20, 184, 166, 0.1);
+    border: 1px solid rgba(20, 184, 166, 0.2);
+  }
+
+  .stt-dropdown {
+    max-height: 318px;
+    border-color: rgba(20, 184, 166, 0.24);
+  }
+
+  .stt-model-option {
+    min-height: 56px;
+  }
+
+  .stt-model-option .model-option-name,
+  .stt-model-option .model-option-desc {
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+  }
+
+  @media (max-width: 640px) {
+    .stt-trigger {
+      align-items: flex-start;
+    }
+
+    .stt-trigger .model-trigger-left {
+      align-items: flex-start;
+    }
+
+    .stt-trigger .model-trigger-badge,
+    .stt-mode-pill {
+      display: none;
+    }
+
+    .stt-trigger .model-trigger-right {
+      padding-top: 7px;
+    }
+  }
+
+  .tts-selector-wrap {
+    max-width: 560px;
+  }
+
+  .tts-trigger {
+    min-height: 54px;
+    padding: 11px 13px;
+    background:
+      linear-gradient(135deg, rgba(var(--accent-rgb, 59, 130, 246), 0.06), transparent 42%),
+      var(--bg-primary);
+  }
+
+  .tts-trigger:hover {
+    background:
+      linear-gradient(135deg, rgba(var(--accent-rgb, 59, 130, 246), 0.1), transparent 44%),
+      var(--bg-hover);
+  }
+
+  .tts-trigger .model-trigger-left {
+    gap: 9px;
+  }
+
+  .tts-model-icon {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 8px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  }
+
+  .tts-voice-count-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: max-content;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
+    border: 1px solid var(--border);
+  }
+
+  .tts-voice-count-pill.compact {
+    min-width: 24px;
+    height: 22px;
+    padding: 0 6px;
+  }
+
+  .tts-dropdown {
+    max-height: 320px;
+    border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  }
+
+  .tts-model-option {
+    min-height: 58px;
+  }
+
+  .tts-model-option .model-option-name,
+  .model-option-row .model-option-name {
+    overflow-wrap: anywhere;
+  }
+
+  .tts-model-option .model-option-desc,
+  .model-option-row .model-option-desc {
+    line-height: 1.35;
+  }
+
+  .model-option-row .model-option-preview {
+    width: 34px;
+    margin: 8px 8px 8px 0;
+    border-radius: 8px;
+    border: 1px solid transparent;
+  }
+
+  .model-option-row .model-option-preview:hover,
+  .model-option-row .model-option-preview.playing {
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  }
+
+  @media (max-width: 640px) {
+    .tts-trigger {
+      align-items: flex-start;
+    }
+
+    .tts-trigger .model-trigger-left {
+      align-items: flex-start;
+    }
+
+    .tts-trigger .model-trigger-badge {
+      display: none;
+    }
+
+    .tts-trigger .model-trigger-right {
+      padding-top: 7px;
+    }
+
+    .tts-voice-count-pill {
+      display: none;
+    }
+  }
+
   .toggle-row, .slider-row {
     display: flex;
     align-items: center;

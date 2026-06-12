@@ -4,6 +4,7 @@ import {
   isPermissionGranted,
   requestPermission,
 } from '@tauri-apps/plugin-notification';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export interface Toast {
@@ -21,6 +22,8 @@ let permissionGranted = false;
 
 /** Call once on app startup to prompt the user for notification permission. */
 export async function requestNotificationPermission() {
+  if (!get(notificationsEnabled)) return;
+
   try {
     permissionGranted = await isPermissionGranted();
     if (!permissionGranted) {
@@ -37,9 +40,19 @@ async function focusCurrentWindow() {
     await win.show();
     await win.unminimize();
     await win.setFocus();
+    window.focus();
   } catch (err) {
     console.error('Failed to focus window on notification click:', err);
   }
+}
+
+function showBrowserNotification(title: string, message: string) {
+  const notification = new window.Notification(title, { body: message });
+
+  notification.onclick = () => {
+    void focusCurrentWindow();
+    notification.close();
+  };
 }
 
 async function showDesktopNotification(message: string, type: Toast['type']) {
@@ -70,17 +83,21 @@ async function showDesktopNotification(message: string, type: Toast['type']) {
     if (!permissionGranted) return;
 
     const titles: Record<Toast['type'], string> = {
-      error:   'Soryq — Error',
-      warning: 'Soryq — Warning',
-      success: 'Soryq — Done',
+      error:   'Soryq - Error',
+      warning: 'Soryq - Warning',
+      success: 'Soryq - Done',
       info:    'Soryq',
     };
 
-    const notification = new window.Notification(titles[type], { body: message });
-    notification.onclick = () => {
-      void focusCurrentWindow();
-      notification.close();
-    };
+    try {
+      await invoke('notification_show', {
+        title: titles[type],
+        body: message,
+      });
+    } catch (err) {
+      console.warn('Native notification command failed, falling back to Web Notification:', err);
+      showBrowserNotification(titles[type], message);
+    }
   } catch (err) {
     console.error('Failed to show desktop notification:', err);
   }

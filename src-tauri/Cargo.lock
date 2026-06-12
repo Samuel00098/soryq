@@ -4628,7 +4628,7 @@ dependencies = [
 
 [[package]]
 name = "soryq"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -4653,6 +4653,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-shell",
  "tauri-plugin-updater",
+ "tauri-winrt-notification",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",

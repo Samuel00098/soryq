@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 
 const ptyDataHandlers = vi.hoisted(() => new Map<number, (bytes: Uint8Array) => void>());
+const ptyReplayHandlers = vi.hoisted(() => new Map<number, (bytes: Uint8Array) => void>());
 
 vi.mock('$lib/services/pty-bridge', () => {
   let nextId = 1;
@@ -9,6 +10,16 @@ vi.mock('$lib/services/pty-bridge', () => {
     openPty: vi.fn(async (_cols: number, _rows: number, opts?: { onData?: (bytes: Uint8Array) => void }) => {
       const id = nextId++;
       if (opts?.onData) ptyDataHandlers.set(id, opts.onData);
+      return {
+        id,
+        write: vi.fn(async () => {}),
+        resize: vi.fn(async () => {}),
+        close: vi.fn(async () => {}),
+      };
+    }),
+    attachPty: vi.fn(async (id: number, opts?: { onData?: (bytes: Uint8Array) => void; onReplay?: (bytes: Uint8Array) => void }) => {
+      if (opts?.onData) ptyDataHandlers.set(id, opts.onData);
+      if (opts?.onReplay) ptyReplayHandlers.set(id, opts.onReplay);
       return {
         id,
         write: vi.fn(async () => {}),
@@ -28,11 +39,21 @@ vi.mock('./notification', () => ({
   showToast: vi.fn(),
 }));
 
+// Rules-file delivery (CLAUDE.md / AGENTS.md) goes through Tauri's invoke. Most
+// tests pass no cwd, so resolveSessionRoot returns null and this is never hit;
+// the cwd-aware tests below assert against it.
+const invokeMock = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+
 import {
   appendToCommandBlock,
   applyOscPaneTitle,
+  attachTerminalSession,
   commandBlocks,
   createTerminalSession,
+  getSessionOutputBuffer,
+  registerDataCallback,
+  unregisterDataCallback,
   finalizeCommandBlockWithExit,
   killAllSessions,
   markSessionAgentPreset,
@@ -40,12 +61,15 @@ import {
   pasteEchoLanded,
   sessions,
   setActiveTerminalProject,
+  setTerminalProjectRoot,
   setSessionAgentName,
   setSessionOwnerTask,
   setSessionTaskSummary,
   startCommandBlock,
   sendAgentPromptDirect,
+  sendPromptToSession,
   spawnAgentPreset,
+  relaunchRestoredAgentSession,
   waitForAgentReady,
 } from './terminal';
 import { openPty } from '$lib/services/pty-bridge';
@@ -93,6 +117,47 @@ describe('terminal task summaries', () => {
     // separate fields, so both stay visible even while the pane is leased.
     expect(session?.agentName).toBe('Iris');
     expect(session?.paneTitle).toBe('Claude Code is ready');
+  });
+});
+
+describe('reattach history replay', () => {
+  const projectId = 'project-reattach-replay';
+
+  beforeEach(() => {
+    setActiveTerminalProject(projectId);
+  });
+
+  afterEach(async () => {
+    await killAllSessions();
+    setActiveTerminalProject(null);
+  });
+
+  it('parks replayed history in the session buffer without touching live data callbacks', async () => {
+    const backendId = 987;
+    const sessionId = await attachTerminalSession(backendId, null, undefined, projectId);
+    expect(sessionId).toBe(backendId);
+
+    const liveCallback = vi.fn();
+    registerDataCallback(backendId, liveCallback);
+
+    // History replayed on reattach contains the agent's past terminal queries
+    // (e.g. Codex's OSC 10/11 color probes). It must reach the session buffer
+    // (so TerminalPane can write it through the gated path) but must NOT flow
+    // through the live data callbacks — that would re-feed the queries to a
+    // live xterm, whose re-answers land in Codex's input as `]10;rgb:…` junk.
+    const replay = ptyReplayHandlers.get(backendId);
+    expect(replay).toBeDefined();
+    replay!(new TextEncoder().encode('\x1b]10;?\x07codex history'));
+
+    expect(getSessionOutputBuffer(backendId)).toContain('codex history');
+    expect(liveCallback).not.toHaveBeenCalled();
+
+    // Genuinely live output still flows through the callback as before.
+    feedPtyOutput(backendId, 'live output');
+    expect(liveCallback).toHaveBeenCalledTimes(1);
+    expect(getSessionOutputBuffer(backendId)).toContain('live output');
+
+    unregisterDataCallback(backendId);
   });
 });
 
@@ -404,6 +469,50 @@ describe('unified agent briefing', () => {
     expect(brief![0]).toContain('you are Iris');
   });
 
+  it('rides the charter along with the first prompt to a not-yet-briefed agent', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+
+    // Lease the pane purely to suppress the readiness-gated auto-brief, so this
+    // test isolates the prompt path: an agent the user drives before any brief
+    // has landed (briefed === false). The lease doesn't affect sendPromptToSession.
+    setSessionOwnerTask(sessionId!, 'lease-suppress-autobrief');
+    markSessionAgentPreset(sessionId!, 'claude');
+    setSessionAgentName(sessionId!, 'Iris');
+    await sleep(100);
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    // First prompt: the brief must ride along, wrapped around the task.
+    sendPromptToSession(sessionId!, 'Fix the failing tests', 'claude');
+    await sleep(100);
+
+    const firstPaste = writeSpy.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF')
+    );
+    expect(firstPaste).toBeDefined();
+    expect(firstPaste![0]).toContain('you are Iris');
+    expect(firstPaste![0]).toContain('Fix the failing tests');
+    expect(get(sessions).find((s) => s.id === sessionId)?.briefed).toBe(true);
+
+    // Second prompt: already briefed, so it goes raw — no charter re-injected.
+    writeSpy.mockClear();
+    sendPromptToSession(sessionId!, 'Now add a test', 'claude');
+    await sleep(100);
+
+    const reBriefed = writeSpy.mock.calls.some(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF')
+    );
+    expect(reBriefed).toBe(false);
+    const secondPaste = writeSpy.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('Now add a test')
+    );
+    expect(secondPaste).toBeDefined();
+  });
+
   it('skips auto-briefing if session is leased by orchestrator task', async () => {
     const sessionId = await createTerminalSession(undefined, undefined, projectId);
     expect(sessionId).not.toBeNull();
@@ -425,6 +534,183 @@ describe('unified agent briefing', () => {
 
     const session = get(sessions).find(s => s.id === sessionId);
     expect(session?.briefed).toBeFalsy();
+  });
+});
+
+describe('rules-file brief delivery', () => {
+  const projectId = 'project-terminal-rules-file';
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  beforeEach(() => {
+    setActiveTerminalProject(projectId);
+    invokeMock.mockClear();
+    invokeMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    await killAllSessions();
+    setActiveTerminalProject(null);
+  });
+
+  it('briefs a rules-file agent via CLAUDE.md/AGENTS.md and skips the REPL paste', async () => {
+    const sessionId = await spawnAgentPreset('claude', '/repo');
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+
+    await sleep(350);
+
+    // The standing brief was written to rules files, not pasted into the REPL.
+    const writtenPaths = invokeMock.mock.calls
+      .filter((c: unknown[]) => c[0] === 'fs_write_file')
+      .map((c: unknown[]) => (c[1] as { path: string }).path);
+    expect(writtenPaths).toContain('/repo/CLAUDE.md');
+    expect(writtenPaths).toContain('/repo/AGENTS.md');
+
+    const pasted = writeSpy.mock.calls.some(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF')
+    );
+    expect(pasted).toBe(false);
+
+    const session = get(sessions).find((s) => s.id === sessionId);
+    expect(session?.briefed).toBe(true);
+  });
+
+  it('sends the first prompt raw (no charter wrap) once briefed via rules file', async () => {
+    const sessionId = await spawnAgentPreset('claude', '/repo');
+    expect(sessionId).not.toBeNull();
+    await sleep(50);
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    sendPromptToSession(sessionId!, 'Fix the failing tests', 'claude');
+    await sleep(50);
+
+    const pasted = writeSpy.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('Fix the failing tests')
+    );
+    expect(pasted).toBeDefined();
+    // The brief lives in the rules file now, so the prompt is not re-wrapped.
+    expect(pasted![0] as string).not.toContain('SORYQ AGENT BRIEF');
+  });
+
+  it('briefs a typed-launch agent via the registered project root when it has no explicit cwd', async () => {
+    // Mirrors the user typing `claude` into a shell opened without a cwd: the
+    // session has no cwd, but the project root was registered when the project
+    // opened, so the rules file still resolves and the paste is skipped. Uses a
+    // dedicated project id so the registered root can't leak into other tests.
+    const typedProjectId = 'project-terminal-rules-typed';
+    setActiveTerminalProject(typedProjectId);
+    setTerminalProjectRoot(typedProjectId, '/repo-typed');
+    const sessionId = await createTerminalSession(undefined, undefined, typedProjectId);
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    markSessionAgentPreset(sessionId!, 'claude');
+    await sleep(350);
+
+    const writtenPaths = invokeMock.mock.calls
+      .filter((c: unknown[]) => c[0] === 'fs_write_file')
+      .map((c: unknown[]) => (c[1] as { path: string }).path);
+    expect(writtenPaths).toContain('/repo-typed/CLAUDE.md');
+    expect(writtenPaths).toContain('/repo-typed/AGENTS.md');
+
+    const pasted = writeSpy.mock.calls.some(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF')
+    );
+    expect(pasted).toBe(false);
+
+    const session = get(sessions).find((s) => s.id === sessionId);
+    expect(session?.briefed).toBe(true);
+  });
+
+  it('falls back to the paste brief for rules-file agents launched without a cwd', async () => {
+    const sessionId = await spawnAgentPreset('claude', undefined);
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+
+    await sleep(350);
+
+    // No cwd → no rules file written → the legacy paste path delivers the brief.
+    expect(invokeMock).not.toHaveBeenCalledWith('fs_write_file', expect.anything());
+    const pasted = writeSpy.mock.calls.some(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF')
+    );
+    expect(pasted).toBe(true);
+  });
+
+  it('still pastes the brief for non-rules agents (Pi) even with a cwd', async () => {
+    const sessionId = await spawnAgentPreset('pi', '/repo');
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+
+    await sleep(350);
+
+    // Pi doesn't auto-load a rules file, so it keeps the paste delivery.
+    const pasted = writeSpy.mock.calls.some(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('SORYQ AGENT BRIEF')
+    );
+    expect(pasted).toBe(true);
+    const session = get(sessions).find((s) => s.id === sessionId);
+    expect(session?.briefed).toBe(true);
+  });
+});
+
+describe('restored agent sessions', () => {
+  const projectId = 'project-terminal-restore';
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  beforeEach(() => {
+    setActiveTerminalProject(projectId);
+  });
+
+  afterEach(async () => {
+    await killAllSessions();
+    setActiveTerminalProject(null);
+  });
+
+  it('relaunches a remembered agent without auto-sending the standing brief', async () => {
+    const sessionId = await createTerminalSession(undefined, undefined, projectId);
+    expect(sessionId).not.toBeNull();
+
+    const callCount = vi.mocked(openPty).mock.results.length;
+    const mockPty = await vi.mocked(openPty).mock.results[callCount - 1].value;
+    const writeSpy = mockPty.write;
+    writeSpy.mockClear();
+
+    const relaunched = relaunchRestoredAgentSession(sessionId!, 'claude', {
+      agentName: 'Iris',
+      taskSummary: 'Continue the saved workspace session',
+    });
+
+    expect(relaunched).toBe(true);
+    expect(writeSpy).toHaveBeenCalledWith('claude\r');
+
+    await sleep(100);
+
+    const calls = writeSpy.mock.calls.map((c: unknown[]) => c[0]);
+    expect(calls.some((c: unknown) => typeof c === 'string' && c.includes('SORYQ AGENT BRIEF'))).toBe(false);
+
+    const session = get(sessions).find((s) => s.id === sessionId);
+    expect(session?.agentPreset).toBe('claude');
+    expect(session?.agentName).toBe('Iris');
+    expect(session?.taskSummary).toBe('Continue the saved workspace session');
+    expect(session?.briefed).toBe(false);
   });
 });
 

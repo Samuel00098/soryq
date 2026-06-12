@@ -56,6 +56,7 @@
   import { toml } from '@codemirror/legacy-modes/mode/toml';
 
   import { updateContent, updateCursorPosition, jumpToLine } from '$lib/stores/editor';
+  import { devpet } from '$lib/stores/devpet';
   import {
     fontSize,
     resolvedFontFamily,
@@ -233,6 +234,14 @@
             const doc = update.state.doc.toString();
             currentText = doc;
             updateContent(filePath, doc);
+
+            let insertedChars = 0;
+            update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+              insertedChars += inserted.length;
+            });
+            if (insertedChars > 0) {
+              devpet.onType(insertedChars);
+            }
           }
           if (update.selectionSet) {
             const pos = update.state.selection.main.head;

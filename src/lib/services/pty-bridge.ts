@@ -3,6 +3,12 @@ import { invoke, Channel } from '@tauri-apps/api/core';
 export type PtyHandlers = {
   onData: (bytes: Uint8Array) => void;
   onExit?: (code: number) => void;
+  // Buffered history returned by terminal_attach. Delivered separately from
+  // onData because it must NOT be written to a live xterm pane outside the
+  // gated replay path: the history contains the child's past color/DA queries,
+  // and xterm's re-answers would land in the running child's input as literal
+  // `]10;rgb:…` text (the Codex reload bug).
+  onReplay?: (bytes: Uint8Array) => void;
 };
 
 export type PtySession = {
@@ -78,6 +84,70 @@ export async function openPty(
   // If the child exited during creation (before the id resolved), free it now
   // that we finally have the id to address.
   if (exited) freeBackend();
+
+  return {
+    id,
+    write: (data) => invoke('terminal_write', { id, data }),
+    resize: (c, r) => invoke('terminal_resize', { id, cols: c, rows: r }),
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      try {
+        await invoke('terminal_close', { id });
+      } finally {
+        releaseHandlers();
+      }
+    },
+  };
+}
+
+export async function attachPty(
+  id: number,
+  handlers: PtyHandlers,
+): Promise<PtySession> {
+  const onData = new Channel<ArrayBuffer>();
+  const onExit = new Channel<number>();
+
+  let released = false;
+  const releaseHandlers = () => {
+    if (released) return;
+    released = true;
+    onData.onmessage = () => {};
+    onExit.onmessage = () => {};
+  };
+
+  let closed = false;
+  const freeBackend = () => {
+    if (closed) return;
+    closed = true;
+    void invoke('terminal_close', { id }).catch(() => {});
+  };
+
+  // Live chunks can be delivered on the channel before the attach invoke
+  // resolves with the history buffer. Queue them until the replay has been
+  // handed off so the consumer always sees history first, then live output.
+  let pendingLive: Uint8Array[] | null = [];
+  onData.onmessage = (buf) => {
+    const bytes = new Uint8Array(buf);
+    if (pendingLive) pendingLive.push(bytes);
+    else handlers.onData(bytes);
+  };
+  onExit.onmessage = (code) => {
+    handlers.onExit?.(code);
+    releaseHandlers();
+    freeBackend();
+  };
+
+  const replayBuf = await invoke<ArrayBuffer>('terminal_attach', {
+    id,
+    onData,
+    onExit,
+  });
+  const replay = new Uint8Array(replayBuf);
+  if (replay.length > 0) handlers.onReplay?.(replay);
+  const queued = pendingLive;
+  pendingLive = null;
+  for (const bytes of queued) handlers.onData(bytes);
 
   return {
     id,

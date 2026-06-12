@@ -2,8 +2,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Dropdown, { type DropdownOption } from '$lib/components/shared/Dropdown.svelte';
+  import EmbeddedPanel from '$lib/components/toolbox/EmbeddedPanel.svelte';
 
-  type UtilityTab = 'jwt' | 'json' | 'regex' | 'epoch' | 'coder';
+  type UtilityTab = 'jwt' | 'json' | 'regex' | 'epoch' | 'coder' | 'embedded';
   let activeTab = $state<UtilityTab>('jwt');
 
   // JWT state
@@ -222,6 +223,7 @@
     <button class="tab-btn" class:active={activeTab === 'regex'} onclick={() => activeTab = 'regex'}>Regex Test</button>
     <button class="tab-btn" class:active={activeTab === 'epoch'} onclick={() => activeTab = 'epoch'}>Epoch</button>
     <button class="tab-btn" class:active={activeTab === 'coder'} onclick={() => activeTab = 'coder'}>Base64/URL</button>
+    <button class="tab-btn" class:active={activeTab === 'embedded'} onclick={() => activeTab = 'embedded'}>Embedded</button>
   </div>
 
   <!-- Content Panels -->
@@ -433,6 +435,13 @@
             </div>
           </div>
         </div>
+      </div>
+    {/if}
+
+    <!-- Embedded Devices -->
+    {#if activeTab === 'embedded'}
+      <div class="scrollable-tab-content scrollable">
+        <EmbeddedPanel />
       </div>
     {/if}
 

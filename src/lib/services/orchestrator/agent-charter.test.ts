@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAgentCharter } from './agent-charter';
+import { buildAgentCharter, buildAgentTaskMessage } from './agent-charter';
 
 describe('buildAgentCharter', () => {
   it('embeds the task goal inside an untrusted task block', () => {
@@ -61,5 +61,37 @@ describe('buildAgentCharter', () => {
     const a = buildAgentCharter('do the thing', { name: 'Sage' });
     const b = buildAgentCharter('do the thing', { name: 'Sage' });
     expect(a).toBe(b);
+  });
+});
+
+describe('buildAgentTaskMessage', () => {
+  // The rules-file path: the standing brief already lives in CLAUDE.md / AGENTS.md,
+  // so the live message carries only the task — none of the guardrail wall.
+  it('sends only the task, with no charter guardrails', () => {
+    const message = buildAgentTaskMessage('Add a logout button to the navbar');
+    expect(message).toBe('Add a logout button to the navbar');
+    expect(message).not.toMatch(/SCOPE/);
+    expect(message).not.toMatch(/reset --hard/);
+    expect(message).not.toContain('SORYQ_TASK');
+  });
+
+  it('prefixes the assigned name so the agent learns who it is', () => {
+    const message = buildAgentTaskMessage('Fix the build', { name: 'Iris' });
+    expect(message).toBe('Iris, your task:\nFix the build');
+  });
+
+  it('trims the goal', () => {
+    expect(buildAgentTaskMessage('  do the thing  ')).toBe('do the thing');
+  });
+
+  it('returns an empty string for an empty goal so callers send nothing', () => {
+    expect(buildAgentTaskMessage('')).toBe('');
+    expect(buildAgentTaskMessage('   ')).toBe('');
+    expect(buildAgentTaskMessage('', { name: 'Echo' })).toBe('');
+  });
+
+  it('is far shorter than the full charter for the same goal', () => {
+    const goal = 'Refactor the auth module';
+    expect(buildAgentTaskMessage(goal).length).toBeLessThan(buildAgentCharter(goal).length);
   });
 });

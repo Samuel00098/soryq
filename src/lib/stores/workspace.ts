@@ -1,11 +1,12 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn, restoreEditorFiles } from './editor';
-import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, killSession, getTerminalProjectState, restoreTerminalProjectState, setActiveTerminalProject } from './terminal';
+import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, attachTerminalSession, killSession, getTerminalProjectState, restoreTerminalProjectState, setActiveTerminalProject, setTerminalProjectRoot, applyRestoredSessionMetadata, relaunchRestoredAgentSession } from './terminal';
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
 import { expandedPaths, selectedPath, selectedPaths } from './explorer';
 import { resetSettingsToDefault } from './settings';
 import { resetLayoutToDefault, layout, sanitiseActiveView, sanitiseSidebarTab } from './layout';
+import { isTauriRuntime } from '$lib/utils/tauri';
 
 function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
   if (typeof window === 'undefined') {
@@ -169,9 +170,15 @@ bindProjectAutosave();
 // ── Per-project localStorage persistence ──────────────────────────────────
 
 interface PersistedTerminalPane {
+  backendSessionId?: number | null;
   role: string | null;
   cwd: string | null;
   hasSession: boolean;
+  title?: string | null;
+  paneTitle?: string | null;
+  agentName?: string | null;
+  agentPreset?: string | null;
+  taskSummary?: string | null;
 }
 
 interface PersistedProjectState {
@@ -209,7 +216,17 @@ function saveProjectStateToStorage(projectId: string) {
   const terminalState = getTerminalProjectState(projectId);
   const terminalPanes: PersistedTerminalPane[] = terminalState.paneAssignments.map((sessionId) => {
     const session = sessionId !== null ? terminalState.sessions.find((s) => s.id === sessionId) : undefined;
-    return { role: session?.role ?? null, cwd: session?.cwd ?? null, hasSession: Boolean(session) };
+    return {
+      backendSessionId: session?.id ?? null,
+      role: session?.role ?? null,
+      cwd: session?.cwd ?? null,
+      hasSession: Boolean(session),
+      title: session?.title ?? null,
+      paneTitle: session?.paneTitle ?? null,
+      agentName: session?.agentName ?? null,
+      agentPreset: session?.agentPreset ?? null,
+      taskSummary: session?.taskSummary ?? null,
+    };
   });
   const currentLayout = get(layout);
   const state: PersistedProjectState = {
@@ -247,6 +264,10 @@ function isSafePath(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0 && v.length < 4096 && !/[\0\x01-\x1f]/.test(v);
 }
 
+function isSafeLabel(v: unknown, maxLength = 512): v is string {
+  return typeof v === 'string' && v.length > 0 && v.length <= maxLength && !/[\0\x01-\x1f]/.test(v);
+}
+
 function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
@@ -267,11 +288,19 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
     if (!p || typeof p !== 'object') return { role: null, cwd: null, hasSession: false };
     const pane = p as Record<string, unknown>;
     const cwd = isSafePath(pane.cwd) ? pane.cwd : null;
+    const backendSessionId = typeof pane.backendSessionId === 'number' && Number.isInteger(pane.backendSessionId) && pane.backendSessionId > 0
+      ? pane.backendSessionId
+      : null;
     const role = typeof pane.role === 'string' && /^[\w\-. ]{0,63}$/.test(pane.role) ? pane.role : null;
+    const title = isSafeLabel(pane.title, 128) ? pane.title : null;
+    const paneTitle = isSafeLabel(pane.paneTitle, 256) ? pane.paneTitle : null;
+    const agentName = isSafeLabel(pane.agentName, 80) ? pane.agentName : null;
+    const agentPreset = isSafeLabel(pane.agentPreset, 128) && /^[\w\-./:@ ]{1,128}$/.test(pane.agentPreset) ? pane.agentPreset : null;
+    const taskSummary = isSafeLabel(pane.taskSummary, 256) ? pane.taskSummary : null;
     // Back-compat: entries persisted before hasSession existed are treated as
     // occupied panes so previously-saved terminals still get recreated.
     const hasSession = pane.hasSession === undefined ? true : Boolean(pane.hasSession);
-    return { role, cwd, hasSession };
+    return { backendSessionId, role, cwd, hasSession, title, paneTitle, agentName, agentPreset, taskSummary };
   });
 
   const terminalLayout = typeof r.terminalLayout === 'string' ? r.terminalLayout : undefined;
@@ -390,6 +419,10 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
 
     clearAllStores();
     setActiveTerminalProject(projectId);
+    // Make this project's root available to the terminal store so agents typed
+    // straight into a shell (no explicit cwd) can still be briefed via their
+    // rules file (CLAUDE.md / AGENTS.md) instead of falling back to the paste.
+    setTerminalProjectRoot(projectId, rootPath);
 
     const cached = projectStateCache.get(projectId);
     if (cached) {
@@ -508,7 +541,7 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       if (!hasLiveTerminalState) {
         const occupiedPanes = persisted?.terminalPanes?.filter((pane) => pane.hasSession) ?? [];
         if (persisted?.terminalPanes && occupiedPanes.length > 0) {
-          const { setGridLayout, setSessionRole } = await import('./terminal');
+          const { setGridLayout } = await import('./terminal');
           if (persisted.terminalLayout) {
             setGridLayout(persisted.terminalLayout as any);
           }
@@ -519,10 +552,25 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
             if (generation !== restoreProjectStateGeneration) return;
             const pane = persisted.terminalPanes[i];
             if (!pane.hasSession) continue;
-            const id = await createTerminalSession(pane.cwd || rootPath, i);
+            const metadata = {
+              title: pane.title,
+              paneTitle: pane.paneTitle,
+              agentName: pane.agentName,
+              agentPreset: pane.agentPreset,
+              role: pane.role,
+              taskSummary: pane.taskSummary,
+            };
+            const attachedId = pane.backendSessionId
+              ? await attachTerminalSession(pane.backendSessionId, pane.cwd || rootPath, i, projectId, metadata)
+              : null;
+            const id = attachedId ?? await createTerminalSession(pane.cwd || rootPath, i);
             if (id !== null) {
               spawnedIds.push(id);
-              if (pane.role) setSessionRole(id, pane.role);
+              if (attachedId === null && pane.agentPreset) {
+                relaunchRestoredAgentSession(id, pane.agentPreset, metadata);
+              } else if (attachedId === null) {
+                applyRestoredSessionMetadata(id, metadata);
+              }
             }
           }
           const { showToast } = await import('./notification');
@@ -912,6 +960,7 @@ export async function openProjectByPath(path: string) {
 }
 
 export async function openProject() {
+  if (!isTauriRuntime()) return;
   const { open } = await import('@tauri-apps/plugin-dialog');
   const selected = await open({
     directory: true,

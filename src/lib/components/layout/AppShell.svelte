@@ -21,6 +21,7 @@
   import DbExplorerPanel from '$lib/components/db/DbExplorerPanel.svelte';
   // Developer workspace panels
   import ToolboxPanel from '$lib/components/toolbox/ToolboxPanel.svelte';
+  import DevPetPanel from '$lib/components/pet/DevPetPanel.svelte';
   import { checkForUpdate } from '$lib/stores/updater';
   import { fly } from 'svelte/transition';
 
@@ -35,7 +36,7 @@
   import { saveActiveFile, formatActiveFile, activeFile, fileCache } from '$lib/stores/editor';
   import { startProxy, stopProxy } from '$lib/stores/preview';
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
-  import { createTerminalSession, killAllSessions, focusPromptBar, launchPromptBarVoiceMode } from '$lib/stores/terminal';
+  import { createTerminalSession, focusPromptBar, launchPromptBarVoiceMode } from '$lib/stores/terminal';
 
   // Sidebar resize state
   let sidebarResizing = $state(false);
@@ -63,6 +64,31 @@
   // Aux panel tabs collapse to icon-only when the panel is too narrow for labels
   let auxTabsNarrow = $derived(auxPanelWidth < 300);
 
+  // Edge-fade affordance for the horizontally-scrollable aux tab bar: fade the
+  // left/right edge only when there are more tabs hidden that way, so the masks
+  // stay pinned ("sticky") to the container edges as the tabs scroll under them.
+  let auxFadeLeft = $state(false);
+  let auxFadeRight = $state(false);
+  function auxTabsScrollFade(node: HTMLElement, _deps?: unknown) {
+    const measure = () => {
+      const max = node.scrollWidth - node.clientWidth;
+      auxFadeLeft = node.scrollLeft > 1;
+      auxFadeRight = max > 1 && node.scrollLeft < max - 1;
+    };
+    const schedule = () => requestAnimationFrame(measure);
+    schedule();
+    node.addEventListener('scroll', measure, { passive: true });
+    const ro = new ResizeObserver(schedule);
+    ro.observe(node);
+    return {
+      update() { schedule(); }, // re-measure when icon-only / width changes
+      destroy() {
+        node.removeEventListener('scroll', measure);
+        ro.disconnect();
+      },
+    };
+  }
+
   const sidebarTabsList = ['files', 'git', 'snapshots', 'snippets'];
   let activeTabIdx = $derived(sidebarTabsList.indexOf($layout.sidebarTab));
 
@@ -74,6 +100,7 @@
     { id: 'tasks', visible: $layout.tasksVisible },
     { id: 'db', visible: $layout.dbVisible },
     { id: 'toolbox', visible: $layout.toolboxVisible },
+    { id: 'pet', visible: $layout.petVisible },
   ].filter(p => p.visible));
 
   let firstPanelId = $derived(visiblePanels[0]?.id);
@@ -118,7 +145,7 @@
   $effect(() => {
     if (windowWidth < 500 || (typeof document !== 'undefined' && document.hidden)) return;
     const maxAllowedWidth = auxMaxWidth();
-    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible) && auxPanelWidth > maxAllowedWidth) {
+    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible || $layout.petVisible) && auxPanelWidth > maxAllowedWidth) {
       auxPanelWidth = Math.max(200, maxAllowedWidth);
     }
   });
@@ -260,19 +287,6 @@
       }
     }
   }
-
-  $effect(() => {
-    if (typeof window === 'undefined') return;
-    const handlePageTeardown = () => {
-      killAllSessions().catch(() => {});
-    };
-    window.addEventListener('beforeunload', handlePageTeardown);
-    window.addEventListener('pagehide', handlePageTeardown);
-    return () => {
-      window.removeEventListener('beforeunload', handlePageTeardown);
-      window.removeEventListener('pagehide', handlePageTeardown);
-    };
-  });
 
   // Check for updates 5s after launch so it doesn't block startup
   $effect(() => {
@@ -542,7 +556,11 @@
       {/if}
 
       <!-- Main Content Area -->
-        <div class="main-content" class:pointer-none={sidebarResizing || auxResizing || auxRowResizing}>
+        <div
+          class="main-content"
+          class:has-aux-panel={visiblePanels.length > 0}
+          class:pointer-none={sidebarResizing || auxResizing || auxRowResizing}
+        >
           <!-- Left Pane: Terminal Panel (always visible, resizing dynamically) -->
           <div class="terminal-container bento-card" class:active-glow={$layout.activeView === 'terminal'}>
             <TerminalPanel />
@@ -552,7 +570,7 @@
           </div>
 
         <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
-        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible}
+        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible || $layout.petVisible}
           <!-- Vertical Resize Handle between Terminal and Auxiliary Panel -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
@@ -584,7 +602,13 @@
             </button>
 
             <!-- Auxiliary Sidebar Tabs -->
-            <div class="aux-tabs-bar" class:icon-only={auxTabsNarrow}>
+            <div
+              class="aux-tabs-bar"
+              class:icon-only={auxTabsNarrow}
+              class:fade-left={auxFadeLeft}
+              class:fade-right={auxFadeRight}
+              use:auxTabsScrollFade={auxTabsNarrow}
+            >
               <button
                 class="aux-tab"
                 class:active={$layout.editorVisible}
@@ -669,6 +693,17 @@
                 </svg>
                 <span>Toolbox</span>
               </button>
+              <button
+                class="aux-tab"
+                class:active={$layout.petVisible}
+                onclick={() => setActiveView('pet')}
+                title="DevPet Playground"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                </svg>
+                <span>DevPet</span>
+              </button>
             </div>
 
             <div class="aux-content-area">
@@ -689,6 +724,8 @@
                     <DbExplorerPanel />
                   {:else if firstPanelId === 'toolbox'}
                     <ToolboxPanel />
+                  {:else if firstPanelId === 'pet'}
+                    <DevPetPanel />
                   {/if}
                 </div>
                 <div class="aux-separator-line"></div>
@@ -707,6 +744,8 @@
                     <DbExplorerPanel />
                   {:else if secondPanelId === 'toolbox'}
                     <ToolboxPanel />
+                  {:else if secondPanelId === 'pet'}
+                    <DevPetPanel />
                   {/if}
                 </div>
                 <div class="aux-separator-line"></div>
@@ -725,6 +764,8 @@
                     <DbExplorerPanel />
                   {:else if thirdPanelId === 'toolbox'}
                     <ToolboxPanel />
+                  {:else if thirdPanelId === 'pet'}
+                    <DevPetPanel />
                   {/if}
                 </div>
               {:else if visiblePanels.length === 2}
@@ -744,6 +785,8 @@
                     <DbExplorerPanel />
                   {:else if firstPanelId === 'toolbox'}
                     <ToolboxPanel />
+                  {:else if firstPanelId === 'pet'}
+                    <DevPetPanel />
                   {/if}
                 </div>
 
@@ -772,6 +815,8 @@
                     <DbExplorerPanel />
                   {:else if secondPanelId === 'toolbox'}
                     <ToolboxPanel />
+                  {:else if secondPanelId === 'pet'}
+                    <DevPetPanel />
                   {/if}
                 </div>
               {:else if visiblePanels.length === 1}
@@ -791,6 +836,8 @@
                     <DbExplorerPanel />
                   {:else if firstPanelId === 'toolbox'}
                     <ToolboxPanel />
+                  {:else if firstPanelId === 'pet'}
+                    <DevPetPanel />
                   {/if}
                 </div>
               {/if}
@@ -810,8 +857,31 @@
   {:else}
     <!-- No project: full-page welcome -->
     <div class="zoom-content">
-    <div class="welcome-fullpage">
-      <WelcomeScreen />
+    <div class="welcome-fullpage" class:with-pet-panel={$layout.petVisible}>
+      <div class="welcome-main">
+        <WelcomeScreen />
+      </div>
+
+      {#if $layout.petVisible}
+        <aside
+          class="welcome-pet-panel bento-card"
+          aria-label="DevPet Playground"
+          transition:fly={{ x: 120, duration: 220 }}
+        >
+          <button
+            class="aux-close-btn"
+            onclick={toggleTerminal}
+            title="Close pet playground"
+            aria-label="Close pet playground"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+          <DevPetPanel />
+        </aside>
+      {/if}
     </div>
     </div>
   {/if}
@@ -871,6 +941,47 @@
     flex: 1;
     overflow: hidden;
     display: flex;
+    min-height: 0;
+    gap: var(--bento-gap, 12px);
+    padding: var(--bento-padding, 12px);
+    padding-top: 4px;
+  }
+
+  .welcome-main {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+  }
+
+  .welcome-fullpage:not(.with-pet-panel) {
+    padding: 0;
+    gap: 0;
+  }
+
+  .welcome-pet-panel {
+    width: min(420px, 34vw);
+    min-width: 280px;
+    max-width: 520px;
+    height: 100%;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  @media (max-width: 760px) {
+    .welcome-fullpage.with-pet-panel {
+      flex-direction: column;
+    }
+
+    .welcome-pet-panel {
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+      height: min(48vh, 420px);
+    }
   }
 
   /* ─── Sidebar ─────────────────────────── */
@@ -1105,6 +1216,26 @@
     position: relative;
   }
 
+  @media (max-width: 640px) {
+    .main-content.has-aux-panel {
+      display: block;
+    }
+
+    .main-content.has-aux-panel .terminal-container {
+      display: none;
+    }
+
+    .main-content.has-aux-panel .aux-resize-handle {
+      display: none;
+    }
+
+    .main-content.has-aux-panel .auxiliary-panel {
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none;
+    }
+  }
+
   .aux-close-btn {
     position: absolute;
     top: 8px;
@@ -1190,6 +1321,18 @@
 
 
   /* Auxiliary Panel Tabs Navigation Header */
+  /* Animatable edge-fade widths so the masks ease in/out as you scroll. */
+  @property --aux-fade-left {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+  }
+  @property --aux-fade-right {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+  }
+
   .aux-tabs-bar {
     display: flex;
     align-items: center;
@@ -1204,7 +1347,30 @@
     -webkit-user-select: none;
     overflow-x: auto;
     scrollbar-width: none;
+    /* Fade widths default to 0 (no mask); set by .fade-left / .fade-right when
+       there are tabs scrolled out of view on that side. The gradient is relative
+       to the element box, so it stays pinned to the edges while tabs scroll. */
+    --aux-fade-left: 0px;
+    --aux-fade-right: 0px;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 var(--aux-fade-left),
+      #000 calc(100% - var(--aux-fade-right)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 var(--aux-fade-left),
+      #000 calc(100% - var(--aux-fade-right)),
+      transparent 100%
+    );
+    transition: --aux-fade-left 0.18s ease, --aux-fade-right 0.18s ease;
   }
+
+  .aux-tabs-bar.fade-left { --aux-fade-left: 24px; }
+  .aux-tabs-bar.fade-right { --aux-fade-right: 32px; }
 
   :root.light-theme .aux-tabs-bar {
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);

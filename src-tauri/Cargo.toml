@@ -1,6 +1,6 @@
 [package]
 name = "soryq"
-version = "0.3.4"
+version = "0.3.5"
 description = "A lightweight developer workspace built with Tauri 2, Rust, and Svelte 5"
 authors = ["samue"]
 edition = "2021"
@@ -48,6 +48,7 @@ regex = "1"
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = "0.7.2"
 webview2-com = "0.38.2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",

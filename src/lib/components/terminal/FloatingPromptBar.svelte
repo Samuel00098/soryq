@@ -30,6 +30,7 @@
   import { showToast } from '$lib/stores/notification';
   import { createVoiceInputSession, mergeVoiceTranscript } from '$lib/services/voice-input';
   import { refineVoicePrompt } from '$lib/services/voice-refinement';
+  import { isTauriRuntime } from '$lib/utils/tauri';
   import { activeProject } from '$lib/stores/workspace';
   import {
     orchestratorTasks,
@@ -38,6 +39,7 @@
     agentCenterOpen,
     agentForcedAgent,
     agentVoiceModeActive,
+    type ChatMessage,
   } from '$lib/stores/orchestrator';
   import VoiceConversationOverlay from '$lib/components/orchestrator/VoiceConversationOverlay.svelte';
   import { describeTtsError, getVoiceReplyConfigError, speak, stopSpeaking } from '$lib/services/tts';
@@ -95,7 +97,10 @@
   );
   let isVoiceActive = $derived(isAgentMode && voiceModeActive);
   let _lastAssistantRaw = $derived(
-    [...projectChatMessages].reverse().find(m => m.role === 'assistant' && !m.pending)?.text ?? ''
+    (() => {
+      const msg = [...projectChatMessages].reverse().find(m => m.role === 'assistant' && !m.pending);
+      return msg ? speechTextForAssistantMessage(msg) : '';
+    })()
   );
   let lastAssistantDisplay = $derived(
     _lastAssistantRaw.length === 0
@@ -134,9 +139,13 @@
           .filter((session) => session.isRunning && isAgentSession(session))
           .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null)
   );
-  // The terminal in focus (last clicked / keyboard-focused) is the natural
-  // target; only fall back to auto-following an agent when there's no active one.
-  let autoTarget = $derived(activeTerminal ?? preferredAgentTerminal);
+  // Prefer a running agent as the target so a terminal-mode prompt reaches an
+  // agent for a response (routing it through the auto-submitting paste path)
+  // instead of running as a command in whatever shell pane happens to be focused.
+  // `preferredAgentTerminal` already returns the focused pane when it's itself an
+  // agent, so this still respects "the agent I'm looking at"; it only overrides a
+  // non-agent active pane, and falls back to that shell when no agent is running.
+  let autoTarget = $derived(preferredAgentTerminal ?? activeTerminal);
   let manualTarget = $derived(
     $manualPromptTargetId !== null
       ? ($sessions.find((s) => s.id === $manualPromptTargetId && s.isRunning) ?? null)
@@ -212,11 +221,16 @@
     }
     const currentActiveSessionId = get(activeSessionId);
     const currentActiveTerminal = allSessions.find((session) => session.id === currentActiveSessionId) ?? null;
-    if (currentActiveTerminal) return currentActiveTerminal;
-    // No focused terminal — fall back to the most recently used running agent.
-    return allSessions
+    // The focused pane wins only when it's itself an agent (the one you're looking
+    // at). Otherwise prefer the most recently used running agent over a non-agent
+    // active pane, so the prompt actually reaches an agent for a response (and
+    // takes the auto-submitting paste path) instead of running as a shell command.
+    // Falls back to the focused shell only when no agent is running.
+    if (currentActiveTerminal && isAgentSession(currentActiveTerminal)) return currentActiveTerminal;
+    const runningAgent = allSessions
       .filter((session) => session.isRunning && isAgentSession(session))
       .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))[0] ?? null;
+    return runningAgent ?? currentActiveTerminal;
   }
 
   function focusInput() {
@@ -527,6 +541,23 @@
       .trim();
   }
 
+  function speechTextForAssistantMessage(message: ChatMessage): string {
+    if (message.completion) {
+      const c = message.completion;
+      const status =
+        c.status === 'done' ? 'finished' :
+        c.status === 'failed' ? 'failed' :
+        'needs your input';
+      const pieces = [
+        `${c.agentName} ${status}: ${c.taskTitle}.`,
+        c.reason ? `Reason: ${c.reason}.` : '',
+        c.summary ? c.summary : c.summaryPending ? 'I am still summarizing the terminal output.' : '',
+      ];
+      return pieces.filter(Boolean).join(' ');
+    }
+    return message.text;
+  }
+
   async function speakResponse(text: string) {
     // Drop the transient "🔍 Analyzing codebase…" status the orchestrator appends
     // to the reply while reconnaissance runs — we only want to speak the reply.
@@ -600,7 +631,7 @@
     if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.pending || lastMsg.id === lastSpokenMessageId) return;
     lastSpokenMessageId = lastMsg.id;
     isTtsSpeaking = true;
-    void speakResponse(lastMsg.text);
+    void speakResponse(speechTextForAssistantMessage(lastMsg));
   });
 
   // Auto-open agent center when waiting tasks arrive (if in agent mode and not in voice mode)
@@ -1155,7 +1186,8 @@
     // Use getCurrentWindow().onDragDropEvent() — the correct Tauri v2 API.
     let unlistenDragDrop: (() => void) | undefined;
 
-    getCurrentWindow().onDragDropEvent((event) => {
+    if (isTauriRuntime()) {
+      getCurrentWindow().onDragDropEvent((event) => {
       if (draggedExplorerPath) {
         return;
       }
@@ -1197,7 +1229,8 @@
 
         attachPathsToInput(paths);
       }
-    }).then((u) => { unlistenDragDrop = u; });
+      }).then((u) => { unlistenDragDrop = u; });
+    }
 
       return () => {
         document.removeEventListener('mousedown', handleDocumentPointerDown);

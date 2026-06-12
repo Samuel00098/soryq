@@ -3,17 +3,44 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur } from './settings';
 import { showToast } from './notification';
 
+export type BackgroundMediaKind = 'image' | 'video';
+
+export interface BackgroundMedia {
+  url: string;
+  kind: BackgroundMediaKind;
+}
+
 // The current background image as a webview-safe asset URL. The image itself
 // lives on disk in the app config dir; we avoid piping large base64 payloads
 // over IPC for faster set/get performance.
 let currentAssetUrl: string | null = null;
+let currentMediaKind: BackgroundMediaKind | null = null;
 
 /** Reactive flag for the UI: whether a background image is stored on disk. */
 export const backgroundImagePresent = writable<boolean>(false);
+export const backgroundMedia = writable<BackgroundMedia | null>(null);
 
-function setCurrent(filePath: string | null) {
-  currentAssetUrl = filePath ? convertFileSrc(filePath) : null;
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'm4v', 'mov', 'ogv']);
+
+function withCacheToken(assetUrl: string, token: string): string {
+  return `${assetUrl}${assetUrl.includes('?') ? '&' : '?'}v=${encodeURIComponent(token)}`;
+}
+
+function getMediaKind(filePath: string): BackgroundMediaKind {
+  const cleanPath = filePath.split(/[?#]/, 1)[0] ?? filePath;
+  const ext = cleanPath.split('.').pop()?.toLowerCase() ?? '';
+  return VIDEO_EXTENSIONS.has(ext) ? 'video' : 'image';
+}
+
+function setCurrent(filePath: string | null, cacheToken = `${Date.now()}`) {
+  currentAssetUrl = filePath ? withCacheToken(convertFileSrc(filePath), cacheToken) : null;
+  currentMediaKind = filePath ? getMediaKind(filePath) : null;
   backgroundImagePresent.set(filePath !== null);
+  backgroundMedia.set(
+    currentAssetUrl && currentMediaKind
+      ? { url: currentAssetUrl, kind: currentMediaKind }
+      : null
+  );
 }
 
 /** Load saved settings on startup: apply the global frost, then any stored image. */
@@ -34,13 +61,18 @@ export async function initBackground(): Promise<void> {
   applyBackgroundImage();
 }
 
-/** Open a file picker, copy the chosen image into the app data dir, and show it. */
+/** Open a file picker, copy the chosen background media into the app data dir, and show it. */
 export async function chooseBackgroundImage(): Promise<void> {
   const { open } = await import('@tauri-apps/plugin-dialog');
   const selected = await open({
     multiple: false,
     directory: false,
-    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'jfif', 'webp', 'gif', 'bmp', 'svg', 'avif', 'ico', 'tiff', 'tif', 'heic', 'heif'] }],
+    filters: [
+      {
+        name: 'Background media',
+        extensions: ['png', 'jpg', 'jpeg', 'jfif', 'webp', 'gif', 'apng', 'bmp', 'svg', 'avif', 'ico', 'tiff', 'tif', 'heic', 'heif', 'mp4', 'webm', 'm4v', 'mov', 'ogv']
+      }
+    ],
   });
   if (!selected || typeof selected !== 'string') return;
 
@@ -80,14 +112,17 @@ export function applyBackgroundImage(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   const active = get(backgroundImageEnabled) && currentAssetUrl !== null;
+  const imageActive = active && currentMediaKind === 'image';
 
-  if (active) {
+  if (imageActive) {
     root.style.setProperty('--user-bg-image', `url("${currentAssetUrl}")`);
     root.classList.add('has-bg-image');
   } else {
     root.style.removeProperty('--user-bg-image');
     root.classList.remove('has-bg-image');
   }
+
+  root.classList.toggle('has-bg-media', active);
 }
 
 /**

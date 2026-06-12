@@ -1,9 +1,11 @@
 <script lang="ts">
   import { activeProject } from '$lib/stores/workspace';
   import { activeFile, fileCache, activeLine, activeColumn } from '$lib/stores/editor';
-  import { layout, setSidebarTab } from '$lib/stores/layout';
+  import { layout, setSidebarTab, setActiveView } from '$lib/stores/layout';
   import { uiZoom } from '$lib/stores/settings';
   import { branchInfo } from '$lib/stores/gitBranch';
+  import { devpet } from '$lib/stores/devpet';
+  import PetAvatar from '$lib/components/pet/PetAvatar.svelte';
 
   $: activeFileInfo = $activeFile ? $fileCache.get($activeFile) : null;
   $: languageLabel = activeFileInfo
@@ -52,6 +54,20 @@
   </div>
 
   <div class="sb-right">
+    <button
+      type="button"
+      class="sb-item sb-pet"
+      onclick={() => setActiveView('pet')}
+      title="{$devpet.name} (Lvl {$devpet.level}) | Status: {$devpet.status} | WPM: {$devpet.wpm}. Click to open playground."
+      aria-label="Open DevPet playground"
+    >
+      <div class="sb-pet-avatar">
+        <PetAvatar type={$devpet.type} status={$devpet.status} skin={$devpet.skin} />
+      </div>
+      <span class="sb-pet-text">{$devpet.name}</span>
+    </button>
+    <span class="sb-sep">.</span>
+
     {#if activeFileInfo}
       {#if activeFileIsText}
         <span class="sb-item">Ln {$activeLine}, Col {$activeColumn}</span>
@@ -133,4 +149,43 @@
 
   .sb-branch { cursor: pointer; }
   .sb-branch:hover { color: var(--accent); }
+
+  /* DevPet status bar styling */
+  .sb-pet {
+    cursor: pointer;
+    gap: 6px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font: inherit;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .sb-pet:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+  }
+
+  .sb-pet-avatar {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  
+  .sb-pet-avatar :global(.pet-svg) {
+    max-width: 16px !important;
+    max-height: 16px !important;
+  }
+  
+  .sb-pet-text {
+    font-size: 11px;
+    font-weight: 500;
+  }
 </style>

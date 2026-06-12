@@ -8,6 +8,7 @@ import {
   type AgentChoice,
   type RouteResult,
   type RouteLlmConfig,
+  type AgentOutputRef,
   type RunningAgentRef,
 } from '$lib/services/orchestrator-brain';
 import { detectAgentAccess, getAgentAccessBlockedMessage } from '$lib/services/agent-access';
@@ -47,7 +48,8 @@ import {
   applyOrchestratorAgentName,
 } from '$lib/services/orchestrator/terminal-lease';
 import { pickAssistantName, isGenericAgentName } from '$lib/services/orchestrator/agent-names';
-import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
+import { buildAgentCharter, buildAgentTaskMessage } from '$lib/services/orchestrator/agent-charter';
+import { agentReadsRulesFile } from '$lib/services/orchestrator/agent-rules-file';
 import {
   onSessionExit,
   getAgentDisplayName,
@@ -551,6 +553,20 @@ export function unlinkOrchestratorTask(id: string) {
 
 // ─── Launch ───────────────────────────────────────────────────────────────────
 
+/**
+ * The message delivered LIVE to a leased agent's REPL. Agents that read a rules
+ * file (Claude Code, Codex, Cursor, OpenCode, Antigravity) already loaded the
+ * standing brief from CLAUDE.md / AGENTS.md when the CLI booted — see
+ * agent-rules-file.ts — so they receive only the task. Every other agent gets the
+ * brief wrapped around the goal (the legacy paste channel). This is the single
+ * decision point so dispatch, resend, and resume stay consistent.
+ */
+function buildLeasedAgentMessage(goal: string, agentCommand: string | null | undefined, name?: string | null): string {
+  return agentReadsRulesFile(agentCommand)
+    ? buildAgentTaskMessage(goal, { name: name ?? null })
+    : buildAgentCharter(goal, { name: name ?? null });
+}
+
 function sendGoalToLeasedTask(
   id: string,
   sessionId: number,
@@ -560,12 +576,12 @@ function sendGoalToLeasedTask(
 ): void {
   void (async () => {
     try {
-      // Every freshly-spawned agent gets the standing operating brief wrapped
-      // around its goal — the guardrail that replaced git-worktree isolation. The
-      // stored goal and the activity log keep the clean task text; only the
-      // terminal message carries the charter.
+      // Brief delivery is the guardrail that replaced git-worktree isolation.
+      // Rules-file agents already have it from CLAUDE.md / AGENTS.md, so they get
+      // only the task; the rest get the charter-wrapped goal. The stored goal and
+      // the activity log keep the clean task text either way.
       const task = get(orchestratorTasks).find((t) => t.id === id);
-      const message = buildAgentCharter(goal, { name: task?.name ?? null });
+      const message = buildLeasedAgentMessage(goal, agentCommand, task?.name ?? null);
       const sent = await sendOrchestratorGoalWhenReady(sessionId, message, {
         shouldContinue: () => leasedSessionLive(id, sessionId),
       });
@@ -592,7 +608,11 @@ function sendGoalToLeasedTask(
  * task yet (a persistent/named agent the user will drive later). Without this,
  * such agents never receive the charter — they have no goal to wrap it around.
  */
-function sendBriefToLeasedTask(id: string, sessionId: number, name?: string | null): void {
+function sendBriefToLeasedTask(id: string, sessionId: number, agentCommand: string, name?: string | null): void {
+  // Rules-file agents are already briefed by their CLAUDE.md / AGENTS.md the
+  // moment the CLI boots, so there is nothing to paste — sending the charter here
+  // would just re-deliver the brief they already hold (and into the fragile REPL).
+  if (agentReadsRulesFile(agentCommand)) return;
   void (async () => {
     try {
       const success = await sendOrchestratorGoalWhenReady(sessionId, buildAgentCharter('', { name: name ?? null }), {
@@ -665,7 +685,7 @@ export async function launchOrchestratorTask(
         // Manually launched (no auto-run) or spawned without a goal yet — still
         // deliver the standing brief so EVERY freshly-opened agent CLI is briefed,
         // then hand the goal (if any) to the prompt bar for the user to send.
-        sendBriefToLeasedTask(task.id, sessionId, task.name);
+        sendBriefToLeasedTask(task.id, sessionId, agentCommand, task.name);
         if (task.goal) {
           promptBarInput.set(task.goal);
           focusPromptBar();
@@ -685,9 +705,13 @@ export function resendOrchestratorGoal(id: string): void {
   if (!task || task.assignedSessionId == null || !task.goal || task.status !== 'in-progress') return;
   const live = getTerminalProjectState(task.projectId).sessions.find((s) => s.id === task.assignedSessionId);
   if (!live?.isRunning || live.ownerTaskId !== task.id) return;
-  // A missed first send means the agent never received the brief — resend it
-  // wrapped, same as the initial dispatch.
-  resendLeasedOrchestratorGoal(task.assignedSessionId, buildAgentCharter(task.goal, { name: task.name ?? null }));
+  // A missed first send means the agent never received the goal — resend exactly
+  // as the initial dispatch would (charter-wrapped for paste agents, task-only for
+  // rules-file agents, whose brief is already in CLAUDE.md / AGENTS.md).
+  resendLeasedOrchestratorGoal(
+    task.assignedSessionId,
+    buildLeasedAgentMessage(task.goal, task.agentPreset, task.name ?? null)
+  );
   patchTask(id, (current) => (current.status === 'in-progress' ? { ...current, promptSentAt: Date.now() } : current));
   logTaskActivity(id, 'follow-up', `Re-sent goal: ${task.goal}`);
   showToast('Re-sent goal to agent', 'info', 2500);
@@ -829,7 +853,8 @@ export function getDispatchableAgents(projectId: string): AgentChoice[] {
     .map((p) => ({ command: p.command, name: p.name }));
 }
 
-const BRAIN_OUTPUT_TAIL = 600;
+const BRAIN_OUTPUT_TAIL = 2500;
+const TASK_OUTPUT_TAIL = 4000;
 
 /** In-progress agents the brain can address by name (most-recent first). */
 export function getRunningAgentRefs(projectId: string): RunningAgentRef[] {
@@ -841,6 +866,29 @@ export function getRunningAgentRefs(projectId: string): RunningAgentRef[] {
       const recentOutput = full ? full.slice(-BRAIN_OUTPUT_TAIL) : null;
       return { name: t.name ?? null, agent: t.agentPreset ?? 'agent', title: t.goal ? t.title : 'idle', recentOutput };
     });
+}
+
+/** Recent task state plus terminal output for conversational status/output answers. */
+export function getAgentOutputRefs(projectId: string): AgentOutputRef[] {
+  return get(orchestratorTasks)
+    .filter((t) => t.projectId === projectId && t.status !== 'todo')
+    .map((t) => {
+      const full = getTaskTranscript(t);
+      const recentOutput = full ? full.slice(-TASK_OUTPUT_TAIL) : null;
+      const updatedAt = t.completedAt ?? t.startedAt ?? t.createdAt;
+      const reason = t.blockedReason ?? t.failureReason ?? null;
+      return {
+        name: t.name ?? null,
+        agent: t.agentPreset ?? 'agent',
+        title: t.goal ? t.title : 'idle',
+        status: t.status as AgentOutputRef['status'],
+        updatedAt,
+        reason,
+        recentOutput,
+      };
+    })
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    .slice(0, 6);
 }
 
 /** Blocked agents that the assistant can resume naturally in chat. */
@@ -927,12 +975,14 @@ async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootP
   logTaskActivity(task.id, 'dispatch', `Resumed ${agentName}.`);
 
   // Resuming a blocked task re-leases a FRESH agent CLI (the previous process
-  // exited), so it has no memory of its first-turn brief — re-deliver the standing
-  // charter wrapped around the resume prompt, exactly like an initial dispatch.
-  // The activity log below still records the clean prompt, not the charter text.
+  // exited), so it has no memory of its first-turn brief. A rules-file agent
+  // re-reads CLAUDE.md / AGENTS.md on this fresh boot (the re-lease re-ensures
+  // them), so it just needs the resume prompt; a paste agent needs the charter
+  // wrapped around it, exactly like an initial dispatch. The activity log below
+  // still records the clean prompt, not the message text.
   const sent = await sendOrchestratorFollowUpWhenReady(
     sessionId,
-    buildAgentCharter(prompt, { name: task.name ?? null }),
+    buildLeasedAgentMessage(prompt, task.agentPreset, task.name ?? null),
     { shouldContinue: () => leasedSessionLive(task.id, sessionId) }
   );
   if (!sent) return false;
@@ -1044,6 +1094,7 @@ export async function sendChatMessage(
         taskMemory,
         runningAgents: getRunningAgentRefs(projectId),
         reviewingAgents: getReviewableAgentRefs(projectId),
+        taskOutputs: getAgentOutputRefs(projectId),
         llmConfig,
         conversational: !!opts?.voiceConversation,
       });
@@ -1198,9 +1249,10 @@ export async function sendChatMessage(
     if (rawPrompt) {
       sendGoalToLeasedTask(task.id, sessionId, goal, agent, watchTurn);
     } else {
-      // No task yet (persistent/named agent) — still deliver the standing brief
-      // so every spawned agent is briefed, then hand off to the user to drive it.
-      sendBriefToLeasedTask(task.id, sessionId, name);
+      // No task yet (persistent/named agent) — deliver the standing brief so every
+      // spawned agent is briefed (a no-op for rules-file agents, already briefed
+      // via CLAUDE.md / AGENTS.md), then hand off to the user to drive it.
+      sendBriefToLeasedTask(task.id, sessionId, agent, name);
       if (!persistent) {
         promptBarInput.set(goal);
         focusPromptBar();

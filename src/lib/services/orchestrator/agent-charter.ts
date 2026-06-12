@@ -14,6 +14,12 @@
  * (the floating-bar "+" button — the user types the prompt next) the brief is
  * sent on its own via the no-task variant. The task's stored `goal` and the
  * activity log stay clean — only the text written to the terminal carries it.
+ *
+ * This pasted charter is the delivery channel for agents WITHOUT a native rules
+ * file. Agents that read CLAUDE.md / AGENTS.md at startup (Claude Code, Codex,
+ * Cursor, OpenCode, Antigravity) receive the same standing brief far more
+ * reliably via those files instead — see agent-rules-file.ts. For those the
+ * paste is skipped and only the per-task prompt is sent live.
  */
 
 export interface AgentCharterOptions {
@@ -61,4 +67,31 @@ export function buildAgentCharter(goal: string, opts: AgentCharterOptions = {}):
     '',
     taskLine,
   ].join('\n');
+}
+
+/**
+ * Build the LIVE message for an agent that already carries the standing brief in
+ * its native rules file (CLAUDE.md / AGENTS.md — see agent-rules-file.ts). The
+ * four guardrails are loaded as context the moment the CLI boots, so re-pasting
+ * them into the REPL is redundant — and that redundant paste was the visible
+ * "brief got pasted again" users saw on rules-file agents (Codex, Claude Code,
+ * Cursor, OpenCode, Antigravity). Only the task goes over the wire.
+ *
+ * The whole message IS the task and there are no trusted instructions sharing it,
+ * so no SORYQ_TASK delimiters are needed: the agent already treats task text as
+ * untrusted per its rules file. The assigned name is included because the live
+ * message is the only place a rules-file agent learns it (the shared rules file
+ * can't carry a per-agent name).
+ *
+ * Returns '' for an empty goal — a rules-file agent spawned without a task needs
+ * nothing sent (its brief is already in the file), so callers send nothing.
+ *
+ * @param goal - The task/goal text (already recon-enriched). Empty ⇒ ''.
+ * @param opts - Per-agent context (its assigned name).
+ */
+export function buildAgentTaskMessage(goal: string, opts: AgentCharterOptions = {}): string {
+  const task = goal.trim();
+  if (!task) return '';
+  const name = opts.name?.trim();
+  return name ? `${name}, your task:\n${task}` : task;
 }

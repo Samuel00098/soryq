@@ -13,6 +13,21 @@ pub fn preview_stop_proxy(state: State<AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn preview_set_target_port(port: u16, state: State<AppState>) -> Result<(), String> {
+    validate_target_port(port)?;
+    state.preview_manager.set_target_port(port)
+}
+
+#[tauri::command]
+pub fn preview_start_local_proxy(
+    port: u16,
+    host: Option<String>,
+    state: State<AppState>,
+) -> Result<u16, String> {
+    validate_target_port(port)?;
+    state.preview_manager.start_local_dev_proxy(host, port)
+}
+
+fn validate_target_port(port: u16) -> Result<(), String> {
     if port == 0 {
         return Err("Port 0 is not a valid target port".to_string());
     }
@@ -27,7 +42,7 @@ pub fn preview_set_target_port(port: u16, state: State<AppState>) -> Result<(), 
             port
         ));
     }
-    state.preview_manager.set_target_port(port)
+    Ok(())
 }
 
 #[tauri::command]

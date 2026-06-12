@@ -6,6 +6,7 @@ export const proxyPort = writable<number | null>(null);
 export const proxyStarted = writable<boolean>(false);
 export const isConnecting = writable<boolean>(false);
 export const preferredLocalHost = writable<string>('localhost');
+export const localDevProxyPorts = writable<Record<string, number>>({});
 
 export type PreviewTab = {
   id: string;
@@ -21,6 +22,10 @@ const currentUrlStore = writable<string>('/');
 
 function createTabId() {
   return `preview-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function localDevProxyKey(host: string, port: number) {
+  return `${host.trim().toLowerCase()}:${port}`;
 }
 
 function derivePreviewTabTitle(url: string) {
@@ -283,6 +288,22 @@ export async function ensureProxyRunning(): Promise<number | null> {
     return port;
   } catch (err) {
     console.error('Failed to ensure proxy is running:', err);
+    return null;
+  }
+}
+
+export async function ensureLocalDevProxy(port: number, host = 'localhost'): Promise<number | null> {
+  const key = localDevProxyKey(host, port);
+  const existing = get(localDevProxyPorts)[key];
+  if (existing) return existing;
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const proxy = await invoke<number>('preview_start_local_proxy', { port, host });
+    localDevProxyPorts.update((ports) => ({ ...ports, [key]: proxy }));
+    return proxy;
+  } catch (err) {
+    console.error('Failed to ensure local dev proxy is running:', err);
     return null;
   }
 }

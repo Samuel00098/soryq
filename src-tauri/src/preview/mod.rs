@@ -8,6 +8,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Client;
+use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -246,6 +247,7 @@ pub struct ProxyState {
     pub preferred_local_host: Arc<Mutex<Option<String>>>,
     pub active_external_origins: Arc<Mutex<std::collections::HashMap<String, Option<String>>>>,
     pub active_project_id: Arc<std::sync::RwLock<Option<String>>>,
+    pub external_origin_fallback: bool,
     pub client: Client,
 }
 
@@ -253,6 +255,7 @@ pub struct PreviewManager {
     target_port: Arc<Mutex<u16>>,
     preferred_local_host: Arc<Mutex<Option<String>>>,
     proxy_port: Arc<Mutex<Option<u16>>>,
+    local_dev_proxy_ports: Arc<Mutex<HashMap<String, u16>>>,
     pub active_external_origins: Arc<Mutex<std::collections::HashMap<String, Option<String>>>>,
     pub active_project_id: Arc<std::sync::RwLock<Option<String>>>,
     shutdown_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
@@ -264,6 +267,7 @@ impl PreviewManager {
             target_port: Arc::new(Mutex::new(5173)),
             preferred_local_host: Arc::new(Mutex::new(None)),
             proxy_port: Arc::new(Mutex::new(None)),
+            local_dev_proxy_ports: Arc::new(Mutex::new(HashMap::new())),
             active_external_origins: Arc::new(Mutex::new(std::collections::HashMap::new())),
             active_project_id,
             shutdown_tx: Arc::new(Mutex::new(None)),
@@ -289,33 +293,8 @@ impl PreviewManager {
             preferred_local_host: self.preferred_local_host.clone(),
             active_external_origins: self.active_external_origins.clone(),
             active_project_id: self.active_project_id.clone(),
-            client: Client::builder()
-                .user_agent(concat!(
-                    "soryq/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (preview-proxy)"
-                ))
-                .gzip(true)
-                .brotli(true)
-                .connect_timeout(Duration::from_millis(800))
-                .timeout(Duration::from_secs(20))
-                // Only bypass TLS for loopback; external certs are validated normally
-                .danger_accept_invalid_certs(false)
-                .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                    let url = attempt.url();
-                    let url_str = url.as_str();
-                    if !is_loopback_target(url_str) && is_private_target(url_str) {
-                        return attempt.error("redirect to private IP blocked");
-                    }
-                    if let Some(port) = url.port() {
-                        if is_restricted_port(port) {
-                            return attempt.error("redirect to restricted port blocked");
-                        }
-                    }
-                    attempt.follow()
-                }))
-                .build()
-                .unwrap_or_default(),
+            external_origin_fallback: true,
+            client: preview_http_client(),
         };
 
         let app = Router::new().fallback(any(proxy_handler)).with_state(state);
@@ -342,6 +321,59 @@ impl PreviewManager {
                 _ = rx => {
                     println!("Preview server shutdown signal received");
                 }
+            }
+        });
+
+        Ok(proxy_port)
+    }
+
+    pub fn start_local_dev_proxy(&self, host: Option<String>, port: u16) -> Result<u16, String> {
+        if port == 0 {
+            return Err("Port 0 is not a valid target port".to_string());
+        }
+
+        let normalized_host = normalize_local_host(host.as_deref())?;
+        let key = format!("{}:{}", normalized_host, port);
+
+        {
+            let local_ports = self
+                .local_dev_proxy_ports
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(existing_port) = local_ports.get(&key) {
+                return Ok(*existing_port);
+            }
+        }
+
+        let proxy_port = get_free_port().ok_or_else(|| "Could not find a free port".to_string())?;
+        self.local_dev_proxy_ports
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, proxy_port);
+
+        let state = ProxyState {
+            target_port: Arc::new(Mutex::new(port)),
+            preferred_local_host: Arc::new(Mutex::new(Some(normalized_host))),
+            active_external_origins: self.active_external_origins.clone(),
+            active_project_id: self.active_project_id.clone(),
+            external_origin_fallback: false,
+            client: preview_http_client(),
+        };
+
+        let app = Router::new().fallback(any(proxy_handler)).with_state(state);
+        let addr = SocketAddr::from(([127, 0, 0, 1], proxy_port));
+
+        async_runtime::spawn(async move {
+            let listener = match tokio::net::TcpListener::bind(addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("Failed to bind local dev preview server: {}", e);
+                    return;
+                }
+            };
+
+            if let Err(e) = axum::serve(listener, app).await {
+                eprintln!("Local dev preview server error: {}", e);
             }
         });
 
@@ -396,6 +428,44 @@ impl PreviewManager {
         }
         Ok(())
     }
+}
+
+fn normalize_local_host(host: Option<&str>) -> Result<String, String> {
+    let normalized = host.unwrap_or("localhost").trim().to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "127.0.0.1" | "localhost" | "0.0.0.0" => Ok(normalized),
+        _ => Err("Only localhost, 127.0.0.1, or 0.0.0.0 can be previewed locally".to_string()),
+    }
+}
+
+fn preview_http_client() -> Client {
+    Client::builder()
+        .user_agent(concat!(
+            "soryq/",
+            env!("CARGO_PKG_VERSION"),
+            " (preview-proxy)"
+        ))
+        .gzip(true)
+        .brotli(true)
+        .connect_timeout(Duration::from_millis(800))
+        .timeout(Duration::from_secs(20))
+        .danger_accept_invalid_certs(false)
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let url = attempt.url();
+            let url_str = url.as_str();
+            if !is_loopback_target(url_str) && is_private_target(url_str) {
+                return attempt.error("redirect to private IP blocked");
+            }
+            if let Some(port) = url.port() {
+                if is_restricted_port(port) {
+                    return attempt.error("redirect to restricted port blocked");
+                }
+            }
+            attempt.follow()
+        }))
+        .build()
+        .unwrap_or_default()
 }
 
 fn get_free_port() -> Option<u16> {
@@ -674,12 +744,16 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
         .read()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let opt_origin = if let Some(ref project_id) = active_project {
-        let origins = state
-            .active_external_origins
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        origins.get(project_id).cloned().flatten()
+    let opt_origin = if state.external_origin_fallback {
+        if let Some(ref project_id) = active_project {
+            let origins = state
+                .active_external_origins
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            origins.get(project_id).cloned().flatten()
+        } else {
+            None
+        }
     } else {
         None
     };

@@ -47,12 +47,19 @@ export interface RunningAgentRef {
   recentOutput?: string | null;
 }
 
+export interface AgentOutputRef extends RunningAgentRef {
+  status: 'in-progress' | 'complete' | 'blocked' | 'failed' | 'cancelled';
+  updatedAt?: number | null;
+  reason?: string | null;
+}
+
 export interface RouteContext {
   projectName?: string;
   recentUserMessages?: string[];
   taskMemory?: string[];
   runningAgents?: RunningAgentRef[];
   reviewingAgents?: RunningAgentRef[];
+  taskOutputs?: AgentOutputRef[];
   llmConfig?: RouteLlmConfig;
   /**
    * Spoken voice-conversation mode. The user is primarily *talking* with the
@@ -97,6 +104,18 @@ function buildUserText(message: string, ctx?: RouteContext): string {
       parts.push(`- ${r.name ? `"${compactText(r.name, 48)}"` : '(unnamed)'} [${compactText(r.agent, 48)}] — ${compactText(r.title, 120)}`);
     }
   }
+  const taskOutputs = (ctx?.taskOutputs ?? []).slice(0, 6);
+  if (taskOutputs.length) {
+    parts.push('Recent agent/task status and terminal output:');
+    for (const r of taskOutputs) {
+      parts.push(`- ${r.name ? `"${compactText(r.name, 48)}"` : '(unnamed)'} [${compactText(r.agent, 48)}, ${r.status}] - ${compactText(r.title, 120)}`);
+      if (r.reason) parts.push(`  Reason: ${compactText(r.reason, 180)}`);
+      if (r.recentOutput?.trim()) {
+        const lines = r.recentOutput.trim().split('\n').slice(-10).map((l) => `  | ${l}`).join('\n');
+        parts.push(`  Terminal output (recent tail):\n${lines}`);
+      }
+    }
+  }
   const memory = (ctx?.taskMemory ?? []).slice(-5);
   if (memory.length) {
     parts.push('Recent task activity:');
@@ -129,18 +148,71 @@ const QUESTION_MARK_RE = /\?\s*$/;
 // when the user clearly asks to launch an agent or to have one do coding work —
 // everything else is treated as plain conversation, never a dispatch.
 const EXPLICIT_SPAWN_RE =
-  /\b(open|spawn|launch|start|fire up|boot up|kick off|create|use|have|get|tell|ask|put)\b[^.?!]*\b(agent|claude|codex|aider|opencode|assistant|bot)\b/i;
+  /\b(open|spawn|launch|start|fire up|boot up|kick off|create|use|have|get|tell|ask|put)\b[^.?!]*\b(agent|claude|codex|aider|opencode|antigravity|agy|cursor|pi|oh ?my ?pi|omp|assistant|bot)\b/i;
 
 // Status-check patterns — intercepted before the LLM so we respond instantly.
-const STATUS_CHECK_RE = /^(status|what[‘’]?s running|list agents|show agents|which agents|what agents are running|show me the agents|what are (?:my |the )?agents doing)\b/i;
+const STATUS_CHECK_RE = /^(status|what[‘’]?s (?:the )?status|what[‘’]?s running|list agents|show agents|which agents|what agents are running|show me the agents|what are (?:my |the )?agents doing|how (?:is|are) (?:the |my |that |those )?agents? doing|is (?:it|that|the agent) (?:done|finished|complete)|has (?:it|that|the agent) finished|are (?:they|the agents) (?:done|finished|complete))\b/i;
 
 // Output-query patterns — user wants to see what an agent said/wrote/outputted.
 // Intercept before routing so we never send a new message to the agent.
 const OUTPUT_QUERY_RE =
-  /^(what did|what has|what[‘’]?s|show me what|get|fetch|read|check|see what)\b.{0,60}\b(said?|respond(?:ed)?|wrot[eo]|output(?:ted)?|result(?:s)?|response|reply|answer|return(?:ed)?|produc(?:ed)?|finish(?:ed)?|complet(?:ed)?|done)\b/i;
+  /^(what did|what has|what[‘’]?s|show me what|get|fetch|read|check|see what|summari[sz]e|tell me what)\b.{0,80}\b(said?|respond(?:ed)?|wrot[eo]|output(?:ted)?|terminal|result(?:s)?|response|reply|answer|return(?:ed)?|produc(?:ed)?|finish(?:ed)?|complet(?:ed)?|done)\b/i;
 
 function pickDefaultAgent(agents: AgentChoice[]): AgentChoice | null {
   return agents.find((a) => a.command === 'claude') ?? agents[0] ?? null;
+}
+
+// Spoken synonyms for command ids that aren't an obvious word. The command id
+// itself and the preset name are matched generically (below); these cover the
+// gap where the id is opaque ("agy" → "antigravity") or differs from how people
+// say it. The Cursor command is the bare word "agent", which is too generic to
+// match on its own, so it's reached only via "cursor".
+const AGENT_ALIASES: Record<string, string[]> = {
+  codex: ['codex'],
+  claude: ['claude'],
+  agy: ['agy', 'antigravity'],
+  opencode: ['opencode', 'open code'],
+  pi: ['pi'],
+  omp: ['omp', 'oh my pi', 'oh-my-pi', 'ohmypi'],
+  agent: ['cursor'],
+  aider: ['aider'],
+};
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The words/phrases that name a given agent: its command id (unless generic),
+ * its preset name, and any spoken aliases. */
+function agentMatchTerms(agent: AgentChoice): string[] {
+  const terms = new Set<string>();
+  const cmd = agent.command.trim().toLowerCase();
+  // The bare "agent" command (Cursor) is too generic to match as a word.
+  if (cmd && cmd !== 'agent' && !cmd.includes(' ')) terms.add(cmd);
+  const name = agent.name.trim().toLowerCase();
+  if (name) terms.add(name);
+  for (const alias of AGENT_ALIASES[cmd] ?? []) terms.add(alias);
+  return [...terms].filter(Boolean);
+}
+
+/**
+ * Resolve the agent a message names to its command id — matching the command,
+ * the preset name, or a spoken alias, case-insensitively and on word
+ * boundaries. Returns the MOST specific (longest) match so "Codex CLI" beats a
+ * stray "codex"; null when no agent is named.
+ */
+export function resolveAgentCommand(text: string, agents: AgentChoice[]): string | null {
+  const haystack = ` ${text.toLowerCase()} `;
+  let best: { command: string; len: number } | null = null;
+  for (const agent of agents) {
+    for (const term of agentMatchTerms(agent)) {
+      const re = new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(term)}(?:[^a-z0-9]|$)`, 'i');
+      if (re.test(haystack) && (!best || term.length > best.len)) {
+        best = { command: agent.command, len: term.length };
+      }
+    }
+  }
+  return best?.command ?? null;
 }
 
 /** Find a running agent the message names, so heuristic close can target it. */
@@ -150,6 +222,66 @@ function matchRunningName(message: string, running: RunningAgentRef[]): string |
     if (r.name && lower.includes(r.name.toLowerCase())) return r.name;
   }
   return null;
+}
+
+function statusPhrase(status: AgentOutputRef['status']): string {
+  switch (status) {
+    case 'in-progress': return 'still in progress';
+    case 'complete': return 'done';
+    case 'blocked': return 'waiting for input';
+    case 'failed': return 'failed';
+    case 'cancelled': return 'cancelled';
+    default: return status;
+  }
+}
+
+function outputRefs(ctx?: RouteContext): AgentOutputRef[] {
+  const refs = ctx?.taskOutputs ?? [];
+  if (refs.length) return refs;
+  return (ctx?.runningAgents ?? []).map((r) => ({ ...r, status: 'in-progress' as const }));
+}
+
+function displayAgentName(ref: RunningAgentRef): string {
+  return ref.name ? compactText(ref.name, 32) : compactText(ref.agent, 32) || 'Agent';
+}
+
+function latestOutputLine(ref: RunningAgentRef, maxChars = 160): string {
+  const line = ref.recentOutput
+    ?.trim()
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .pop();
+  return line ? compactText(line, maxChars) : '';
+}
+
+function formatStatusReply(refs: AgentOutputRef[]): string {
+  if (!refs.length) return 'No agents are currently running, and I do not have recent task output to summarize yet.';
+  const lines = refs.slice(0, 6).map((r) => {
+    const latest = latestOutputLine(r);
+    const reason = r.reason ? ` (${compactText(r.reason, 90)})` : '';
+    const tail = latest ? ` Latest output: ${latest}` : '';
+    return `- ${displayAgentName(r)} is ${statusPhrase(r.status)}${reason}: ${compactText(r.title, 90)}.${tail}`;
+  });
+  if (refs.length === 1) return lines[0].replace(/^- /, '');
+  return `${refs.length} recent agent tasks:\n${lines.join('\n')}`;
+}
+
+function formatOutputReply(refs: AgentOutputRef[], conversational = false): string {
+  const withOutput = refs.filter((r) => r.recentOutput?.trim());
+  if (!withOutput.length) {
+    if (!refs.length) return 'No agents are currently running, and I do not have captured terminal output yet.';
+    return formatStatusReply(refs);
+  }
+
+  const parts = withOutput.slice(0, 3).map((r) => {
+    const output = r.recentOutput!.trim().split('\n').slice(-20).join('\n');
+    const compact = compactText(output, conversational ? 520 : 900);
+    const intro = `${displayAgentName(r)} is ${statusPhrase(r.status)} on "${compactText(r.title, 80)}".`;
+    if (conversational) return `${intro} The latest terminal output says: ${compact}`;
+    return `${intro}\n\nLatest terminal output:\n\`\`\`\n${output}\n\`\`\``;
+  });
+  return parts.join('\n\n');
 }
 
 /** Routing without an LLM: pick a sensible agent and decide chat vs dispatch. */
@@ -167,10 +299,14 @@ function heuristicRoute(message: string, agents: AgentChoice[], ctx?: RouteConte
     return { reply: 'Closing that agent.', actions: [{ kind: 'close', target }], viaLLM: false };
   }
 
-  const agent = pickDefaultAgent(agents);
-  if (!agent) {
+  const defaultAgent = pickDefaultAgent(agents);
+  if (!defaultAgent) {
     return { reply: 'No agents are configured for this project yet.', actions: [], viaLLM: false };
   }
+  // If the user named a specific agent ("open codex", "use Codex CLI"), bring
+  // THAT one out — not the default. Falls back to the default when none named.
+  const namedCommand = resolveAgentCommand(text, agents);
+  const agent = (namedCommand ? agents.find((a) => a.command === namedCommand) : null) ?? defaultAgent;
 
   // In spoken conversation mode, talking is the default — only dispatch when the
   // user explicitly asks to open an agent. Otherwise just keep the conversation
@@ -178,6 +314,14 @@ function heuristicRoute(message: string, agents: AgentChoice[], ctx?: RouteConte
   // When there are running agents, surface their terminal output so the reply
   // is useful (e.g. "how's the agent doing" → recent output) instead of canned.
   if (ctx?.conversational && !EXPLICIT_SPAWN_RE.test(text)) {
+    const refs = outputRefs(ctx);
+    if (refs.length) {
+      return {
+        reply: formatStatusReply(refs),
+        actions: [],
+        viaLLM: false,
+      };
+    }
     if (running.length) {
       const lines = running.map((r) => {
         const nameStr = r.name ? `**${compactText(r.name, 32)}**` : '(unnamed)';
@@ -285,6 +429,7 @@ function buildSystemPrompt(
     '- If a task is awaiting review and the user wants more work, use send to resume it automatically instead of waiting for approval.',
     '- To shut an agent down that the user is finished with, use close (never spawn a new agent to "close" one).',
     '- If the user asks what an agent said, responded, wrote, outputted, or what its result/response/answer was — report it from the terminal output shown above. Use an EMPTY actions array. Never send a new message to the agent for this.',
+    '- If the user asks whether something is done, still running, blocked, failed, or what the terminal says, answer from the recent agent/task status and terminal output. Use an EMPTY actions array unless they explicitly ask you to continue or change something.',
     '- If the user is only chatting, greeting, or you need clarification, use an empty actions array and answer in reply.',
     '- Prefer "claude" for general coding unless another agent is clearly better.',
     '- Keep reply to one or two sentences.',
@@ -309,8 +454,12 @@ function buildSystemPrompt(
 function snapAgent(raw: unknown, agents: AgentChoice[]): string | null {
   const agent = typeof raw === 'string' ? raw.trim() : '';
   if (!agent) return pickDefaultAgent(agents)?.command ?? null;
-  // Snap to a known agent; if the model invented one, fall back to the default.
-  return agents.find((a) => a.command === agent)?.command ?? pickDefaultAgent(agents)?.command ?? null;
+  // Exact command id is the happy path.
+  const exact = agents.find((a) => a.command.toLowerCase() === agent.toLowerCase());
+  if (exact) return exact.command;
+  // The model may have returned a display name ("Codex CLI") or alias instead of
+  // the command id — resolve it before falling back to the default.
+  return resolveAgentCommand(agent, agents) ?? pickDefaultAgent(agents)?.command ?? null;
 }
 
 function str(raw: unknown): string {
@@ -396,44 +545,13 @@ export async function routeOrchestratorRequest(
 
   // Fast-path: status check — respond instantly from live state, no LLM needed.
   if (STATUS_CHECK_RE.test(trimmed)) {
-    const running = ctx?.runningAgents ?? [];
-    if (running.length === 0) {
-      return { reply: 'No agents are currently running.', actions: [], viaLLM: false };
-    }
-    const lines = running.map((r) => {
-      const nameStr = r.name ? `**${compactText(r.name, 32)}**` : '(unnamed)';
-      const agentStr = compactText(r.agent, 32);
-      const titleStr = compactText(r.title, 80);
-      let line = `• ${nameStr} [${agentStr}] — ${titleStr}`;
-      if (r.recentOutput?.trim()) {
-        const lastLine = r.recentOutput.trim().split('\n').filter((l) => l.trim()).pop() ?? '';
-        if (lastLine) line += `\n  › ${compactText(lastLine, 120)}`;
-      }
-      return line;
-    });
-    const reply = `${running.length} agent${running.length === 1 ? '' : 's'} running:\n${lines.join('\n')}`;
-    return { reply, actions: [], viaLLM: false };
+    return { reply: formatStatusReply(outputRefs(ctx)), actions: [], viaLLM: false };
   }
 
   // Fast-path: output query — user wants to read what an agent said/wrote.
   // Never send a new message; just surface the terminal output directly.
   if (OUTPUT_QUERY_RE.test(trimmed)) {
-    const running = ctx?.runningAgents ?? [];
-    if (running.length === 0) {
-      return { reply: 'No agents are currently running — nothing to read yet.', actions: [], viaLLM: false };
-    }
-    const parts = running
-      .filter((r) => r.recentOutput?.trim())
-      .map((r) => {
-        const nameStr = r.name ? `**${compactText(r.name, 32)}**` : '(unnamed)';
-        const output = r.recentOutput!.trim().split('\n').slice(-20).join('\n');
-        return `${nameStr}:\n\`\`\`\n${output}\n\`\`\``;
-      });
-    if (parts.length === 0) {
-      const names = running.map((r) => r.name ? `**${r.name}**` : '(unnamed)').join(', ');
-      return { reply: `${names} ${running.length === 1 ? 'hasn\'t' : 'haven\'t'} produced any output yet.`, actions: [], viaLLM: false };
-    }
-    return { reply: parts.join('\n\n'), actions: [], viaLLM: false };
+    return { reply: formatOutputReply(outputRefs(ctx), !!ctx?.conversational), actions: [], viaLLM: false };
   }
 
   const provider = ctx?.llmConfig?.provider ?? get(aiProvider);

@@ -1,8 +1,10 @@
 import { writable, get } from 'svelte/store';
-import { openPty, type PtySession } from '$lib/services/pty-bridge';
+import { attachPty, openPty, type PtySession } from '$lib/services/pty-bridge';
 import { terminalShell } from '$lib/stores/settings';
 import { showToast } from '$lib/stores/notification';
 import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
+import { agentReadsRulesFile, ensureAgentRulesFiles } from '$lib/services/orchestrator/agent-rules-file';
+import { devpet } from '$lib/stores/devpet';
 
 export type TerminalSessionInfo = {
   id: number;
@@ -28,16 +30,21 @@ export type TerminalSessionInfo = {
   ownerTaskId?: string | null;
 };
 
+// Keyed by the agent's launch command (see AI_AGENT_PRESETS in runs.ts), with a
+// few natural-name aliases kept so display names resolve whether code passes the
+// command id ("agy") or the spoken name ("antigravity").
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
   codex: 'Codex CLI',
   claude: 'Claude Code',
   aider: 'Aider',
-  agy: 'AGY',
+  agy: 'Antigravity',
+  antigravity: 'Antigravity',
   opencode: 'OpenCode',
   pi: 'Pi',
-  antigravity: 'Antigravity',
-  cursor: 'Cursor',
+  omp: 'Oh My Pi',
   'oh-my-pi': 'Oh My Pi',
+  agent: 'Cursor',
+  cursor: 'Cursor',
 };
 
 export type GridLayout = 'single' | '2h' | '2v' | '3h' | '3v' | '4' | '9';
@@ -147,7 +154,18 @@ function cloneProjectState(state: TerminalProjectState): TerminalProjectState {
 
 const terminalProjectStates = new Map<string, TerminalProjectState>();
 const terminalSessionProjects = new Map<number, string>();
+// Project id → working-tree root, registered by the workspace store as projects
+// open. Lets a session resolve its repo root for the rules-file brief even when
+// it was created without an explicit cwd (e.g. a terminal opened with the
+// default shell dir, then the user types `claude`/`codex` into it). Injected
+// rather than imported to avoid a workspace↔terminal import cycle.
+const terminalProjectRoots = new Map<string, string>();
 let activeTerminalProjectId: string | null = null;
+
+/** Record a project's working-tree root for rules-file brief resolution. */
+export function setTerminalProjectRoot(projectId: string, rootPath: string) {
+  if (projectId && rootPath) terminalProjectRoots.set(projectId, rootPath);
+}
 
 function getProjectState(projectId: string): TerminalProjectState {
   const existing = terminalProjectStates.get(projectId);
@@ -478,6 +496,105 @@ export function getSessionOutputBuffer(id: number): string {
   return sessionOutputBuffers.get(id) ?? '';
 }
 
+function handlePtyExit(id: number, owningProjectId: string, code: number) {
+  const sessionProjectId = terminalSessionProjects.get(id) ?? owningProjectId;
+  const state = getProjectState(sessionProjectId);
+  const session = state.sessions.find((x) => x.id === id);
+  exitCallbacks.get(id)?.(code);
+  updateProjectState(sessionProjectId, (current) => ({
+    ...current,
+    sessions: current.sessions.map((x) => (
+      x.id === id ? { ...x, isRunning: false, lastExitCode: code } : x
+    )),
+  }));
+  // Broadcast to project-independent listeners (e.g. the orchestrator's
+  // task reconciler) so background-project exits are handled too.
+  for (const listener of sessionExitListeners) {
+    try { listener({ sessionId: id, projectId: sessionProjectId, code }); }
+    catch (err) { console.error('Session exit listener failed:', err); }
+  }
+  const visibleSessions = sessionProjectId === activeTerminalProjectId ? get(sessions) : state.sessions;
+  const label = session ? getSessionLabel(session, visibleSessions) : `Terminal ${id}`;
+  const isAgent = isAgentSession(session);
+  const clean = code === 0;
+
+  if (isAgent) {
+    if (clean) {
+      showToast(`${label} finished its work`, 'success', 6000, true);
+    } else {
+      showToast(`${label} exited with errors (code ${code})`, 'error', 8000, true);
+    }
+  } else if (!clean) {
+    showToast(`${label} process died (exit ${code})`, 'error', 6000, true);
+  } else {
+    showToast(`${label} closed`, 'info', 3000, true);
+  }
+}
+
+function registerPtySession(
+  pty: PtySession,
+  owningProjectId: string,
+  cwd?: string | null,
+  targetPaneIndex?: number,
+  metadata: RestoredSessionMetadata = {}
+) {
+  ptyInstances.set(pty.id, pty);
+  terminalSessionProjects.set(pty.id, owningProjectId);
+
+  const existing = getProjectState(owningProjectId).sessions.find((session) => session.id === pty.id);
+  const sessionNum = getProjectState(owningProjectId).sessions.length + 1;
+  const agentPreset = metadata.agentPreset ?? existing?.agentPreset ?? null;
+  const info: TerminalSessionInfo = {
+    id: pty.id,
+    projectId: owningProjectId,
+    title: metadata.title?.trim() || existing?.title || `Terminal ${sessionNum}`,
+    paneTitle: metadata.paneTitle ?? existing?.paneTitle ?? null,
+    agentName: metadata.agentName ?? existing?.agentName ?? null,
+    isRunning: true,
+    isExecuting: false,
+    agentPreset,
+    briefed: agentPreset ? false : existing?.briefed,
+    lastExitCode: null,
+    lastActivatedAt: Date.now(),
+    role: metadata.role ?? existing?.role ?? (agentPreset ? 'Agent' : null),
+    cwd: cwd ?? existing?.cwd ?? null,
+    taskSummary: metadata.taskSummary ?? existing?.taskSummary ?? null,
+    ownerTaskId: existing?.ownerTaskId ?? null,
+  };
+
+  updateProjectState(owningProjectId, (state) => ({
+    ...state,
+    sessions: existing
+      ? state.sessions.map((session) => (session.id === pty.id ? info : session))
+      : [...state.sessions, info],
+    activeSessionId: pty.id,
+  }));
+
+  updateProjectState(owningProjectId, (state) => {
+    const paneAssignments = [...state.paneAssignments];
+    let nextActivePaneIndex = state.activePaneIndex;
+    if (targetPaneIndex !== undefined && targetPaneIndex >= 0) {
+      while (paneAssignments.length <= targetPaneIndex) paneAssignments.push(null);
+      paneAssignments[targetPaneIndex] = pty.id;
+      nextActivePaneIndex = targetPaneIndex;
+    } else if (!paneAssignments.includes(pty.id)) {
+      const emptyIdx = paneAssignments.findIndex((p) => p === null);
+      if (emptyIdx !== -1) {
+        paneAssignments[emptyIdx] = pty.id;
+        nextActivePaneIndex = emptyIdx;
+      } else {
+        paneAssignments.push(pty.id);
+        nextActivePaneIndex = paneAssignments.length - 1;
+      }
+    }
+    return {
+      ...state,
+      paneAssignments,
+      activePaneIndex: nextActivePaneIndex,
+    };
+  });
+}
+
 // Looks a session up in its OWNING project's state, not just the visible
 // `sessions` store (which only reflects the active project). Prompt delivery
 // must see the agent preset of a session living in a background project too —
@@ -551,6 +668,9 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       paneTitle: null,
       agentName: null,
       isRunning: true,
+      // Remember where this terminal runs so an agent's standing brief can be
+      // written to a rules file (CLAUDE.md / AGENTS.md) in the same directory.
+      cwd: cwd ?? null,
       lastExitCode: null,
       lastActivatedAt: Date.now(),
     };
@@ -596,11 +716,64 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
   }
 }
 
+export async function attachTerminalSession(
+  backendSessionId: number,
+  cwd?: string | null,
+  targetPaneIndex?: number,
+  projectId?: string,
+  metadata: RestoredSessionMetadata = {}
+): Promise<number | null> {
+  try {
+    const owningProjectId = projectId ?? activeTerminalProjectId;
+    if (!owningProjectId || !Number.isInteger(backendSessionId) || backendSessionId <= 0) {
+      return null;
+    }
+
+    if (ptyInstances.has(backendSessionId)) {
+      return backendSessionId;
+    }
+
+    let pty: PtySession;
+    const ptyPromise = attachPty(backendSessionId, {
+      // Pre-attach history goes into the session buffer ONLY — never through
+      // dataCallbacks. TerminalPane writes it via its gated reattach path, so
+      // xterm's re-answered color/DA queries from the history are dropped
+      // instead of reaching the live PTY (where a running agent like Codex
+      // would show them as `]10;rgb:…` junk in its input).
+      onReplay: (bytes) => {
+        appendSessionOutputBuffer(backendSessionId, bytes);
+      },
+      onData: (bytes) => {
+        appendSessionOutputBuffer(backendSessionId, bytes);
+        const cb = dataCallbacks.get(backendSessionId);
+        cb?.(bytes);
+      },
+      onExit: (code) => {
+        handlePtyExit(backendSessionId, owningProjectId, code);
+      },
+    });
+
+    pty = await ptyPromise;
+    registerPtySession(pty, owningProjectId, cwd ?? null, targetPaneIndex, metadata);
+    return pty.id;
+  } catch {
+    return null;
+  }
+}
+
 export function writeToSession(id: number, data: string) {
   const pty = ptyInstances.get(id);
   if (pty) {
     processSessionInput(id, data);
     pty.write(data).catch((err) => console.error('Failed to write to terminal:', err));
+
+    const session = findSessionAnyProject(id);
+    if (session && !session.ownerTaskId) {
+      const cleanChars = data.replace(/[\x00-\x1F\x7F]/g, '');
+      if (cleanChars.length > 0) {
+        devpet.onType(cleanChars.length);
+      }
+    }
   }
 }
 
@@ -631,7 +804,18 @@ function submitAfterPaste(sessionId: number, settleMs = 140, maxWaitMs = 4000) {
 export function sendPromptToSession(sessionId: number, text: string, agentPreset?: string | null) {
   if (!text) return;
   if (agentPreset) {
-    void deliverPromptRaw(sessionId, text);
+    // Every agent must learn its operating brief the moment it's prompted OR
+    // spawned, whichever comes first. If this agent hasn't been briefed yet
+    // (e.g. it was launched manually and the user fired off a task before the
+    // readiness-gated auto-brief landed), the charter rides with this first
+    // prompt — wrapped around the task exactly like an orchestrator dispatch.
+    // Subsequent prompts go raw, since `briefed` is set below.
+    const session = findSessionAnyProject(sessionId);
+    const payload =
+      session && !session.briefed
+        ? buildAgentCharter(text, { name: session.agentName ?? null })
+        : text;
+    void deliverPromptRaw(sessionId, payload);
     markSessionBriefed(sessionId, true);
     return;
   }
@@ -672,6 +856,16 @@ const SUBMIT_CONFIRM_WINDOW_MS = isTestEnv ? 15 : 2500;
 // no-op on an already-emptied composer.
 const SUBMIT_CONFIRM_DELTA = 512;
 const MAX_SUBMIT_ATTEMPTS = isTestEnv ? 1 : 3;
+// After the paste echoes, a TUI keeps repainting while it commits the (possibly
+// multi-line) text into its composer. We wait for that repaint to go QUIESCENT
+// before pressing Enter: a poll interval with no output growth means the
+// composer has settled, so the Enter lands on a committed composer (it actually
+// submits, instead of being a mid-repaint no-op) and the start-confirm delta is
+// measured from a stable baseline (so the paste's own redraw can't masquerade as
+// "the agent started" and falsely end the retry loop). Capped, because agents
+// with a perpetual spinner in the composer never fully go quiet.
+const PASTE_COMMIT_QUIET_MS = isTestEnv ? 1 : 220;
+const PASTE_COMMIT_QUIET_MAX_MS = isTestEnv ? 4 : 1600;
 // Strip ANSI/VT escapes and C0 control noise, then collapse whitespace, so the
 // literal prompt text can be found in a TUI's escape-laden, reflowed redraw.
 const ECHO_ANSI =
@@ -772,6 +966,26 @@ async function confirmAgentStarted(sessionId: number, baseLen: number): Promise<
 }
 
 /**
+ * Wait for the composer to stop repainting after a paste, so the following Enter
+ * lands on a settled (committed) composer rather than racing the commit. Returns
+ * once a full poll window passes with no output growth, or the cap elapses (a
+ * never-quiet spinner). This is the difference between an Enter that submits and
+ * one that's a mid-repaint no-op leaving the prompt typed-but-unsent.
+ */
+async function waitForComposerQuiescent(sessionId: number): Promise<void> {
+  const startedAt = Date.now();
+  let lastLen = getSessionOutputBuffer(sessionId).length;
+  for (;;) {
+    await sleep(PASTE_COMMIT_QUIET_MS);
+    if (!ptyInstances.get(sessionId)) return;
+    const len = getSessionOutputBuffer(sessionId).length;
+    if (len === lastLen) return; // a quiet window with no growth → composer settled
+    lastLen = len;
+    if (Date.now() - startedAt >= PASTE_COMMIT_QUIET_MAX_MS) return;
+  }
+}
+
+/**
  * Deliver a prompt straight to a session's PTY using a bracketed-paste wrapper,
  * then submit it — pressing Enter, confirming the agent actually started, and
  * re-pressing if the first Enter raced the paste-commit and hit an empty
@@ -835,6 +1049,13 @@ async function deliverPromptRaw(sessionId: number, text: string): Promise<boolea
 
   const echoLanded = await waitForPasteEcho(sessionId, base, promptBody);
   logAgentSend(sessionId, echoLanded ? 'echo-confirmed' : 'echo-timeout');
+
+  // Let the composer finish committing the paste before submitting. Without this,
+  // the first Enter can land mid-repaint on a not-yet-committed composer (a no-op
+  // that leaves the prompt typed-but-unsent), and the repaint's own output can
+  // falsely satisfy the start-confirm below and stop the retry loop early.
+  await waitForComposerQuiescent(sessionId);
+  logAgentSend(sessionId, 'composer-settled');
 
   // Press Enter, then verify the agent took it. An Enter on an empty composer is
   // a harmless no-op, so re-pressing is safe — the prompt stays in the composer
@@ -916,6 +1137,66 @@ export function applyOscPaneTitle(id: number, paneTitle: string): void {
   // The agent CLI's reported title flows into `paneTitle` even for orchestrator-
   // leased panes — the assistant name lives in `agentName`, so there's no clash.
   setSessionPaneTitle(id, paneTitle);
+}
+
+export type RestoredSessionMetadata = {
+  title?: string | null;
+  paneTitle?: string | null;
+  agentName?: string | null;
+  agentPreset?: string | null;
+  role?: string | null;
+  taskSummary?: string | null;
+};
+
+export function applyRestoredSessionMetadata(id: number, metadata: RestoredSessionMetadata) {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => {
+      if (x.id !== id) return x;
+      const agentPreset = metadata.agentPreset ?? x.agentPreset ?? null;
+      const role = metadata.role ?? (agentPreset ? x.role ?? 'Agent' : x.role ?? null);
+      return {
+        ...x,
+        title: metadata.title?.trim() || x.title,
+        paneTitle: metadata.paneTitle ?? x.paneTitle ?? null,
+        agentName: metadata.agentName ?? x.agentName ?? null,
+        agentPreset,
+        role,
+        taskSummary: metadata.taskSummary ?? x.taskSummary ?? null,
+        briefed: agentPreset ? false : x.briefed,
+        isExecuting: false,
+        lastExitCode: null,
+      };
+    }),
+  }));
+}
+
+export function relaunchRestoredAgentSession(
+  id: number,
+  agentPreset: string,
+  metadata: RestoredSessionMetadata = {}
+): boolean {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId || !agentPreset.trim()) return false;
+
+  const displayName = getAgentDisplayName(agentPreset) ?? agentPreset;
+  applyRestoredSessionMetadata(id, {
+    ...metadata,
+    title: metadata.title?.trim() || displayName,
+    agentPreset,
+    role: metadata.role ?? 'Agent',
+  });
+
+  agentLaunchStartLengths.set(id, getSessionOutputBuffer(id).length);
+  suppressAgentDetection.add(id);
+  try {
+    writeToSession(id, `${agentPreset}\r`);
+  } finally {
+    suppressAgentDetection.delete(id);
+  }
+  return true;
 }
 
 export function markSessionBriefed(id: number, briefed: boolean) {
@@ -1123,6 +1404,19 @@ export async function waitForAgentReady(sessionId: number): Promise<AgentReadine
   return 'ready';
 }
 
+// The working-tree directory a session runs in — where a rules-file brief is
+// written so the agent CLI (which searches cwd and up for CLAUDE.md / AGENTS.md)
+// loads it. Prefers the session's explicit cwd; for a terminal opened without
+// one (the common case when the user just types `claude`/`codex` into a shell)
+// it falls back to the session's project root. Null only when neither is known,
+// in which case the caller falls back to the paste brief.
+function resolveSessionRoot(id: number): string | null {
+  const explicit = findSessionAnyProject(id)?.cwd;
+  if (explicit) return explicit;
+  const projectId = terminalSessionProjects.get(id);
+  return (projectId ? terminalProjectRoots.get(projectId) : null) ?? null;
+}
+
 // One auto-brief in flight per session at a time: a relaunch detected while a
 // previous brief is still waiting for agent readiness must not produce two
 // charter pastes racing into the same composer.
@@ -1139,6 +1433,21 @@ async function autoBriefSession(id: number, preset: string) {
   autoBriefInFlight.add(id);
 
   try {
+    // Preferred channel: agents that read a rules file (Claude Code, Codex,
+    // Cursor, OpenCode, Antigravity) get the standing brief from CLAUDE.md /
+    // AGENTS.md natively. We write those files and skip the fragile REPL paste
+    // entirely — no readiness wait, no paste race, no first-run trust screen to
+    // swallow it. Falls through to the paste path only if we can't write them.
+    if (agentReadsRulesFile(preset)) {
+      const root = resolveSessionRoot(id);
+      if (root && (await ensureAgentRulesFiles(root))) {
+        logAgentSend(id, 'briefed-via-rules-file', { preset, root });
+        markSessionBriefed(id, true);
+        return;
+      }
+      logAgentSend(id, 'rules-file-unavailable', { preset, root });
+    }
+
     if ((await waitForAgentReady(id)) === 'launch-failed') {
       // The CLI never started (command not found) — the pane is a plain shell,
       // so delivering the brief would execute it as shell commands.
@@ -1539,7 +1848,20 @@ export async function spawnAgentPreset(
   }
   if (sessionId === null || sessionId === undefined) return null;
 
-  markSessionAgentPreset(sessionId, command, opts?.skipAutoBrief);
+  // Agents that read a rules file get the standing brief from CLAUDE.md /
+  // AGENTS.md natively — write those before the CLI boots so it loads the brief
+  // itself, and mark the session briefed so neither the auto-brief paste nor the
+  // first prompt's charter-wrap is needed. Best-effort: if the write fails we
+  // leave `briefed` untouched and the paste path takes over as before.
+  let rulesBriefed = false;
+  if (agentReadsRulesFile(command)) {
+    const root = cwd ?? resolveSessionRoot(sessionId);
+    if (root) {
+      try { rulesBriefed = await ensureAgentRulesFiles(root); }
+      catch (err) { console.error('Failed to ensure agent rules files:', err); }
+    }
+  }
+  markSessionAgentPreset(sessionId, command, opts?.skipAutoBrief || rulesBriefed || undefined);
   const displayName = getAgentDisplayName(command) ?? command;
   updateSessionTitle(sessionId, displayName);
   agentLaunchStartLengths.set(sessionId, getSessionOutputBuffer(sessionId).length);

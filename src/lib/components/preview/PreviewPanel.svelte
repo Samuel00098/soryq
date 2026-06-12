@@ -6,6 +6,7 @@
     proxyPort,
     proxyStarted,
     preferredLocalHost,
+    localDevProxyPorts,
     currentUrl,
     previewTabs,
     activePreviewTabId,
@@ -15,8 +16,10 @@
     stopProxy,
     setTargetPort,
     ensureProxyRunning,
+    ensureLocalDevProxy,
     setPreferredLocalHost,
     clearProxyTarget,
+    localDevProxyKey,
     navigatePreviewTab,
     goBackPreviewTab,
     goForwardPreviewTab,
@@ -191,11 +194,21 @@
       return;
     }
     setPreferredLocalHost(localDev.host);
+    ensureLocalDevProxy(localDev.port, localDev.host);
     untrack(() => {
       if ($targetPort !== localDev.port) {
         setTargetPort(localDev.port);
       }
     });
+  });
+
+  $effect(() => {
+    for (const tab of $previewTabs || []) {
+      const localDev = parseLocalDevUrl(normalizeUrl(tab.url));
+      if (localDev) {
+        ensureLocalDevProxy(localDev.port, localDev.host);
+      }
+    }
   });
 
   function handlePortChange() {
@@ -220,14 +233,16 @@
     if ($proxyStarted) {
       // Stop dev mode — go back to a blank local path so the web panel stays clean
       stopProxy();
-      if (!isAbsoluteUrl($currentUrl)) {
+      if (!isAbsoluteUrl($currentUrl) || parseLocalDevUrl(normalizeUrl($currentUrl))) {
         navigatePreviewTab('/');
       }
     } else {
       // Start dev mode — navigate to the root of the local dev server
       await clearProxyTarget();
       await startProxy();
-      navigatePreviewTab('/');
+      const host = $preferredLocalHost || 'localhost';
+      await ensureLocalDevProxy($targetPort, host);
+      navigatePreviewTab(`http://${host}:${$targetPort}/`);
     }
   }
 
@@ -341,10 +356,13 @@
     return /^https?:\/\//i.test(url);
   }
 
-  function buildLocalProxyUrl(path: string): string {
-    if (!$proxyPort) return '';
+  function buildLocalProxyUrl(path: string, localDev?: { host: string; port: number }): string {
+    const port = localDev
+      ? $localDevProxyPorts[localDevProxyKey(localDev.host, localDev.port)]
+      : $proxyPort;
+    if (!port) return '';
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    return `http://127.0.0.1:${$proxyPort}${normalizedPath}`;
+    return `http://127.0.0.1:${port}${normalizedPath}`;
   }
 
   function buildExternalProxyUrl(url: string): string {
@@ -387,6 +405,11 @@
     }
   }
 
+  function getLocalDevProxyOrigin(localDev: { host: string; port: number }): string | null {
+    const port = $localDevProxyPorts[localDevProxyKey(localDev.host, localDev.port)];
+    return port ? `http://127.0.0.1:${port}` : null;
+  }
+
   function isYouTubeUrl(url: string): boolean {
     return /youtube\.com|youtu\.be|youtube-nocookie\.com/i.test(url);
   }
@@ -398,6 +421,7 @@
     if (localDev) {
       await clearProxyTarget();
       await setPreferredLocalHost(localDev.host);
+      await ensureLocalDevProxy(localDev.port, localDev.host);
       if ($targetPort !== localDev.port) {
         await setTargetPort(localDev.port);
       }
@@ -555,11 +579,7 @@
     const localDev = parseLocalDevUrl(normalizeUrl(url));
     if (localDev) {
       // Local dev tab — only send if proxy port is known
-      if ($proxyPort) {
-        return `http://127.0.0.1:${$proxyPort}`;
-      }
-      // Proxy not ready yet; skip sending
-      return null;
+      return getLocalDevProxyOrigin(localDev);
     }
     // External URL — inspector is never injected, skip entirely
     if (isAbsoluteUrl(normalizeUrl(url))) {
@@ -592,7 +612,7 @@
     }
     const localDev = parseLocalDevUrl(norm);
     if (localDev) {
-      return buildLocalProxyUrl(localDev.path);
+      return buildLocalProxyUrl(localDev.path, localDev);
     }
     // YouTube embeds are more reliable when loaded directly instead of through the local proxy.
     if (isYouTubeUrl(norm) && norm.includes('/embed/')) {
@@ -664,8 +684,14 @@
             // would rewrite that entry to a relative path and truncate the
             // forward history, so only sync the address bar instead.
             const currentLocalDev = parseLocalDevUrl(normalizeUrl(activeTab.url));
-            if (currentLocalDev && currentLocalDev.path === newUrl) {
-              inputUrl = activeTab.url;
+            if (currentLocalDev) {
+              const absoluteLocalUrl = `http://${currentLocalDev.host}:${currentLocalDev.port}${newUrl}`;
+              if (activeTab.url === absoluteLocalUrl) {
+                inputUrl = activeTab.url;
+              } else {
+                navigatePreviewTab(absoluteLocalUrl);
+                inputUrl = absoluteLocalUrl;
+              }
             } else {
               navigatePreviewTab(newUrl);
               inputUrl = newUrl;
@@ -785,8 +811,13 @@
 
     // Console log events: only accept from our proxy origin
     if (event.data.type === 'forge-preview:console') {
-      if ($proxyPort === null || event.origin !== `http://127.0.0.1:${$proxyPort}`) return;
       if (!sourceTabId) return;
+      const sourceTab = ($previewTabs || []).find((t) => t.id === sourceTabId);
+      const sourceLocalDev = sourceTab ? parseLocalDevUrl(normalizeUrl(sourceTab.url)) : null;
+      const expectedOrigin = sourceLocalDev
+        ? getLocalDevProxyOrigin(sourceLocalDev)
+        : ($proxyPort ? `http://127.0.0.1:${$proxyPort}` : null);
+      if (!expectedOrigin || event.origin !== expectedOrigin) return;
       const payload = event.data.payload || {};
       const level = ['log', 'info', 'warn', 'error', 'debug'].includes(payload.level) ? payload.level : 'log';
       if (activeTab?.id === sourceTabId) {
@@ -812,11 +843,12 @@
     if (event.data.type !== 'forge-inspector:selected') return;
     if (!sourceTabId) return;
     {
-      const proxyOrigin = $proxyPort ? `http://127.0.0.1:${$proxyPort}` : null;
       const sourceTab = ($previewTabs || []).find((t) => t.id === sourceTabId);
-      const isLocalDevTab = sourceTab ? parseLocalDevUrl(normalizeUrl(sourceTab.url)) !== null : false;
-      const isProxyOrigin = proxyOrigin !== null && event.origin === proxyOrigin;
-      if (!isProxyOrigin && !isLocalDevTab) return;
+      const sourceLocalDev = sourceTab ? parseLocalDevUrl(normalizeUrl(sourceTab.url)) : null;
+      const expectedOrigin = sourceLocalDev
+        ? getLocalDevProxyOrigin(sourceLocalDev)
+        : ($proxyPort ? `http://127.0.0.1:${$proxyPort}` : null);
+      if (!expectedOrigin || event.origin !== expectedOrigin) return;
     }
     const info = event.data.payload;
     selectedElementInfo = info;
@@ -1285,7 +1317,7 @@
             </svg>
             Browse Web
           </button>
-          <button class="action-btn" onclick={startProxy}
+          <button class="action-btn" onclick={toggleProxy}
             title="Preview local dev server">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/>
@@ -1595,6 +1627,7 @@
     outline: none;
     font-family: inherit;
     transition: border-color 0.15s;
+    appearance: textfield;
     -moz-appearance: textfield;
   }
   .port-input::-webkit-inner-spin-button,

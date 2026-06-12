@@ -268,20 +268,80 @@ fn extract_google_text(payload: &serde_json::Value) -> String {
 fn audio_mime_type_is_safe(mime_type: &str) -> bool {
     matches!(
         mime_type,
-        "audio/wav" | "audio/mp3" | "audio/aiff" | "audio/aac" | "audio/ogg" | "audio/flac"
+        "audio/wav"
+            | "audio/mp3"
+            | "audio/mpeg"
+            | "audio/aiff"
+            | "audio/aac"
+            | "audio/ogg"
+            | "audio/flac"
+            | "audio/mp4"
+            | "audio/webm"
+            | "audio/x-m4a"
     )
 }
 
 fn audio_format_from_mime_type(mime_type: &str) -> Option<&'static str> {
     match mime_type {
         "audio/wav" => Some("wav"),
-        "audio/mp3" => Some("mp3"),
+        "audio/mp3" | "audio/mpeg" => Some("mp3"),
         "audio/aiff" => Some("aiff"),
         "audio/aac" => Some("aac"),
         "audio/ogg" => Some("ogg"),
         "audio/flac" => Some("flac"),
+        "audio/mp4" | "audio/x-m4a" => Some("m4a"),
+        "audio/webm" => Some("webm"),
         _ => None,
     }
+}
+
+fn openrouter_audio_chat_model_is_unsupported(model: &str) -> bool {
+    matches!(model, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
+}
+
+fn audio_filename_for_format(format: &str) -> &'static str {
+    match format {
+        "mp3" => "audio.mp3",
+        "aiff" => "audio.aiff",
+        "aac" => "audio.aac",
+        "ogg" => "audio.ogg",
+        "flac" => "audio.flac",
+        "m4a" => "audio.m4a",
+        "webm" => "audio.webm",
+        _ => "audio.wav",
+    }
+}
+
+fn build_audio_transcription_multipart_body(
+    boundary: &str,
+    model: &str,
+    mime_type: &str,
+    audio_format: &str,
+    audio_bytes: &[u8],
+) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{model}\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\nContent-Type: {mime_type}\r\n\r\n",
+            audio_filename_for_format(audio_format)
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(audio_bytes);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    body
 }
 
 fn keychain_username(provider: &str) -> String {
@@ -568,15 +628,17 @@ pub async fn ai_transcribe_audio(
     provider: String,
     model: String,
     api_key: String,
+    base_url: Option<String>,
 ) -> Result<String, String> {
-    if provider != "google" && provider != "openrouter" {
+    if provider != "google" && provider != "openrouter" && !is_local_provider(&provider) {
         return Err("Selected provider does not support transcription yet.".to_string());
     }
 
     let api_key = api_key.trim().to_string();
-    if api_key.is_empty() {
+    if !is_local_provider(&provider) && api_key.is_empty() {
         return Err(format!("{} API key is not set.", provider));
     }
+    let base_url = resolve_base_url(&provider, &base_url)?;
 
     let model = model.trim().to_string();
     if !model_id_is_safe(&model) {
@@ -596,7 +658,7 @@ pub async fn ai_transcribe_audio(
 
     let client = shared_http_client(Duration::from_secs(60))?;
 
-    let audio_b64 = STANDARD.encode(audio_bytes);
+    let audio_b64 = STANDARD.encode(&audio_bytes);
 
     match provider.as_str() {
         "google" => {
@@ -643,6 +705,10 @@ pub async fn ai_transcribe_audio(
             Ok(extract_google_text(&payload))
         }
         "openrouter" => {
+            if openrouter_audio_chat_model_is_unsupported(&model) {
+                return Err("That OpenRouter :free audio model is not usable for no-balance transcription; OpenRouter returns 402 Payment Required for audio. Choose a dedicated STT model, browser Web Speech, or a local transcription server.".to_string());
+            }
+
             let response = client
                 .post(OPENROUTER_AUDIO_TRANSCRIPT_URL)
                 .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
@@ -672,6 +738,48 @@ pub async fn ai_transcribe_audio(
 
             let payload: serde_json::Value = response.json().await.map_err(|err| {
                 format!("OpenRouter transcription returned an invalid response: {err}")
+            })?;
+
+            Ok(payload
+                .get("text")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string())
+        }
+        p if is_local_provider(p) => {
+            let Some(base) = base_url.as_deref() else {
+                return Err("Server URL is not set.".to_string());
+            };
+            let boundary = "soryq-audio-transcription-boundary";
+            let response = client
+                .post(local_endpoint(base, "/audio/transcriptions"))
+                .header(
+                    reqwest::header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(build_audio_transcription_multipart_body(
+                    boundary,
+                    &model,
+                    &mime_type,
+                    audio_format,
+                    &audio_bytes,
+                ))
+                .send()
+                .await
+                .map_err(|err| {
+                    safe_request_error("Failed to contact local transcription provider", err)
+                })?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("Local transcription failed ({status}): {preview}"));
+            }
+
+            let payload: serde_json::Value = response.json().await.map_err(|err| {
+                format!("Local transcription returned an invalid response: {err}")
             })?;
 
             Ok(payload
@@ -1302,7 +1410,9 @@ pub async fn check_local_provider_online(
 #[cfg(test)]
 mod tests {
     use super::{
-        base_url_is_safe, is_known_provider, is_local_provider, local_endpoint, model_id_is_safe,
+        audio_format_from_mime_type, audio_mime_type_is_safe, base_url_is_safe,
+        build_audio_transcription_multipart_body, is_known_provider, is_local_provider,
+        local_endpoint, model_id_is_safe, openrouter_audio_chat_model_is_unsupported,
         redact_secrets, resolve_base_url,
     };
     const MAX_TEXT_LEN: usize = 32_000;
@@ -1422,6 +1532,53 @@ mod tests {
         ));
         assert!(!model_id_is_safe("model with spaces"));
         assert!(!model_id_is_safe(&"a".repeat(129)));
+    }
+
+    #[test]
+    fn documented_openrouter_audio_mime_types_are_accepted() {
+        let cases = [
+            ("audio/wav", "wav"),
+            ("audio/mpeg", "mp3"),
+            ("audio/mp3", "mp3"),
+            ("audio/flac", "flac"),
+            ("audio/ogg", "ogg"),
+            ("audio/aac", "aac"),
+            ("audio/mp4", "m4a"),
+            ("audio/x-m4a", "m4a"),
+            ("audio/webm", "webm"),
+        ];
+        for (mime, format) in cases {
+            assert!(audio_mime_type_is_safe(mime), "{mime} should be accepted");
+            assert_eq!(audio_format_from_mime_type(mime), Some(format));
+        }
+    }
+
+    #[test]
+    fn old_free_openrouter_audio_model_is_rejected() {
+        assert!(openrouter_audio_chat_model_is_unsupported(
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+        ));
+        assert!(!openrouter_audio_chat_model_is_unsupported(
+            "openai/whisper-1"
+        ));
+    }
+
+    #[test]
+    fn local_transcription_multipart_body_contains_model_and_audio_file() {
+        let body = build_audio_transcription_multipart_body(
+            "test-boundary",
+            "whisper-large-v3",
+            "audio/wav",
+            "wav",
+            b"RIFFaudio",
+        );
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("name=\"model\""));
+        assert!(text.contains("whisper-large-v3"));
+        assert!(text.contains("name=\"response_format\""));
+        assert!(text.contains("filename=\"audio.wav\""));
+        assert!(text.contains("Content-Type: audio/wav"));
+        assert!(body.ends_with(b"\r\n--test-boundary--\r\n"));
     }
 
     #[test]

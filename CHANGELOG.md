@@ -3,6 +3,24 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.5] - 2026-06-12
+
+### Added
+
+- **Dev Pet companion** — a gamified workspace companion (cat, slime, or robo) that levels up as you code. It earns XP and coins from characters typed and commits made, tracks your WPM, and reacts with status animations (typing, sleeping, committing, eating). State persists locally, and a new pet panel surfaces its level, inventory, and skins.
+
+- **Custom backgrounds and live wallpapers** — set a workspace background image or a looping video wallpaper. The backend validates and stores a single background file with format allowlists (PNG/JPG/WebP/GIF/AVIF/etc. up to 10 MB, MP4/WebM/MOV/etc. up to 100 MB), and the new `BackgroundMedia` layer honours `prefers-reduced-motion` and pauses video when the window is hidden.
+
+- **Embedded hardware panel** — a new toolbox panel for embedded workflows (Arduino, PlatformIO, Raspberry Pi) that runs common board commands straight into a terminal session.
+
+- **Native agent rules-file delivery** — the standing agent brief is now written into the rules file each CLI reads on startup (`CLAUDE.md` for Claude Code, `AGENTS.md` for Codex / Cursor / OpenCode / Antigravity) inside a delimited managed block, instead of racing a bracketed paste into the live REPL. This removes the readiness heuristics and paste races that left the brief unregistered on Ink-style and first-run/trust-screen CLIs. Agents that don't read a rules file still fall back to the paste path.
+
+### Changed
+
+- **Settings overhaul** — the settings modal gains substantial new configuration surface across backgrounds, the dev pet, and workspace preferences.
+
+- **Native desktop notifications** — notifications now route through a dedicated backend command for reliable click-to-focus behaviour.
+
 ## [v0.3.4] - 2026-06-11
 
 ### Added

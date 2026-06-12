@@ -244,6 +244,7 @@ html {
   background-color: transparent;
 }
 
+html.has-bg-media,
 html.has-bg-image {
   background-color: var(--bg-primary);
 }
@@ -359,6 +360,7 @@ input:focus {
 
 /* Prevent scroll jitter/flicker and overscroll elastic bouncing inside sub-containers */
 .cm-scroller,
+.scrollable,
 .colors-list,
 .file-tree,
 .modal-body,
@@ -380,6 +382,7 @@ input:focus {
 }
 
 /* Prevent horizontal layout shifts when scrollbars appear */
+.scrollable,
 .review-body,
 .sc-scrollable,
 .colors-list,
@@ -392,6 +395,64 @@ input:focus {
 .recent-list,
 .sticky-content {
   scrollbar-gutter: stable;
+}
+
+/* Pinned top/bottom scroll edges for vertical scroll containers. This avoids
+   pseudo-element boxes inside scroll areas, so the edge treatment cannot create
+   extra bounce space or horizontal drift while resizing narrow panels. */
+:where(
+  .scrollable,
+  .sc-scrollable,
+  .sticky-content,
+  .colors-list,
+  .tables-list,
+  .grid-wrapper,
+  .root-list,
+  .file-tree,
+  .search-results,
+  .search-results-dropdown,
+  .diff-body,
+  .dd-menu,
+  .model-dropdown,
+  .branch-list,
+  .snippet-list,
+  .block-strip,
+  .cmd-output,
+  .req-list,
+  .req-tab-content,
+  .res-body,
+  .res-headers-list,
+  .snap-list,
+  .markdown-container,
+  .console-body,
+  .review-body,
+  .results-container,
+  .env-body,
+  .modal-body,
+  .orc-scroll,
+  .history-list,
+  .entries-list,
+  .task-list,
+  .kanban-board--stacked,
+  .note-preview,
+  .slide-content,
+  .update-notes,
+  .error-box,
+  .match-list,
+  .welcome,
+  .recent-list,
+  .feed-list,
+  .notes-timeline,
+  .ws-menu-list
+):not(.toolbox-tabs) {
+  --scroll-edge-shadow: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+  position: relative;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  background-clip: padding-box;
+  box-shadow:
+    inset 0 12px 14px -16px var(--scroll-edge-shadow),
+    inset 0 -12px 14px -16px var(--scroll-edge-shadow);
 }
 
 /* ── Bento Floating Glass Cards ──────────────────────── */

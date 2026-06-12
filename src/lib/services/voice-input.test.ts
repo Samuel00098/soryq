@@ -7,7 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('$lib/services/ai-keychain', () => ({ getProviderApiKeyLocal }));
 
 import { createVoiceInputSession } from './voice-input';
-import { voiceInputProvider } from '$lib/stores/settings';
+import { aiBaseUrlByProvider, voiceInputModelByProvider, voiceInputProvider } from '$lib/stores/settings';
 
 type MockTrack = { stop: ReturnType<typeof vi.fn> };
 type MockStream = { getTracks: () => MockTrack[] };
@@ -108,6 +108,8 @@ beforeEach(() => {
   getProviderApiKeyLocal.mockReset();
   getProviderApiKeyLocal.mockImplementation((_provider: string) => null);
   voiceInputProvider.set('webspeech');
+  voiceInputModelByProvider.set({});
+  aiBaseUrlByProvider.set({});
   permissionsQuery.mockReset();
   permissionsQuery.mockResolvedValue({ state: 'granted' });
   getUserMedia.mockReset();
@@ -252,6 +254,81 @@ describe('createVoiceInputSession', () => {
       mimeType: 'audio/wav',
     }));
     expect(onResult).toHaveBeenCalledWith('ship the fix');
+
+    vi.useRealTimers();
+  });
+
+  it('falls back from the old OpenRouter free audio model to the STT default', async () => {
+    vi.useFakeTimers();
+    voiceInputProvider.set('openrouter');
+    voiceInputModelByProvider.set({
+      openrouter: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    });
+    getProviderApiKeyLocal.mockImplementation((provider: string) => (provider === 'openrouter' ? 'sk-or-test' : null));
+    invoke.mockResolvedValue('fallback transcript');
+
+    const session = createVoiceInputSession({
+      onResult: vi.fn(),
+      onProcessingStart: vi.fn(),
+      onEnd: vi.fn(),
+    });
+
+    await session.start();
+    const processor = audioProcessors[0];
+    processor.onaudioprocess?.({
+      inputBuffer: { getChannelData: () => new Float32Array([0.3, 0.24, 0.2, 0.18]) },
+    });
+    processor.onaudioprocess?.({
+      inputBuffer: { getChannelData: () => new Float32Array([0, 0, 0, 0]) },
+    });
+
+    await vi.advanceTimersByTimeAsync(950);
+    await Promise.resolve();
+
+    expect(invoke).toHaveBeenCalledWith('ai_transcribe_audio', expect.objectContaining({
+      provider: 'openrouter',
+      model: 'openai/whisper-1',
+    }));
+
+    vi.useRealTimers();
+  });
+
+  it('routes model transcription through a local provider URL when selected', async () => {
+    vi.useFakeTimers();
+    voiceInputProvider.set('lmstudio');
+    aiBaseUrlByProvider.set({ lmstudio: 'http://localhost:1234/v1' });
+    invoke.mockResolvedValue('local transcript');
+
+    const onResult = vi.fn();
+    const session = createVoiceInputSession({
+      onResult,
+      onProcessingStart: vi.fn(),
+      onEnd: vi.fn(),
+    });
+
+    await session.start();
+    expect(audioProcessors).toHaveLength(1);
+
+    const processor = audioProcessors[0];
+    processor.onaudioprocess?.({
+      inputBuffer: { getChannelData: () => new Float32Array([0.3, 0.24, 0.2, 0.18]) },
+    });
+    processor.onaudioprocess?.({
+      inputBuffer: { getChannelData: () => new Float32Array([0, 0, 0, 0]) },
+    });
+
+    await vi.advanceTimersByTimeAsync(950);
+    await Promise.resolve();
+
+    expect(getProviderApiKeyLocal).not.toHaveBeenCalledWith('lmstudio');
+    expect(invoke).toHaveBeenCalledWith('ai_transcribe_audio', expect.objectContaining({
+      provider: 'lmstudio',
+      model: 'local-stt-model',
+      apiKey: '',
+      baseUrl: 'http://localhost:1234/v1',
+      mimeType: 'audio/wav',
+    }));
+    expect(onResult).toHaveBeenCalledWith('local transcript');
 
     vi.useRealTimers();
   });

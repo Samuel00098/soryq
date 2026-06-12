@@ -14,6 +14,7 @@
   import { openSettings } from '$lib/stores/layout';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { isTauriRuntime } from '$lib/utils/tauri';
 
   let isLight = $derived($activeTheme?.type === 'light');
 
@@ -111,6 +112,11 @@
         'User-Agent': 'Soryq-Developer-Workspace/1.0',
         ...headers
       };
+      if (!isTauriRuntime()) {
+        const response = await fetch(url, { headers });
+        if (!response.ok) throw new Error(`Request failed with ${response.status}`);
+        return response.json();
+      }
       const payload = await invoke<any>('http_send_request', {
         method: 'GET',
         url: url,
@@ -153,6 +159,10 @@
   }
 
   async function loadDailyNotes() {
+    if (!isTauriRuntime()) {
+      dailyNotes = [];
+      return;
+    }
     loadingNotes = true;
     try {
       dailyNotes = await invoke<any[]>('workspace_get_recent_daily_notes');
@@ -164,6 +174,10 @@
   }
 
   async function openUrl(url: string) {
+    if (!isTauriRuntime()) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     try {
       await invoke('preview_open_in_browser', { url });
     } catch (err) {

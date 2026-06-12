@@ -2,6 +2,7 @@
   import AppShell from '$lib/components/layout/AppShell.svelte';
   import CommandPalette from '$lib/components/shared/CommandPalette.svelte';
   import Toasts from '$lib/components/shared/Toasts.svelte';
+  import BackgroundMedia from '$lib/components/shared/BackgroundMedia.svelte';
   import SettingsModal from '$lib/components/shared/SettingsModal.svelte';
   import QuickCaptureModal from '$lib/components/shared/QuickCaptureModal.svelte';
   import WorkspaceNameModal from '$lib/components/shared/WorkspaceNameModal.svelte';
@@ -18,11 +19,12 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { initDefaultCommands } from '$lib/stores/commandpalette';
   import { requestNotificationPermission } from '$lib/stores/notification';
-  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted, backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur } from '$lib/stores/settings';
+  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted, backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur, closeBehavior } from '$lib/stores/settings';
   import { initBackground, applyBackgroundImage, applyInterfaceFrost, applyBackgroundAppearance } from '$lib/stores/background';
   import OnboardingWalkthrough from '$lib/components/workspace/OnboardingWalkthrough.svelte';
   import { initNavigationHistory } from '$lib/stores/navigation';
   import { initApiKeyCache } from '$lib/services/ai-keychain';
+  import { isTauriRuntime } from '$lib/utils/tauri';
 
   const ZOOM_LEVELS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const;
 
@@ -41,12 +43,16 @@
   }
 
   onMount(() => {
-    initApiKeyCache();
-    loadThemes();
-    initBackground();
+    if (isTauriRuntime()) {
+      initApiKeyCache();
+      loadThemes();
+      initBackground();
+    }
     initializeWorkspaces();
     initDefaultCommands();
-    requestNotificationPermission();
+    if (isTauriRuntime()) {
+      requestNotificationPermission();
+    }
     initNavigationHistory();
 
     // Live-apply the global interface transparency as the slider moves, and the
@@ -81,23 +87,18 @@
     // Save project state before the window closes — use Tauri's close-request hook
     // which fires reliably on all platforms (beforeunload is unreliable on macOS/Tauri).
     let unlistenClose: (() => void) | undefined;
-    let isClosing = false;
-    getCurrentWindow().onCloseRequested(async (event) => {
-      if (isClosing) {
-        return;
-      }
+    if (isTauriRuntime()) {
+      const win = getCurrentWindow();
+      win.onCloseRequested(async (event) => {
+        const projectId = get(activeProjectId);
+        if (projectId) saveProjectState(projectId);
 
-      event.preventDefault();
-      isClosing = true;
-      const projectId = get(activeProjectId);
-      if (projectId) saveProjectState(projectId);
-
-      // Remove the listener before destroying the window so the forced close
-      // does not re-enter this handler and leave the app stuck open.
-      unlistenClose?.();
-      unlistenClose = undefined;
-      await getCurrentWindow().destroy();
-    }).then((u) => { unlistenClose = u; });
+        if (get(closeBehavior) === 'minimize') {
+          event.preventDefault();
+          await win.minimize();
+        }
+      }).then((u) => { unlistenClose = u; });
+    }
 
     // Lock window scrolling to prevent viewport shifting when dragging elements/selection
     const handleScroll = () => {
@@ -153,6 +154,7 @@
   });
 </script>
 
+<BackgroundMedia />
 <AppShell />
 
 <CommandPalette />

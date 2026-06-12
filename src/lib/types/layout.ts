@@ -1,6 +1,6 @@
 export type PanelType = 'terminal' | 'editor' | 'explorer' | 'preview' | 'settings';
 
-export type ActiveView = 'editor' | 'terminal' | 'preview' | 'settings' | 'review' | 'http' | 'tasks' | 'orchestrator' | 'db' | 'toolbox';
+export type ActiveView = 'editor' | 'terminal' | 'preview' | 'settings' | 'review' | 'http' | 'tasks' | 'orchestrator' | 'db' | 'toolbox' | 'pet';
 
 export type SidebarTab = 'files' | 'search' | 'git' | 'snapshots' | 'history' | 'snippets';
 
@@ -19,6 +19,8 @@ export interface LayoutState {
   orchestratorVisible: boolean;
   dbVisible: boolean;
   toolboxVisible: boolean;
+  petVisible: boolean;
   auxPanelWidth: number;
   auxEditorHeight: number; // percentage split between editor and preview panes
 }
+

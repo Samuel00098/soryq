@@ -119,6 +119,10 @@ export const showHidden = persistentWritable('showHidden', false);
 // Notifications
 export const notificationsEnabled = persistentWritable('notificationsEnabled', true);
 
+// Window
+export type CloseBehavior = 'quit' | 'minimize';
+export const closeBehavior = persistentWritable<CloseBehavior>('closeBehavior', 'quit');
+
 // ── AI providers & models ──
 // Voice refinement and AI commit messages route through one of several
 // providers. Each provider has its own API key (or, for local providers, a
@@ -138,7 +142,7 @@ export type AiProviderId =
   | 'ollama'
   | 'lmstudio';
 
-export type VoiceInputProviderId = 'webspeech' | 'google' | 'openrouter';
+export type VoiceInputProviderId = 'webspeech' | 'google' | 'openrouter' | 'ollama' | 'lmstudio';
 
 export interface AiModelOption {
   id: string;
@@ -310,6 +314,10 @@ export interface TtsVoiceOption {
   description: string;
 }
 
+export interface TtsModelOption extends AiModelOption {
+  voices?: TtsVoiceOption[];
+}
+
 export const groqTtsVoiceOptions: TtsVoiceOption[] = [
   { id: 'austin', label: 'Austin', description: 'Male voice' },
   { id: 'daniel', label: 'Daniel', description: 'Male voice' },
@@ -368,9 +376,119 @@ export const googleTtsVoiceOptions: TtsVoiceOption[] = [
   { id: 'Sulafat', label: 'Sulafat', description: 'Warm' },
 ];
 
+const microsoftMaiVoiceOptions: TtsVoiceOption[] = [
+  { id: 'en-US-Harper:MAI-Voice-2', label: 'Harper', description: 'English (US)' },
+  { id: 'es-MX-Valeria:MAI-Voice-2', label: 'Valeria', description: 'Spanish (Mexico)' },
+  { id: 'fr-FR-Soleil:MAI-Voice-2', label: 'Soleil', description: 'French (France)' },
+  { id: 'de-DE-Klaus:MAI-Voice-2', label: 'Klaus', description: 'German (Germany)' },
+];
+
+const grokVoiceOptions: TtsVoiceOption[] = [
+  { id: 'eve', label: 'Eve', description: 'xAI voice' },
+  { id: 'ara', label: 'Ara', description: 'xAI voice' },
+  { id: 'rex', label: 'Rex', description: 'xAI voice' },
+  { id: 'sal', label: 'Sal', description: 'xAI voice' },
+  { id: 'leo', label: 'Leo', description: 'xAI voice' },
+];
+
+const zonosVoiceOptions: TtsVoiceOption[] = [
+  { id: 'american_female', label: 'American Female', description: 'Zonos voice preset' },
+  { id: 'american_male', label: 'American Male', description: 'Zonos voice preset' },
+  { id: 'british_female', label: 'British Female', description: 'Zonos voice preset' },
+  { id: 'british_male', label: 'British Male', description: 'Zonos voice preset' },
+  { id: 'random', label: 'Random', description: 'Random Zonos voice' },
+];
+
+const sesameVoiceOptions: TtsVoiceOption[] = [
+  { id: 'conversational_a', label: 'Conversational A', description: 'Conversational CSM voice' },
+  { id: 'conversational_b', label: 'Conversational B', description: 'Conversational CSM voice' },
+  { id: 'read_speech_a', label: 'Read Speech A', description: 'Narration CSM voice' },
+  { id: 'read_speech_b', label: 'Read Speech B', description: 'Narration CSM voice' },
+  { id: 'read_speech_c', label: 'Read Speech C', description: 'Narration CSM voice' },
+  { id: 'read_speech_d', label: 'Read Speech D', description: 'Narration CSM voice' },
+  { id: 'none', label: 'None', description: 'No fixed CSM voice' },
+];
+
+const orpheusVoiceOptions: TtsVoiceOption[] = [
+  { id: 'tara', label: 'Tara', description: 'Orpheus voice' },
+  { id: 'leah', label: 'Leah', description: 'Orpheus voice' },
+  { id: 'jess', label: 'Jess', description: 'Orpheus voice' },
+  { id: 'leo', label: 'Leo', description: 'Orpheus voice' },
+  { id: 'dan', label: 'Dan', description: 'Orpheus voice' },
+  { id: 'mia', label: 'Mia', description: 'Orpheus voice' },
+  { id: 'zac', label: 'Zac', description: 'Orpheus voice' },
+];
+
+const kokoroVoiceOptions: TtsVoiceOption[] = [
+  { id: 'af_alloy', label: 'Alloy', description: 'American female Kokoro voice' },
+  { id: 'af_aoede', label: 'Aoede', description: 'American female Kokoro voice' },
+  { id: 'af_bella', label: 'Bella', description: 'American female Kokoro voice' },
+  { id: 'af_heart', label: 'Heart', description: 'American female Kokoro voice' },
+  { id: 'af_jessica', label: 'Jessica', description: 'American female Kokoro voice' },
+  { id: 'af_kore', label: 'Kore', description: 'American female Kokoro voice' },
+  { id: 'af_nicole', label: 'Nicole', description: 'American female Kokoro voice' },
+  { id: 'af_nova', label: 'Nova', description: 'American female Kokoro voice' },
+  { id: 'af_river', label: 'River', description: 'American female Kokoro voice' },
+  { id: 'af_sarah', label: 'Sarah', description: 'American female Kokoro voice' },
+  { id: 'af_sky', label: 'Sky', description: 'American female Kokoro voice' },
+  { id: 'am_adam', label: 'Adam', description: 'American male Kokoro voice' },
+  { id: 'am_echo', label: 'Echo', description: 'American male Kokoro voice' },
+  { id: 'am_eric', label: 'Eric', description: 'American male Kokoro voice' },
+  { id: 'am_fenrir', label: 'Fenrir', description: 'American male Kokoro voice' },
+  { id: 'am_liam', label: 'Liam', description: 'American male Kokoro voice' },
+  { id: 'am_michael', label: 'Michael', description: 'American male Kokoro voice' },
+  { id: 'am_onyx', label: 'Onyx', description: 'American male Kokoro voice' },
+  { id: 'am_puck', label: 'Puck', description: 'American male Kokoro voice' },
+  { id: 'bf_alice', label: 'Alice', description: 'British female Kokoro voice' },
+  { id: 'bf_emma', label: 'Emma', description: 'British female Kokoro voice' },
+  { id: 'bm_daniel', label: 'Daniel', description: 'British male Kokoro voice' },
+  { id: 'bm_fable', label: 'Fable', description: 'British male Kokoro voice' },
+];
+
+const voxtralTtsVoiceOptions: TtsVoiceOption[] = [
+  { id: 'en_paul_neutral', label: 'Paul Neutral', description: 'English voice' },
+  { id: 'en_paul_happy', label: 'Paul Happy', description: 'English voice' },
+  { id: 'en_paul_confident', label: 'Paul Confident', description: 'English voice' },
+  { id: 'en_paul_cheerful', label: 'Paul Cheerful', description: 'English voice' },
+  { id: 'gb_oliver_neutral', label: 'Oliver Neutral', description: 'British English voice' },
+  { id: 'gb_oliver_curious', label: 'Oliver Curious', description: 'British English voice' },
+  { id: 'gb_jane_neutral', label: 'Jane Neutral', description: 'British English voice' },
+  { id: 'gb_jane_confident', label: 'Jane Confident', description: 'British English voice' },
+  { id: 'fr_marie_neutral', label: 'Marie Neutral', description: 'French voice' },
+  { id: 'fr_marie_happy', label: 'Marie Happy', description: 'French voice' },
+];
+
+export const openRouterTtsModelOptions: TtsModelOption[] = [
+  { id: 'openai/gpt-4o-mini-tts-2025-12-15', label: 'OpenAI GPT-4o Mini TTS', description: 'OpenAI-compatible speech model.', voices: openAiTtsVoiceOptions },
+  { id: 'mistralai/voxtral-mini-tts-2603', label: 'Mistral Voxtral Mini TTS', description: 'Expressive multilingual Voxtral speech.', voices: voxtralTtsVoiceOptions },
+  { id: 'microsoft/mai-voice-2', label: 'Microsoft MAI-Voice-2', description: 'Azure-backed multilingual voices.', voices: microsoftMaiVoiceOptions },
+  { id: 'x-ai/grok-voice-tts-1.0', label: 'Grok Voice TTS 1.0', description: 'xAI voice synthesis.', voices: grokVoiceOptions },
+  { id: 'google/gemini-3.1-flash-tts-preview', label: 'Gemini 3.1 Flash TTS Preview', description: 'Google Gemini speech through OpenRouter.', voices: googleTtsVoiceOptions },
+  { id: 'zyphra/zonos-v0.1-hybrid', label: 'Zonos v0.1 Hybrid', description: 'Compact open speech model.', voices: zonosVoiceOptions },
+  { id: 'zyphra/zonos-v0.1-transformer', label: 'Zonos v0.1 Transformer', description: 'Transformer Zonos speech model.', voices: zonosVoiceOptions },
+  { id: 'sesame/csm-1b', label: 'Sesame CSM 1B', description: 'Conversational speech model.', voices: sesameVoiceOptions },
+  { id: 'canopylabs/orpheus-3b-0.1-ft', label: 'Canopy Orpheus 3B', description: 'Expressive Orpheus voices.', voices: orpheusVoiceOptions },
+  { id: 'hexgrad/kokoro-82m', label: 'Kokoro 82M', description: 'Fast low-cost TTS with many voices.', voices: kokoroVoiceOptions },
+];
+
 export const openRouterVoiceInputModels: AiModelOption[] = [
+  { id: 'openai/gpt-4o-mini-transcribe', label: 'GPT-4o Mini Transcribe', description: 'Modern low-cost OpenAI STT.' },
+  { id: 'openai/gpt-4o-transcribe', label: 'GPT-4o Transcribe', description: 'Higher-quality OpenAI STT.' },
   { id: 'openai/whisper-1', label: 'OpenAI Whisper 1', description: 'Stable OpenRouter STT default.' },
-  { id: 'openai/whisper-large-v3', label: 'OpenAI Whisper Large v3', description: 'Higher-accuracy OpenRouter transcription.' },
+  { id: 'openai/whisper-large-v3', label: 'Whisper Large v3', description: 'Higher-accuracy Whisper transcription.' },
+  { id: 'openai/whisper-large-v3-turbo', label: 'Whisper Large v3 Turbo', description: 'Faster Whisper Large v3 variant.' },
+  { id: 'mistralai/voxtral-mini-transcribe', label: 'Voxtral Mini Transcribe', description: 'Mistral transcription model.' },
+  { id: 'microsoft/mai-transcribe-1.5', label: 'MAI-Transcribe 1.5', description: 'Microsoft transcription model.' },
+  { id: 'nvidia/parakeet-tdt-0.6b-v3', label: 'Parakeet TDT 0.6B v3', description: 'NVIDIA ASR model.' },
+  { id: 'qwen/qwen3-asr-flash-2026-02-10', label: 'Qwen3 ASR Flash', description: 'Fast Qwen speech recognition.' },
+  { id: 'google/chirp-3', label: 'Google Chirp 3', description: 'Google speech recognition through OpenRouter.' },
+];
+
+export const localVoiceInputModels: AiModelOption[] = [
+  { id: 'local-stt-model', label: 'Local STT model', description: 'Generic model id for an OpenAI-compatible /audio/transcriptions server.' },
+  { id: 'whisper-1', label: 'Whisper 1', description: 'Common OpenAI-compatible Whisper alias.' },
+  { id: 'whisper-large-v3', label: 'Whisper Large v3', description: 'Common local Whisper model id.' },
+  { id: 'whisper.cpp', label: 'whisper.cpp', description: 'Common whisper.cpp server model id.' },
 ];
 
 export function getVoiceInputModelOptions(provider: VoiceInputProviderId): AiModelOption[] {
@@ -379,6 +497,9 @@ export function getVoiceInputModelOptions(provider: VoiceInputProviderId): AiMod
       return getProviderDef('google').models.filter((model) => model.id.startsWith('gemini'));
     case 'openrouter':
       return openRouterVoiceInputModels;
+    case 'ollama':
+    case 'lmstudio':
+      return localVoiceInputModels;
     default:
       return [];
   }
@@ -390,21 +511,49 @@ export function getDefaultVoiceInputModel(provider: VoiceInputProviderId): strin
       return getProviderDef('google').defaultModel;
     case 'openrouter':
       return 'openai/whisper-1';
+    case 'ollama':
+    case 'lmstudio':
+      return 'local-stt-model';
     default:
       return '';
   }
 }
 
 export function getTtsVoiceOptions(provider: AiProviderId): TtsVoiceOption[] {
+  return getTtsVoiceOptionsForModel(provider, getDefaultTtsModel(provider));
+}
+
+export function getTtsVoiceOptionsForModel(provider: AiProviderId, modelId: string): TtsVoiceOption[] {
   switch (provider) {
     case 'openrouter':
-      return openAiTtsVoiceOptions;
+      return openRouterTtsModelOptions.find((model) => model.id === modelId)?.voices ?? openAiTtsVoiceOptions;
     case 'groq':
       return groqTtsVoiceOptions;
     case 'openai':
       return openAiTtsVoiceOptions;
     case 'google':
       return googleTtsVoiceOptions;
+    default:
+      return [];
+  }
+}
+
+export function getTtsModelOptions(provider: AiProviderId): TtsModelOption[] {
+  switch (provider) {
+    case 'openrouter':
+      return openRouterTtsModelOptions;
+    case 'groq':
+      return [
+        { id: 'canopylabs/orpheus-v1-english', label: 'Orpheus v1 English', description: 'Groq hosted Orpheus TTS.', voices: groqTtsVoiceOptions },
+      ];
+    case 'openai':
+      return [
+        { id: 'gpt-4o-mini-tts', label: 'GPT-4o Mini TTS', description: 'OpenAI speech model.', voices: openAiTtsVoiceOptions },
+      ];
+    case 'google':
+      return [
+        { id: 'gemini-2.5-flash-preview-tts', label: 'Gemini 2.5 Flash Preview TTS', description: 'Google Gemini speech model.', voices: googleTtsVoiceOptions },
+      ];
     default:
       return [];
   }
@@ -460,7 +609,12 @@ export const currentVoiceInputModel = derived(
   ([$provider, $map]) => {
     if ($provider === 'webspeech') return '';
     const remembered = $map[$provider];
-    return remembered && remembered.trim() ? remembered : getDefaultVoiceInputModel($provider);
+    if (remembered && remembered.trim()) {
+      const trimmed = remembered.trim();
+      if ($provider === 'ollama' || $provider === 'lmstudio') return trimmed;
+      if (getVoiceInputModelOptions($provider).some((model) => model.id === trimmed)) return trimmed;
+    }
+    return getDefaultVoiceInputModel($provider);
   }
 );
 
@@ -469,7 +623,7 @@ export function setVoiceInputModel(provider: Exclude<VoiceInputProviderId, 'webs
 }
 
 export function voiceInputUsesModelTranscription(provider: VoiceInputProviderId): boolean {
-  return provider === 'google' || provider === 'openrouter';
+  return provider === 'google' || provider === 'openrouter' || provider === 'ollama' || provider === 'lmstudio';
 }
 
 export const currentVoiceAiModel = derived(
@@ -828,6 +982,7 @@ export function updateSetting(key: string, value: unknown) {
     case 'aiBaseUrlByProvider': aiBaseUrlByProvider.set(value as Record<string, string>); break;
     case 'uiZoom':           uiZoom.set(value as number); break;
     case 'formatOnSave':     formatOnSave.set(value as boolean); break;
+    case 'closeBehavior':    closeBehavior.set(value as CloseBehavior); break;
     case 'appearance':       appearance.set(value as 'system' | 'light' | 'dark'); break;
     case 'onboardingCompleted': onboardingCompleted.set(value as boolean); break;
     case 'terminalShell':    terminalShell.set(value as string); break;
@@ -859,6 +1014,7 @@ export function resetSettingsToDefault() {
   aiBaseUrlByProvider.set({});
   uiZoom.set(100);
   formatOnSave.set(true);
+  closeBehavior.set('quit');
   userShortcuts.set(defaultShortcuts);
   appearance.set('system');
   interfaceTransparency.set(0);

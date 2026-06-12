@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { isOpen, search, commands, toggleCommandPalette, initDefaultCommands } from '$lib/stores/commandpalette';
-    import { switchTheme } from '$lib/stores/theme';
+  import { switchTheme } from '$lib/stores/theme';
+  import { isTauriRuntime } from '$lib/utils/tauri';
 
   let inputEl: HTMLInputElement;
   let selectedIndex = 0;
@@ -12,6 +13,7 @@
   });
 
   async function setupThemeCommands() {
+    if (!isTauriRuntime()) return;
     try {
       // Let's dynamically load themes and register command palette entries for them
       const { invoke } = await import('@tauri-apps/api/core');

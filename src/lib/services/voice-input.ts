@@ -3,7 +3,10 @@ import { get } from 'svelte/store';
 import {
   currentVoiceInputModel,
   getDefaultVoiceInputModel,
+  getProviderBaseUrl,
   getProviderDef,
+  isLocalProvider,
+  type AiProviderId,
   voiceInputProvider,
   voiceInputUsesModelTranscription,
 } from '$lib/stores/settings';
@@ -353,18 +356,25 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
 
     try {
       const provider = get(voiceInputProvider);
-      const providerDef = getProviderDef(provider === 'webspeech' ? 'google' : provider);
-      const apiKey = getProviderApiKeyLocal(providerDef.id) ?? '';
-      if (!apiKey) {
+      const providerId = (provider === 'webspeech' ? 'google' : provider) as AiProviderId;
+      const providerDef = getProviderDef(providerId);
+      const local = isLocalProvider(providerId);
+      const apiKey = local ? '' : (getProviderApiKeyLocal(providerDef.id) ?? '');
+      const baseUrl = local ? getProviderBaseUrl(providerId) : '';
+      if (!local && !apiKey) {
         throw new Error(`${providerDef.label} API key is missing. Add it in Settings to use voice mode.`);
       }
-      const model = get(currentVoiceInputModel) || getDefaultVoiceInputModel(provider as 'google' | 'openrouter');
+      if (local && !baseUrl) {
+        throw new Error(`${providerDef.label} server URL is missing. Add it in Settings to use voice mode.`);
+      }
+      const model = get(currentVoiceInputModel) || getDefaultVoiceInputModel(provider);
       const transcript = await invoke<string>('ai_transcribe_audio', {
         audioBytes: Array.from(bytes),
         mimeType: 'audio/wav',
         provider,
         model,
         apiKey,
+        baseUrl: baseUrl || undefined,
       });
       callbacks.onResult(transcript.trim());
     } catch (error) {

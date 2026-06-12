@@ -9,6 +9,7 @@
   import { aiProvider, currentAiModel, getProviderDef, isLocalProvider, getProviderBaseUrl } from '$lib/stores/settings';
   import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
   import { githubTokenExists, saveGithubToken, createGithubRepo } from '$lib/services/github';
+  import { devpet } from '$lib/stores/devpet';
 
   interface GitLogEntry {
     graph: string;
@@ -306,6 +307,7 @@
         files
       });
       showToast('Successfully committed changes!', 'success');
+      devpet.onCommit();
       commitMessage = ''; // Clear message after success
       await refreshAll(); // Reload status and history
     } catch (err) {
@@ -327,6 +329,7 @@
         projectId: id
       });
       showToast(response || 'Successfully pushed to GitHub!', 'success');
+      devpet.onPush();
       await refreshAll(); // Reload status and history
     } catch (err) {
       console.error(err);

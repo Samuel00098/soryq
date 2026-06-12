@@ -55,6 +55,26 @@ pub fn terminal_create(
     Ok(id)
 }
 
+/// Attach a fresh frontend channel pair to an existing backend PTY session.
+/// Used after the webview reloads while the Rust process kept the shell alive.
+/// Returns the buffered output history; it is deliberately NOT sent over
+/// `on_data` so the frontend can replay it through xterm's gated path (see
+/// `PtySession::attach`).
+#[tauri::command]
+pub fn terminal_attach(
+    id: u32,
+    on_data: Channel<Response>,
+    on_exit: Channel<i32>,
+    state: State<AppState>,
+) -> Result<Response, String> {
+    let session = state
+        .pty_manager
+        .get(id)
+        .ok_or_else(|| format!("Session not found: {id}"))?;
+    let replay = session.attach(on_data, on_exit)?;
+    Ok(Response::new(replay))
+}
+
 /// List available shells on the system
 #[tauri::command]
 pub fn terminal_list_shells() -> Result<Vec<ShellConfig>, String> {
