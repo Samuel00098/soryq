@@ -614,6 +614,8 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       return null;
     }
 
+    const resolvedCwd = cwd ?? terminalProjectRoots.get(owningProjectId);
+
     const ptyPromise = openPty(80, 24, {
       onData: (bytes) => {
         appendSessionOutputBuffer(pty.id, bytes);
@@ -654,7 +656,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
           showToast(`${label} closed`, 'info', 3000, true);
         }
       },
-    }, cwd, get(terminalShell) || undefined);
+    }, resolvedCwd, get(terminalShell) || undefined);
 
     pty = await ptyPromise;
     ptyInstances.set(pty.id, pty);
@@ -670,7 +672,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       isRunning: true,
       // Remember where this terminal runs so an agent's standing brief can be
       // written to a rules file (CLAUDE.md / AGENTS.md) in the same directory.
-      cwd: cwd ?? null,
+      cwd: resolvedCwd ?? null,
       lastExitCode: null,
       lastActivatedAt: Date.now(),
     };

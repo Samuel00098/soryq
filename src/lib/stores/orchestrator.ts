@@ -22,7 +22,7 @@ import {
   isLocalProvider,
   getProviderBaseUrl,
 } from '$lib/stores/settings';
-import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 import {
   createTaskRecord,
   transitionTask,
@@ -345,18 +345,16 @@ export function getTaskTranscript(task: OrchestratorTask): string {
 function isAiAvailable(): boolean {
   const p = get(aiProvider);
   const local = isLocalProvider(p);
-  const key = getProviderApiKeyLocal(p) ?? '';
   const base = local ? getProviderBaseUrl(p) : '';
-  return (!local || !!base) && (local || !!key);
+  return (!local || !!base) && (local || isProviderApiKeyConfiguredLocal(p));
 }
 
 function getConversationLlmConfig(useVoiceConversation = false): RouteLlmConfig {
   const provider = get(useVoiceConversation ? voiceConversationAiProvider : aiProvider);
   const local = isLocalProvider(provider);
-  const apiKey = getProviderApiKeyLocal(provider) ?? '';
   const baseUrl = local ? getProviderBaseUrl(provider) : '';
   const model = get(useVoiceConversation ? currentVoiceConversationAiModel : currentAiModel);
-  return { provider, model, apiKey, baseUrl };
+  return { provider, model, hasApiKey: isProviderApiKeyConfiguredLocal(provider), baseUrl };
 }
 
 const SUMMARY_TRANSCRIPT_CHARS = 3000;
@@ -377,7 +375,6 @@ async function generateTranscriptSummary(
     `Write 1–2 concise sentences. Name specific files created or modified, commands run, and what was accomplished. Be factual and direct.`;
   const p = get(aiProvider);
   const local = isLocalProvider(p);
-  const key = getProviderApiKeyLocal(p) ?? '';
   const base = local ? getProviderBaseUrl(p) : '';
   const model = get(currentAiModel);
   return await invoke<string>('ai_complete', {
@@ -385,7 +382,7 @@ async function generateTranscriptSummary(
     userText: `Terminal output:\n\n${tail}`,
     provider: p,
     model,
-    apiKey: key,
+    apiKey: '',
     baseUrl: base || undefined,
   });
 }
@@ -1160,15 +1157,15 @@ export async function sendChatMessage(
       rootPath,
       opts?.projectName ?? 'project',
       async (sysPrompt, userText) => {
-        const { provider, model, apiKey, baseUrl } = llmConfig;
+        const { provider, model, hasApiKey, baseUrl } = llmConfig;
         const local = isLocalProvider(provider);
-        if ((!local || baseUrl) && (local || apiKey)) {
+        if ((!local || baseUrl) && (local || hasApiKey)) {
           return await invoke<string>('ai_complete', {
             systemPrompt: sysPrompt,
             userText,
             provider,
             model,
-            apiKey,
+            apiKey: '',
             baseUrl: baseUrl || undefined,
           });
         }

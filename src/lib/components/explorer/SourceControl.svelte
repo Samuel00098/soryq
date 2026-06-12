@@ -7,7 +7,7 @@
   import DiffViewer from './DiffViewer.svelte';
   import { branchInfo, refreshBranches, checkoutBranch, createBranch, deleteBranch } from '$lib/stores/gitBranch';
   import { aiProvider, currentAiModel, getProviderDef, isLocalProvider, getProviderBaseUrl } from '$lib/stores/settings';
-  import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+  import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
   import { githubTokenExists, saveGithubToken, createGithubRepo } from '$lib/services/github';
   import { devpet } from '$lib/stores/devpet';
 
@@ -406,13 +406,16 @@
 
       const provider = $aiProvider;
       const local = isLocalProvider(provider);
-      const apiKey = getProviderApiKeyLocal(provider) ?? '';
       const baseUrl = local ? getProviderBaseUrl(provider) : '';
+      if (!local && !isProviderApiKeyConfiguredLocal(provider)) {
+        showToast(`Add your ${getProviderDef(provider).label} API key in Settings -> Models to generate commit messages.`, 'warning');
+        return;
+      }
       const message = await invoke<string>('ai_generate_commit_message', {
         diff: context,
         provider,
         model: $currentAiModel,
-        apiKey,
+        apiKey: '',
         baseUrl: baseUrl || undefined,
       });
       commitMessage = message;
@@ -552,6 +555,12 @@
     {#if branchError}
       <div class="branch-error">{branchError} <button onclick={() => branchError = null}>✕</button></div>
     {/if}
+
+    <div class="sc-scope-note">
+      <span>Project</span>
+      <strong title={$activeProject.root_path}>{$activeProject.name}</strong>
+      <em>Git actions run against this open project folder.</em>
+    </div>
   {/if}
 
   {#snippet publishForm()}
@@ -573,6 +582,9 @@
           onclick={() => invoke('preview_open_in_browser', { url: 'https://github.com/settings/tokens/new?scopes=repo&description=Soryq' }).catch(() => {})}
         >Create a token with 'repo' scope →</button>
       {/if}
+      <div class="publish-security-note">
+        GitHub tokens are stored in the OS keychain and used only for repository create/push actions from this project.
+      </div>
       <input class="publish-input" type="text" placeholder="repository-name" bind:value={publishName} autocomplete="off" />
       <input class="publish-input" type="text" placeholder="Description (optional)" bind:value={publishDesc} autocomplete="off" />
       <label class="publish-checkbox">
@@ -1503,6 +1515,15 @@
     cursor: pointer;
   }
   .publish-help:hover { text-decoration: underline; }
+  .publish-security-note {
+    padding: 7px 9px;
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    line-height: 1.4;
+  }
   .publish-checkbox {
     display: flex;
     align-items: center;
@@ -1593,6 +1614,43 @@
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+  }
+  .sc-scope-note {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    line-height: 1.35;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .sc-scope-note span {
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .sc-scope-note strong {
+    min-width: 0;
+    max-width: 92px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .sc-scope-note em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: normal;
   }
   .branch-icon { color: var(--text-muted); flex-shrink: 0; }
   .branch-name-btn {

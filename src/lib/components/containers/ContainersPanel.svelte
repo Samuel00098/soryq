@@ -86,6 +86,9 @@
     <span class="path" title={$activeProject?.root_path ?? ''}>
       {$activeProject?.root_path ?? 'Open a project folder first'}
     </span>
+    <span class="project-note">
+      Docker commands are sent to a terminal using this active project as the working directory.
+    </span>
   </div>
 
   <div class="action-grid">
@@ -181,6 +184,12 @@
     white-space: nowrap;
     font-family: var(--font-mono);
     font-size: 12px;
+  }
+
+  .project-note {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.4;
   }
 
   .action-grid {

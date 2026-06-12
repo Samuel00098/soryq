@@ -81,6 +81,11 @@
     return null;
   }
 
+  function isReadOnlyQuery(sql: string): boolean {
+    const q = sql.trim().toLowerCase();
+    return /^select\b/.test(q) || /^pragma\b/.test(q) || /^explain\b/.test(q);
+  }
+
   async function runQuery() {
     if (!dbPath) {
       errorMsg = 'Please select a database file first.';
@@ -90,8 +95,10 @@
       errorMsg = 'Please write a query to execute.';
       return;
     }
-    const warning = destructiveWarning(query);
-    if (warning && !confirm(`${warning}\n\nRun this query anyway?`)) {
+    const writeQuery = !isReadOnlyQuery(query);
+    const warning = destructiveWarning(query) ?? (writeQuery ? 'This query will modify the database.' : null);
+    const allowWrite = writeQuery && confirm(`${warning}\n\nRun this query anyway?`);
+    if (writeQuery && !allowWrite) {
       return;
     }
     loading = true;
@@ -100,7 +107,8 @@
     try {
       result = await invoke<QueryResult>('db_execute_query', {
         path: dbPath,
-        query: query
+        query: query,
+        allowWrite
       });
     } catch (err: any) {
       errorMsg = err.toString();
@@ -182,6 +190,12 @@
         </div>
       </div>
     {/if}
+  </div>
+
+  <div class="scope-note">
+    <span>Project</span>
+    <strong>{$activeProject?.name ?? 'No active project'}</strong>
+    <em>Database connection is saved for this project. Write queries require confirmation.</em>
   </div>
 
   {#if dbPath}
@@ -337,6 +351,48 @@
     display: flex;
     align-items: center;
     background: color-mix(in srgb, var(--bg-secondary) 30%, transparent);
+  }
+
+  .scope-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.35;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+
+  .scope-note span {
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .scope-note strong {
+    min-width: 0;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .scope-note em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: normal;
+    color: var(--text-muted);
   }
 
   .active-connection {
@@ -736,6 +792,15 @@
   }
 
   @container (max-width: 540px) {
+    .scope-note {
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 4px 8px;
+    }
+    .scope-note em {
+      flex-basis: 100%;
+      white-space: normal;
+    }
     .explorer-body {
       flex-direction: column;
     }

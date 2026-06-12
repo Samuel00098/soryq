@@ -418,6 +418,18 @@ pub fn provider_api_key_delete(provider: String) -> Result<(), String> {
     }
 }
 
+fn resolve_api_key(provider: &str, provided_api_key: &str) -> Result<String, String> {
+    if is_local_provider(provider) {
+        return Ok(String::new());
+    }
+    let provided_api_key = provided_api_key.trim();
+    if !provided_api_key.is_empty() {
+        return Ok(provided_api_key.to_string());
+    }
+    provider_api_key_get(provider.to_string())?
+        .ok_or_else(|| format!("{} API key is not set.", provider))
+}
+
 /// Run a single-shot system+user completion against the chosen provider and
 /// return the assistant's text. Normalises the three request/response shapes
 /// (OpenAI-compatible, Anthropic Messages, Google Gemini) behind one signature.
@@ -584,10 +596,7 @@ pub async fn ai_refine_prompt(
     if !is_known_provider(&provider) {
         return Err("Unknown provider".to_string());
     }
-    let api_key = api_key.trim().to_string();
-    if !is_local_provider(&provider) && api_key.is_empty() {
-        return Err("API key is not set.".to_string());
-    }
+    let api_key = resolve_api_key(&provider, &api_key)?;
     let base_url = resolve_base_url(&provider, &base_url)?;
     if !model_id_is_safe(&model) {
         return Err("Invalid model id".to_string());
@@ -634,10 +643,7 @@ pub async fn ai_transcribe_audio(
         return Err("Selected provider does not support transcription yet.".to_string());
     }
 
-    let api_key = api_key.trim().to_string();
-    if !is_local_provider(&provider) && api_key.is_empty() {
-        return Err(format!("{} API key is not set.", provider));
-    }
+    let api_key = resolve_api_key(&provider, &api_key)?;
     let base_url = resolve_base_url(&provider, &base_url)?;
 
     let model = model.trim().to_string();
@@ -809,10 +815,7 @@ pub async fn ai_complete(
     if !is_known_provider(&provider) {
         return Err("Unknown provider".to_string());
     }
-    let api_key = api_key.trim().to_string();
-    if !is_local_provider(&provider) && api_key.is_empty() {
-        return Err("API key is not set.".to_string());
-    }
+    let api_key = resolve_api_key(&provider, &api_key)?;
     let base_url = resolve_base_url(&provider, &base_url)?;
     if !model_id_is_safe(&model) {
         return Err("Invalid model id".to_string());
@@ -864,10 +867,7 @@ pub async fn ai_generate_commit_message(
     if !is_known_provider(&provider) {
         return Err("Unknown provider".to_string());
     }
-    let api_key = api_key.trim().to_string();
-    if !is_local_provider(&provider) && api_key.is_empty() {
-        return Err("API key is not set.".to_string());
-    }
+    let api_key = resolve_api_key(&provider, &api_key)?;
     let base_url = resolve_base_url(&provider, &base_url)?;
     if !model_id_is_safe(&model) {
         return Err("Invalid model id".to_string());
@@ -916,10 +916,7 @@ pub async fn list_provider_models(
     if !is_known_provider(&provider) {
         return Err("Unknown provider".to_string());
     }
-    let api_key = api_key.trim().to_string();
-    if !is_local_provider(&provider) && api_key.is_empty() {
-        return Err("API key is not set.".to_string());
-    }
+    let api_key = resolve_api_key(&provider, &api_key)?;
     let base_url = resolve_base_url(&provider, &base_url)?;
 
     let timeout_secs = if is_local_provider(&provider) { 2 } else { 20 };
@@ -1148,11 +1145,7 @@ pub async fn tts_speak(
     if !is_known_provider(&provider) {
         return Err("Unknown provider".to_string());
     }
-    let local = is_local_provider(&provider);
-    let api_key = api_key.trim().to_string();
-    if !local && api_key.is_empty() {
-        return Err(format!("{} API key is not set.", provider));
-    }
+    let api_key = resolve_api_key(&provider, &api_key)?;
     let base_url = resolve_base_url(&provider, &base_url)?;
     let model = model.trim().to_string();
     if !model_id_is_safe(&model) {

@@ -8,7 +8,7 @@ import {
   isLocalProvider,
   getProviderBaseUrl,
 } from '$lib/stores/settings';
-import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 
 export interface AgentChoice {
   command: string;
@@ -74,6 +74,7 @@ export interface RouteLlmConfig {
   provider: AiProviderId;
   model: string;
   apiKey?: string;
+  hasApiKey?: boolean;
   baseUrl?: string;
 }
 
@@ -581,9 +582,9 @@ export async function routeOrchestratorRequest(
 
   const provider = ctx?.llmConfig?.provider ?? get(aiProvider);
   const local = isLocalProvider(provider);
-  const apiKey = ctx?.llmConfig?.apiKey ?? getProviderApiKeyLocal(provider) ?? '';
+  const hasApiKey = ctx?.llmConfig?.hasApiKey ?? isProviderApiKeyConfiguredLocal(provider);
   const baseUrl = ctx?.llmConfig?.baseUrl ?? (local ? getProviderBaseUrl(provider) : '');
-  const configured = local ? !!baseUrl : !!apiKey;
+  const configured = local ? !!baseUrl : !!hasApiKey;
 
   if (configured) {
     const def = getProviderDef(provider);
@@ -599,7 +600,7 @@ export async function routeOrchestratorRequest(
           userText,
           provider,
           model,
-          apiKey,
+          apiKey: '',
           baseUrl: baseUrl || undefined,
         });
         const result = parseRouteJson(raw, agents);

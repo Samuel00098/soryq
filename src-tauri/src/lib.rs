@@ -58,7 +58,6 @@ pub fn run() {
             commands::background::background_image_set,
             commands::background::background_image_get,
             commands::background::background_image_clear,
-            commands::secrets::provider_api_key_get,
             commands::secrets::provider_api_key_exists,
             commands::secrets::provider_api_key_set,
             commands::secrets::provider_api_key_delete,

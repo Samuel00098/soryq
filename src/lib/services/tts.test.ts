@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.hoisted(() => vi.fn());
-const getProviderApiKeyLocal = vi.hoisted(() => vi.fn());
+const isProviderApiKeyConfiguredLocal = vi.hoisted(() => vi.fn());
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('$lib/services/ai-keychain', () => ({ getProviderApiKeyLocal }));
+vi.mock('$lib/services/ai-keychain', () => ({ isProviderApiKeyConfiguredLocal }));
 
 import { voiceConversationAiProvider } from '$lib/stores/settings';
 import { describeTtsError, getVoiceReplyConfigError } from './tts';
@@ -50,7 +50,7 @@ describe('describeTtsError', () => {
 describe('getVoiceReplyConfigError', () => {
   it('reports missing keys for the selected reply provider', () => {
     voiceConversationAiProvider.set('google');
-    getProviderApiKeyLocal.mockReturnValue(null);
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     expect(getVoiceReplyConfigError()).toBe(
       'Google Gemini API key is missing. Add it in Settings to use voice mode.'
@@ -59,7 +59,7 @@ describe('getVoiceReplyConfigError', () => {
 
   it('allows configured reply providers', () => {
     voiceConversationAiProvider.set('google');
-    getProviderApiKeyLocal.mockReturnValue('AIza-test');
+    isProviderApiKeyConfiguredLocal.mockReturnValue(true);
 
     expect(getVoiceReplyConfigError()).toBeNull();
   });

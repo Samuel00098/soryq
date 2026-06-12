@@ -3,6 +3,22 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.7] - 2026-06-12
+
+### Security
+
+- **Provider keys never leave the OS keychain** — the frontend no longer reads or caches full AI provider API keys. The `provider_api_key_get` command is removed entirely; the UI now tracks only a configured / not-configured flag (`provider_api_key_exists`), and every AI request (orchestration, commit messages, voice input/refinement, TTS, model listing) sends an empty key while the backend resolves the real key from the keychain at call time. Settings copy is updated to say keys are kept in the OS keychain and never displayed back.
+
+- **Write queries in the Database Explorer require explicit confirmation** — `db_execute_query` now takes an `allow_write` flag and rejects any non-`SELECT`/`PRAGMA`/`EXPLAIN` statement unless the user confirms it in the UI, so an accidental or injected `UPDATE`/`DELETE`/`DROP` can't run silently.
+
+- **"Discard all changes" requires a confirmation token** — `workspace_git_discard_all` now only runs its `git reset --hard` + clean when the caller passes the literal `discard all changes` confirmation string, guarding the most destructive Source Control action against a stray invocation.
+
+- **Terminals are confined to the open project** — new terminal sessions resolve their working directory through `resolve_terminal_cwd`, which canonicalises the path and requires it to live inside an open project folder. The old fallback that spawned shells in an arbitrary process-current directory is gone.
+
+### Changed
+
+- **Trust and scope cues across the workspace** — the Source Control, Review, Database Explorer, and Containers panels now show a "Project" scope note clarifying that their actions apply to the currently open project; the Preview toolbar gains a "Sandboxed preview" pill, the update banner shows a "signed release" badge, and Settings gains key-storage, active-project, secrets, network, and update security notes so it's clear what each surface can touch.
+
 ## [v0.3.6] - 2026-06-12
 
 ### Added

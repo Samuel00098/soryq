@@ -829,7 +829,11 @@ pub fn workspace_git_discard_file(
 }
 
 #[tauri::command]
-pub fn workspace_git_discard_all(project_id: String, state: State<AppState>) -> Result<(), String> {
+pub fn workspace_git_discard_all(
+    project_id: String,
+    confirmation: String,
+    state: State<AppState>,
+) -> Result<(), String> {
     let projects = state.workspace_manager.list_projects();
     let project = projects
         .iter()
@@ -840,6 +844,10 @@ pub fn workspace_git_discard_all(project_id: String, state: State<AppState>) -> 
 
     if !root_path.join(".git").exists() {
         return Err("This project is not a Git repository.".to_string());
+    }
+
+    if confirmation.trim() != "discard all changes" {
+        return Err("Discard all requires explicit confirmation.".to_string());
     }
 
     // 1. Reset all tracked changes

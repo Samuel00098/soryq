@@ -1510,6 +1510,11 @@
           <p>The main provider powers typed orchestration and AI commit messages. Voice input, voice refinement, and voice conversations each have their own settings below.</p>
         </div>
 
+        <div class="security-note">
+          <span class="security-note-label">Key storage</span>
+          <span>Provider keys are saved in the OS keychain. The UI only keeps configured/not configured status and never reads the saved key back.</span>
+        </div>
+
         <!-- Provider picker -->
         <div class="setting-group">
           <div class="group-label">Main AI provider</div>
@@ -1664,7 +1669,7 @@
                 <div class="detail-info">
                   <span class="detail-label">{activeProvider.keyLabel}</span>
                   <span class="detail-desc">
-                    Stored locally and encrypted.
+                    Stored in your OS keychain. Soryq sends provider requests from the backend without exposing the saved key in the frontend.
                     <a class="provider-key-link" href={activeProvider.keyUrl} target="_blank" rel="noreferrer">Get a key ↗</a>
                   </span>
                 </div>
@@ -3345,6 +3350,21 @@
           {/each}
         </div>
 
+        <div class="security-summary">
+          <div class="security-summary-row">
+            <span class="security-summary-label">Active project</span>
+            <span>Terminal, Git, review, database, preview, and container actions use the project currently open in Soryq.</span>
+          </div>
+          <div class="security-summary-row">
+            <span class="security-summary-label">Secrets</span>
+            <span>AI provider keys and GitHub tokens are kept in the OS keychain. Saved values are not displayed back in the app.</span>
+          </div>
+          <div class="security-summary-row">
+            <span class="security-summary-label">Network</span>
+            <span>AI providers, GitHub, update checks, HTTP requests, and external previews can contact outside services.</span>
+          </div>
+        </div>
+
         <div class="tour-section" style="margin: 20px 0 10px;">
           <button
             class="tour-btn"
@@ -3371,6 +3391,10 @@
         </div>
 
         <div class="updater-section">
+          <div class="security-note compact">
+            <span class="security-note-label">Updates</span>
+            <span>Checks the configured release channel and installs signed Soryq builds. Keep release artifacts and update metadata in the trusted release repo.</span>
+          </div>
           {#if updateStatus === 'idle'}
             <button class="updater-btn" onclick={handleCheckForUpdates}>
               Check for Updates
@@ -4225,6 +4249,33 @@
     font-size: 11.5px;
     color: var(--text-muted);
     line-height: 1.4;
+  }
+
+  .security-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg-primary));
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+
+  .security-note.compact {
+    margin-bottom: 2px;
+  }
+
+  .security-note-label {
+    flex: 0 0 auto;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .provider-key-link {
@@ -5743,6 +5794,34 @@
     font-weight: 500;
   }
 
+  .security-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .security-summary-row {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+
+  .security-summary-label {
+    color: var(--text-primary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
   /* ── Tour Section ──────────────────────── */
   .tour-btn {
     display: flex;
@@ -6216,6 +6295,14 @@
     }
     .ct-grid {
       grid-template-columns: 1fr;
+    }
+    .security-note {
+      flex-direction: column;
+      gap: 4px;
+    }
+    .security-summary-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
     }
   }
 </style>

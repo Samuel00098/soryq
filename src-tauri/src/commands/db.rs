@@ -38,6 +38,7 @@ pub fn db_list_tables(path: String, state: State<AppState>) -> Result<Vec<String
 pub fn db_execute_query(
     path: String,
     query: String,
+    allow_write: bool,
     state: State<AppState>,
 ) -> Result<DbQueryResult, String> {
     let p = Path::new(&path);
@@ -110,6 +111,9 @@ pub fn db_execute_query(
             is_select: true,
         })
     } else {
+        if !allow_write {
+            return Err("Write queries require explicit confirmation.".to_string());
+        }
         let conn = Connection::open(&path).map_err(|e| format!("Failed to open database: {e}"))?;
         let affected_rows = conn
             .execute(&query, [])

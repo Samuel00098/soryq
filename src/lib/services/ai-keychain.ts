@@ -5,23 +5,22 @@ const KNOWN_PROVIDERS: AiProviderId[] = [
   'openrouter', 'anthropic', 'openai', 'google', 'groq', 'ollama', 'lmstudio',
 ];
 
-// In-memory key cache backed by the OS keychain.
-// Reads are synchronous (Map lookup). Keychain I/O only happens at init and on writes.
-const keyCache = new Map<AiProviderId, string | null>();
+// In-memory key-existence cache backed by the OS keychain.
+// The frontend deliberately never reads or stores full provider keys.
+const keyExistsCache = new Map<AiProviderId, boolean>();
 let cacheReady = false;
 
 /**
  * Call once at app startup. Migrates any leftover localStorage keys to the OS
- * keychain, then populates the in-memory cache from the keychain. All
- * subsequent key reads hit the cache and are synchronous.
+ * keychain, then populates the in-memory existence cache from the keychain.
  */
 export async function initApiKeyCache(): Promise<void> {
   await migrateLocalStorageToKeychain();
 
   for (const provider of KNOWN_PROVIDERS) {
     try {
-      const key = await invoke<string | null>('provider_api_key_get', { provider });
-      keyCache.set(provider, key && key.trim() ? key.trim() : null);
+      const exists = await invoke<boolean>('provider_api_key_exists', { provider });
+      keyExistsCache.set(provider, exists);
     } catch (err) {
       // Don't poison the cache with null on error — leave this provider out so
       // providerApiKeyExists() falls back to a live keychain query instead of
@@ -66,9 +65,9 @@ async function safeInvoke<T>(command: string, payload?: Record<string, unknown>)
   }
 }
 
-/** Synchronous read from the in-memory cache. Returns null if not configured. */
-export function getProviderApiKeyLocal(provider: AiProviderId): string | null {
-  return keyCache.get(provider) ?? null;
+/** Synchronous read from the in-memory existence cache. */
+export function isProviderApiKeyConfiguredLocal(provider: AiProviderId): boolean {
+  return keyExistsCache.get(provider) ?? false;
 }
 
 /** True if a key exists in the cache (or the keychain if the cache is not yet ready). */
@@ -76,9 +75,11 @@ export async function providerApiKeyExists(provider: AiProviderId): Promise<bool
   // Use the cache only if it's ready AND this provider was successfully loaded into it.
   // Providers that errored during initApiKeyCache are absent from the map (not set to null),
   // so we fall through to a live keychain query for them.
-  if (cacheReady && keyCache.has(provider)) return !!keyCache.get(provider);
+  if (cacheReady && keyExistsCache.has(provider)) return !!keyExistsCache.get(provider);
   try {
-    return await safeInvoke<boolean>('provider_api_key_exists', { provider });
+    const exists = await safeInvoke<boolean>('provider_api_key_exists', { provider });
+    keyExistsCache.set(provider, exists);
+    return exists;
   } catch {
     return false;
   }
@@ -92,13 +93,13 @@ export async function saveProviderApiKey(provider: AiProviderId, apiKey: string)
     return;
   }
   await safeInvoke('provider_api_key_set', { provider, apiKey: normalized });
-  keyCache.set(provider, normalized);
+  keyExistsCache.set(provider, true);
 }
 
 /** Remove from the OS keychain and update the cache. */
 export async function clearProviderApiKey(provider: AiProviderId): Promise<void> {
   await safeInvoke('provider_api_key_delete', { provider });
-  keyCache.set(provider, null);
+  keyExistsCache.set(provider, false);
 }
 
 /** A model offered by a provider, as returned by the backend list command. */
@@ -118,7 +119,6 @@ export async function listProviderModels(provider: AiProviderId): Promise<Provid
     if (!baseUrl) throw new Error('No server URL configured for this provider.');
     return await safeInvoke<ProviderModelInfo[]>('list_provider_models', { provider, apiKey: '', baseUrl });
   }
-  const apiKey = getProviderApiKeyLocal(provider);
-  if (!apiKey) throw new Error('No API key configured for this provider.');
-  return await safeInvoke<ProviderModelInfo[]>('list_provider_models', { provider, apiKey });
+  if (!(await providerApiKeyExists(provider))) throw new Error('No API key configured for this provider.');
+  return await safeInvoke<ProviderModelInfo[]>('list_provider_models', { provider, apiKey: '' });
 }

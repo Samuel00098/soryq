@@ -10,7 +10,7 @@ import {
   providerSupportsReplyTts,
   voiceConversationAiProvider,
 } from '$lib/stores/settings';
-import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 
 let currentAudio: HTMLAudioElement | null = null;
 let currentObjectUrl: string | null = null;
@@ -104,7 +104,7 @@ function resolveTtsConfig(options?: SpeakOptions) {
   const model = options?.model ?? get(currentVoiceConversationTtsModel);
   const voice = options?.voice ?? get(currentVoiceConversationTtsVoice);
   const local = isLocalProvider(provider);
-  const apiKey = getProviderApiKeyLocal(provider) ?? '';
+  const hasApiKey = isProviderApiKeyConfiguredLocal(provider);
   const baseUrl = local ? getProviderBaseUrl(provider) : '';
   return {
     provider,
@@ -112,17 +112,17 @@ function resolveTtsConfig(options?: SpeakOptions) {
     model,
     voice,
     local,
-    apiKey,
+    hasApiKey,
     baseUrl,
   };
 }
 
 export function getVoiceReplyConfigError(options?: SpeakOptions): string | null {
-  const { provider, providerDef, local, apiKey, baseUrl } = resolveTtsConfig(options);
+  const { provider, providerDef, local, hasApiKey, baseUrl } = resolveTtsConfig(options);
   if (!providerSupportsReplyTts(provider)) {
     return `${providerDef.label} does not support spoken replies in Soryq yet. Choose OpenRouter, Groq, OpenAI, Google, or a local provider with an OpenAI-compatible speech endpoint.`;
   }
-  if (local ? !baseUrl : !apiKey) {
+  if (local ? !baseUrl : !hasApiKey) {
     const kind = local ? 'server URL' : 'API key';
     return `${providerDef.label} ${kind} is missing. Add it in Settings to use voice mode.`;
   }
@@ -205,7 +205,7 @@ export async function speak(text: string, options?: SpeakOptions): Promise<void>
   const chunks = splitIntoChunks(text);
   if (chunks.length === 0) return;
 
-  const { provider, model, voice, apiKey, baseUrl } = resolveTtsConfig(options);
+  const { provider, model, voice, baseUrl } = resolveTtsConfig(options);
   const token = ++speakToken;
 
   const generate = (chunk: string) =>
@@ -214,7 +214,7 @@ export async function speak(text: string, options?: SpeakOptions): Promise<void>
       provider,
       model,
       voice,
-      apiKey,
+      apiKey: '',
       baseUrl: baseUrl || undefined,
     });
 

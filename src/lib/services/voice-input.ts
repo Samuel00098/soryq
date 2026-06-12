@@ -10,7 +10,7 @@ import {
   voiceInputProvider,
   voiceInputUsesModelTranscription,
 } from '$lib/stores/settings';
-import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 
 export type VoiceInputCallbacks = {
   onStart?: () => void;
@@ -359,9 +359,9 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
       const providerId = (provider === 'webspeech' ? 'google' : provider) as AiProviderId;
       const providerDef = getProviderDef(providerId);
       const local = isLocalProvider(providerId);
-      const apiKey = local ? '' : (getProviderApiKeyLocal(providerDef.id) ?? '');
+      const hasApiKey = local || isProviderApiKeyConfiguredLocal(providerDef.id);
       const baseUrl = local ? getProviderBaseUrl(providerId) : '';
-      if (!local && !apiKey) {
+      if (!hasApiKey) {
         throw new Error(`${providerDef.label} API key is missing. Add it in Settings to use voice mode.`);
       }
       if (local && !baseUrl) {
@@ -373,7 +373,7 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
         mimeType: 'audio/wav',
         provider,
         model,
-        apiKey,
+        apiKey: '',
         baseUrl: baseUrl || undefined,
       });
       callbacks.onResult(transcript.trim());

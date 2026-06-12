@@ -132,15 +132,3 @@ pub fn detect_shell() -> ShellConfig {
         }
     })
 }
-
-pub fn get_default_cwd() -> String {
-    std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| {
-            if cfg!(target_os = "windows") {
-                "C:\\".to_string()
-            } else {
-                "/".to_string()
-            }
-        })
-}

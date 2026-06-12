@@ -1,12 +1,12 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.hoisted(() => vi.fn(async (..._args: any[]): Promise<any> => undefined));
-const getProviderApiKeyLocal = vi.hoisted(() =>
-  vi.fn((_provider: string): string | null => null)
+const isProviderApiKeyConfiguredLocal = vi.hoisted(() =>
+  vi.fn((_provider: string): boolean => false)
 );
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('$lib/services/ai-keychain', () => ({ getProviderApiKeyLocal }));
+vi.mock('$lib/services/ai-keychain', () => ({ isProviderApiKeyConfiguredLocal }));
 
 import { buildVoiceProviderOrder, refineVoicePrompt } from './voice-refinement';
 import {
@@ -26,9 +26,7 @@ beforeEach(() => {
   });
 
   // Only OpenRouter has a key configured.
-  getProviderApiKeyLocal.mockImplementation((provider: string) =>
-    provider === 'openrouter' ? 'sk-or-test' : null
-  );
+  isProviderApiKeyConfiguredLocal.mockImplementation((provider: string) => provider === 'openrouter');
 
   voiceRefinementEnabled.set(true);
   voiceInputProvider.set('webspeech');

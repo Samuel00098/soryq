@@ -12,7 +12,7 @@ import {
 } from '$lib/stores/settings';
 import { refineVoiceTranscript } from '$lib/services/voice-input';
 import { get } from 'svelte/store';
-import { getProviderApiKeyLocal } from '$lib/services/ai-keychain';
+import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 
 const VOICE_FALLBACK_PROVIDERS: AiProviderId[] = ['groq', 'ollama', 'lmstudio', 'openrouter'];
 
@@ -43,12 +43,12 @@ function getPreserveNewLines(rawText: string) {
   return rawText.includes('\n');
 }
 
-async function requestRefinement(provider: string, model: string, apiKey: string, baseUrl: string, cleanedText: string) {
+async function requestRefinement(provider: string, model: string, baseUrl: string, cleanedText: string) {
   return invoke<string>('ai_refine_prompt', {
     text: cleanedText,
     provider,
     model,
-    apiKey,
+    apiKey: '',
     baseUrl: baseUrl || undefined,
   });
 }
@@ -79,16 +79,16 @@ export async function refineVoicePrompt(
 
   for (const provider of buildVoiceProviderOrder(preferredProvider)) {
     const local = isLocalProvider(provider);
-    const apiKey = getProviderApiKeyLocal(provider) ?? '';
+    const hasApiKey = isProviderApiKeyConfiguredLocal(provider);
     const baseUrl = local ? getProviderBaseUrl(provider) : '';
 
-    if (local ? !baseUrl : !apiKey) {
+    if (local ? !baseUrl : !hasApiKey) {
       continue;
     }
 
     for (const model of getCandidateModels(provider, rememberedVoiceModels)) {
       try {
-        const remoteText = await requestRefinement(provider, model, apiKey, baseUrl, locallyCleaned);
+        const remoteText = await requestRefinement(provider, model, baseUrl, locallyCleaned);
         const normalized = normalizeModelOutput(remoteText, preserveNewLines);
         if (normalized) {
           return { text: normalized, aiRefined: true };

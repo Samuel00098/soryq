@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.hoisted(() => vi.fn());
-const getProviderApiKeyLocal = vi.hoisted(() => vi.fn((_provider: string): string | null => null));
+const isProviderApiKeyConfiguredLocal = vi.hoisted(() => vi.fn((_provider: string): boolean => false));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('$lib/services/ai-keychain', () => ({ getProviderApiKeyLocal }));
+vi.mock('$lib/services/ai-keychain', () => ({ isProviderApiKeyConfiguredLocal }));
 
 import { createVoiceInputSession } from './voice-input';
 import { aiBaseUrlByProvider, voiceInputModelByProvider, voiceInputProvider } from '$lib/stores/settings';
@@ -105,8 +105,8 @@ beforeEach(() => {
   recognizers = [];
   audioProcessors = [];
   invoke.mockReset();
-  getProviderApiKeyLocal.mockReset();
-  getProviderApiKeyLocal.mockImplementation((_provider: string) => null);
+  isProviderApiKeyConfiguredLocal.mockReset();
+  isProviderApiKeyConfiguredLocal.mockImplementation((_provider: string) => false);
   voiceInputProvider.set('webspeech');
   voiceInputModelByProvider.set({});
   aiBaseUrlByProvider.set({});
@@ -177,7 +177,7 @@ describe('createVoiceInputSession', () => {
   it('auto-finishes Google transcription after speech followed by silence', async () => {
     vi.useFakeTimers();
     voiceInputProvider.set('google');
-    getProviderApiKeyLocal.mockImplementation((provider: string) => (provider === 'google' ? 'AIza-test' : null));
+    isProviderApiKeyConfiguredLocal.mockImplementation((provider: string) => provider === 'google');
     invoke.mockResolvedValue('open the terminal');
 
     const onStart = vi.fn();
@@ -211,7 +211,7 @@ describe('createVoiceInputSession', () => {
     expect(invoke).toHaveBeenCalledWith('ai_transcribe_audio', expect.objectContaining({
       provider: 'google',
       model: 'gemini-2.5-flash',
-      apiKey: 'AIza-test',
+      apiKey: '',
       mimeType: 'audio/wav',
     }));
     expect(onResult).toHaveBeenCalledWith('open the terminal');
@@ -223,7 +223,7 @@ describe('createVoiceInputSession', () => {
   it('routes model transcription through OpenRouter when selected', async () => {
     vi.useFakeTimers();
     voiceInputProvider.set('openrouter');
-    getProviderApiKeyLocal.mockImplementation((provider: string) => (provider === 'openrouter' ? 'sk-or-test' : null));
+    isProviderApiKeyConfiguredLocal.mockImplementation((provider: string) => provider === 'openrouter');
     invoke.mockResolvedValue('ship the fix');
 
     const onResult = vi.fn();
@@ -250,7 +250,7 @@ describe('createVoiceInputSession', () => {
     expect(invoke).toHaveBeenCalledWith('ai_transcribe_audio', expect.objectContaining({
       provider: 'openrouter',
       model: 'openai/whisper-1',
-      apiKey: 'sk-or-test',
+      apiKey: '',
       mimeType: 'audio/wav',
     }));
     expect(onResult).toHaveBeenCalledWith('ship the fix');
@@ -264,7 +264,7 @@ describe('createVoiceInputSession', () => {
     voiceInputModelByProvider.set({
       openrouter: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
     });
-    getProviderApiKeyLocal.mockImplementation((provider: string) => (provider === 'openrouter' ? 'sk-or-test' : null));
+    isProviderApiKeyConfiguredLocal.mockImplementation((provider: string) => provider === 'openrouter');
     invoke.mockResolvedValue('fallback transcript');
 
     const session = createVoiceInputSession({
@@ -320,7 +320,7 @@ describe('createVoiceInputSession', () => {
     await vi.advanceTimersByTimeAsync(950);
     await Promise.resolve();
 
-    expect(getProviderApiKeyLocal).not.toHaveBeenCalledWith('lmstudio');
+    expect(isProviderApiKeyConfiguredLocal).not.toHaveBeenCalledWith('lmstudio');
     expect(invoke).toHaveBeenCalledWith('ai_transcribe_audio', expect.objectContaining({
       provider: 'lmstudio',
       model: 'local-stt-model',

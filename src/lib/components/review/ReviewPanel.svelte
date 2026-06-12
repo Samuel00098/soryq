@@ -215,7 +215,8 @@
 
     try {
       await invoke('workspace_git_discard_all', {
-        projectId: id
+        projectId: id,
+        confirmation: 'discard all changes'
       });
       showToast('Discarded all changes', 'success');
       expandedFiles = {};
@@ -478,6 +479,12 @@
     </div>
   </div>
 
+  <div class="review-scope-note">
+    <span>Project</span>
+    <strong>{$activeProject?.name ?? 'No active project'}</strong>
+    <em>Review and discard actions apply to this project working tree.</em>
+  </div>
+
   <div class="review-body">
     {#if errorMsg}
       <div class="sc-error">
@@ -726,6 +733,47 @@
     padding: 0;
     width: 22px;
     justify-content: center;
+  }
+
+  .review-scope-note {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    line-height: 1.35;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+
+  .review-scope-note span {
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .review-scope-note strong {
+    min-width: 0;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .review-scope-note em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: normal;
   }
 
   /* Body */
@@ -1044,6 +1092,14 @@
   }
 
   @container review (max-width: 360px) {
+    .review-scope-note {
+      flex-wrap: wrap;
+      gap: 4px 7px;
+    }
+    .review-scope-note em {
+      flex-basis: 100%;
+      white-space: normal;
+    }
     .stat-pill {
       display: none !important;
     }

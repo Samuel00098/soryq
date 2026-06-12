@@ -1103,6 +1103,13 @@
       </button>
     </form>
 
+    <span
+      class="preview-trust-pill"
+      title="External pages load through Soryq's embedded proxy. Local dev preview uses the active project's configured port."
+    >
+      Sandboxed preview
+    </span>
+
     <!-- Open in system browser button -->
     {#if isAbsoluteUrl($currentUrl)}
       <button
@@ -1597,6 +1604,21 @@
     cursor: pointer;
   }
   .go-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .preview-trust-pill {
+    flex-shrink: 0;
+    max-width: 138px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+    border-radius: 999px;
+    padding: 4px 8px;
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+  }
 
   .proxy-settings {
     display: flex;
@@ -2335,17 +2357,21 @@
       order: 3;
     }
 
-    /* Row 2 elements */
-    .utility-nav {
+    .preview-trust-pill {
       order: 4;
     }
 
-    .viewport-nav {
+    /* Row 2 elements */
+    .utility-nav {
       order: 5;
     }
 
-    .proxy-settings {
+    .viewport-nav {
       order: 6;
+    }
+
+    .proxy-settings {
+      order: 7;
       margin-left: auto;
     }
   }
@@ -2366,6 +2392,10 @@
     }
 
     .label {
+      display: none;
+    }
+
+    .preview-trust-pill {
       display: none;
     }
   }

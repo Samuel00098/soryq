@@ -1,8 +1,43 @@
 use crate::pty::session;
 use crate::pty::shell::{self, ShellConfig};
 use crate::state::AppState;
+use std::path::{Path, PathBuf};
 use tauri::ipc::{Channel, Response};
 use tauri::State;
+
+fn resolve_terminal_cwd(cwd: Option<String>, state: &AppState) -> Result<String, String> {
+    let raw = match cwd
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => PathBuf::from(value),
+        None => state
+            .workspace_manager
+            .get_active_project()
+            .map(|project| project.root_path)
+            .ok_or_else(|| "No project is open - open a project folder first".to_string())?,
+    };
+
+    let canonical = if raw.exists() {
+        std::fs::canonicalize(&raw).map_err(|_| "Invalid terminal directory".to_string())?
+    } else if let Some(parent) = raw.parent() {
+        if parent.as_os_str().is_empty() || parent == Path::new(".") {
+            raw
+        } else {
+            let parent = std::fs::canonicalize(parent)
+                .map_err(|_| "Invalid terminal directory".to_string())?;
+            parent.join(raw.file_name().unwrap_or_default())
+        }
+    } else {
+        raw
+    };
+    let clean = crate::commands::clean_path_buf(canonical);
+    super::file_system::require_in_project(&clean, state)?;
+    if !clean.is_dir() {
+        return Err("Terminal directory must be a folder inside an open project".to_string());
+    }
+    Ok(clean.to_string_lossy().to_string())
+}
 
 /// Create a new terminal session with the specified shell (or auto-detect)
 #[tauri::command]
@@ -46,10 +81,7 @@ pub fn terminal_create(
         }
         _ => shell::detect_shell(),
     };
-    let cwd = cwd.unwrap_or_else(shell::get_default_cwd);
-    let clean_cwd = crate::commands::clean_path_buf(std::path::PathBuf::from(cwd))
-        .to_string_lossy()
-        .to_string();
+    let clean_cwd = resolve_terminal_cwd(cwd, &state)?;
     let pty_session = session::spawn(cols, rows, shell, clean_cwd, on_data, on_exit)?;
     let id = state.pty_manager.insert(pty_session);
     Ok(id)

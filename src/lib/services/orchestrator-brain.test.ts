@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.hoisted(() => vi.fn(async (..._args: any[]): Promise<any> => undefined));
-const getProviderApiKeyLocal = vi.hoisted(() => vi.fn(() => 'secret'));
+const isProviderApiKeyConfiguredLocal = vi.hoisted(() => vi.fn(() => true));
 const getProviderDef = vi.hoisted(() => vi.fn(() => ({ models: [{ id: 'gpt-4.1' }, { id: 'gpt-4o-mini' }] })));
 const isLocalProvider = vi.hoisted(() => vi.fn(() => false));
 const getProviderBaseUrl = vi.hoisted(() => vi.fn(() => ''));
@@ -31,7 +31,7 @@ const currentAiModel = vi.hoisted(() => {
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('$lib/services/ai-keychain', () => ({ getProviderApiKeyLocal }));
+vi.mock('$lib/services/ai-keychain', () => ({ isProviderApiKeyConfiguredLocal }));
 vi.mock('$lib/stores/settings', () => ({
   aiProvider,
   currentAiModel,
@@ -55,7 +55,7 @@ const ALL_AGENTS = [
 describe('routeOrchestratorRequest', () => {
   beforeEach(() => {
     invoke.mockReset();
-    getProviderApiKeyLocal.mockReset().mockReturnValue('secret');
+    isProviderApiKeyConfiguredLocal.mockReset().mockReturnValue(true);
     getProviderDef.mockClear();
     isLocalProvider.mockClear();
     getProviderBaseUrl.mockClear();
@@ -108,7 +108,7 @@ describe('routeOrchestratorRequest', () => {
       llmConfig: {
         provider: 'google',
         model: 'gemini-2.5-flash',
-        apiKey: 'google-secret',
+        hasApiKey: true,
         baseUrl: '',
       },
     });
@@ -117,11 +117,11 @@ describe('routeOrchestratorRequest', () => {
     const call = invoke.mock.calls[0][1] as { provider: string; model: string; apiKey: string };
     expect(call.provider).toBe('google');
     expect(call.model).toBe('gemini-2.5-flash');
-    expect(call.apiKey).toBe('google-secret');
+    expect(call.apiKey).toBe('');
   });
 
   it('heuristically closes the running agent when no provider is configured', async () => {
-    getProviderApiKeyLocal.mockReturnValue(''); // no key → heuristic fallback, no invoke
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     const result = await routeOrchestratorRequest('close it', [{ command: 'claude', name: 'Claude' }], {
       runningAgents: [{ name: 'Iris', agent: 'claude', title: 'doing stuff' }],
@@ -133,7 +133,7 @@ describe('routeOrchestratorRequest', () => {
   });
 
   it('heuristically targets a named agent and supports "close all"', async () => {
-    getProviderApiKeyLocal.mockReturnValue('');
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
     const running = [
       { name: 'Iris', agent: 'claude', title: 'a' },
       { name: 'Atlas', agent: 'claude', title: 'b' },
@@ -151,7 +151,7 @@ describe('routeOrchestratorRequest', () => {
   });
 
   it('does not treat a task that merely mentions "stop" as a close', async () => {
-    getProviderApiKeyLocal.mockReturnValue('');
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     const result = await routeOrchestratorRequest(
       'fix the bug that stops the build from finishing',
@@ -163,7 +163,7 @@ describe('routeOrchestratorRequest', () => {
   });
 
   it('heuristically surfaces running agent output in conversational mode', async () => {
-    getProviderApiKeyLocal.mockReturnValue('');
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     const result = await routeOrchestratorRequest(
       "how's the agent doing",
@@ -271,7 +271,7 @@ describe('routeOrchestratorRequest', () => {
   });
 
   it('heuristically brings out the NAMED agent, not the default', async () => {
-    getProviderApiKeyLocal.mockReturnValue(''); // no key → heuristic fallback
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     const open = await routeOrchestratorRequest('open codex', ALL_AGENTS);
     expect(open.viaLLM).toBe(false);
@@ -288,7 +288,7 @@ describe('routeOrchestratorRequest', () => {
   });
 
   it('still defaults to claude when no specific agent is named', async () => {
-    getProviderApiKeyLocal.mockReturnValue('');
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     const result = await routeOrchestratorRequest('refactor the router for clarity', ALL_AGENTS);
     expect(result.actions).toEqual([
@@ -307,7 +307,7 @@ describe('routeOrchestratorRequest', () => {
   });
 
   it('reverts to canned reply in conversational mode when no agents are running', async () => {
-    getProviderApiKeyLocal.mockReturnValue('');
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     const result = await routeOrchestratorRequest(
       'hello there',
