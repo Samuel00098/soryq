@@ -2,6 +2,7 @@
   import { get } from 'svelte/store';
   import { activeProject } from '$lib/stores/workspace';
   import { showToast } from '$lib/stores/notification';
+  import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
   import {
     activeSessionId,
     createTerminalSession,
@@ -142,7 +143,7 @@
 
 <div class="embedded-panel">
   <div class="embedded-toolbar">
-    <div class="mode-tabs" aria-label="Embedded workflow">
+    <div class="mode-tabs" aria-label="Embedded workflow" use:clampHorizontalScroll>
       <button class:active={mode === 'arduino'} onclick={() => mode = 'arduino'}>Arduino</button>
       <button class:active={mode === 'platformio'} onclick={() => mode = 'platformio'}>PlatformIO</button>
       <button class:active={mode === 'pi'} onclick={() => mode = 'pi'}>Raspberry Pi</button>
@@ -249,6 +250,8 @@
     background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
     max-width: 100%;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
   }
 
   .mode-tabs button {
@@ -257,6 +260,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
+    scroll-snap-align: start;
     font-size: 11.5px;
     font-weight: 650;
     padding: 6px 9px;

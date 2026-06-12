@@ -1,6 +1,6 @@
 export type PanelType = 'terminal' | 'editor' | 'explorer' | 'preview' | 'settings';
 
-export type ActiveView = 'editor' | 'terminal' | 'preview' | 'settings' | 'review' | 'http' | 'tasks' | 'orchestrator' | 'db' | 'toolbox' | 'pet';
+export type ActiveView = 'editor' | 'terminal' | 'preview' | 'settings' | 'review' | 'http' | 'tasks' | 'orchestrator' | 'db' | 'containers' | 'toolbox' | 'pet';
 
 export type SidebarTab = 'files' | 'search' | 'git' | 'snapshots' | 'history' | 'snippets';
 
@@ -18,6 +18,7 @@ export interface LayoutState {
   tasksVisible: boolean;
   orchestratorVisible: boolean;
   dbVisible: boolean;
+  containersVisible: boolean;
   toolboxVisible: boolean;
   petVisible: boolean;
   auxPanelWidth: number;

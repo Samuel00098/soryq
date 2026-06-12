@@ -3,6 +3,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Dropdown, { type DropdownOption } from '$lib/components/shared/Dropdown.svelte';
   import EmbeddedPanel from '$lib/components/toolbox/EmbeddedPanel.svelte';
+  import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
 
   type UtilityTab = 'jwt' | 'json' | 'regex' | 'epoch' | 'coder' | 'embedded';
   let activeTab = $state<UtilityTab>('jwt');
@@ -217,7 +218,7 @@
 
 <div class="toolbox">
   <!-- Tabs Header -->
-  <div class="toolbox-tabs scrollable">
+  <div class="toolbox-tabs scrollable" use:clampHorizontalScroll>
     <button class="tab-btn" class:active={activeTab === 'jwt'} onclick={() => activeTab = 'jwt'}>JWT Decoder</button>
     <button class="tab-btn" class:active={activeTab === 'json'} onclick={() => activeTab = 'json'}>JSON Format</button>
     <button class="tab-btn" class:active={activeTab === 'regex'} onclick={() => activeTab = 'regex'}>Regex Test</button>
@@ -465,6 +466,8 @@
     display: flex;
     gap: 6px;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
     white-space: nowrap;
     background: color-mix(in srgb, var(--bg-secondary) 30%, transparent);
     flex-shrink: 0;
@@ -474,6 +477,7 @@
     padding: 6px 12px;
     border-radius: 6px;
     font-size: 11.5px;
+    scroll-snap-align: start;
     font-weight: 550;
     color: var(--text-muted);
     border: 1px solid transparent;

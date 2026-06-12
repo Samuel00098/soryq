@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
   import {
     targetPort,
     proxyPort,
@@ -944,7 +945,7 @@
 
 <div class="preview-panel">
   <div class="preview-tabs">
-    <div class="preview-tab-list">
+    <div class="preview-tab-list" use:clampHorizontalScroll>
       {#each $previewTabs as tab (tab.id)}
         <button
           class="preview-tab"
@@ -1387,6 +1388,8 @@
     align-items: center;
     gap: 6px;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
     scrollbar-width: none;
   }
 
@@ -1404,6 +1407,7 @@
     padding: 0 8px 0 10px;
     border-radius: 8px;
     border: 1px solid transparent;
+    scroll-snap-align: start;
     background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
     color: var(--text-secondary);
     cursor: pointer;

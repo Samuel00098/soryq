@@ -70,6 +70,7 @@ describe('routeOrchestratorRequest', () => {
       projectName: 'Atlas',
       recentUserMessages: ['Need docs', 'Make it fast'],
       taskMemory: ['Backend [claude, complete] — dispatch: launched; finished: green'],
+      taskPanel: ['In progress (1): Finish agent memory', 'To do (2): Add Docker switch; Improve canvas colors'],
       reviewingAgents: [{ name: 'Backend', agent: 'claude', title: 'Refactor the launcher (awaiting review)' }],
     });
 
@@ -79,8 +80,11 @@ describe('routeOrchestratorRequest', () => {
     expect(call.userText).toContain('Project: Atlas');
     expect(call.userText).toContain('Tasks awaiting review that can be resumed automatically:');
     expect(call.userText).toContain('- "Backend" [claude] — Refactor the launcher (awaiting review)');
-    expect(call.userText).toContain('Recent task activity:');
+    expect(call.userText).toContain('Project memory and recent task activity:');
     expect(call.userText).toContain('- Backend [claude, complete] — dispatch: launched; finished: green');
+    expect(call.userText).toContain('Task panel board:');
+    expect(call.userText).toContain('- In progress (1): Finish agent memory');
+    expect(call.userText).toContain('- To do (2): Add Docker switch; Improve canvas colors');
     expect(call.userText).toContain('Recent user messages:');
     expect(call.userText).toContain('- Need docs');
     expect(call.userText).toContain('- Make it fast');
@@ -229,6 +233,24 @@ describe('routeOrchestratorRequest', () => {
     expect(result.reply).toContain('latest terminal output');
     expect(result.reply).toContain('402 Payment Required');
     expect(result.reply).not.toContain('```');
+  });
+
+  it('answers prioritization questions from the task panel without invoking the LLM', async () => {
+    const result = await routeOrchestratorRequest(
+      'what should we do next?',
+      [{ command: 'claude', name: 'Claude' }],
+      {
+        taskPanel: [
+          'In progress (1): Wire task panel into orchestrator prompts',
+          'To do (2): Add Docker switch; Improve canvas colors',
+        ],
+      }
+    );
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result.actions).toEqual([]);
+    expect(result.reply).toContain('In progress');
+    expect(result.reply).toContain('To do');
   });
 
   describe('resolveAgentCommand', () => {

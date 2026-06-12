@@ -19,6 +19,7 @@
     registerMosaicClose,
   } from '$lib/stores/terminal';
   import { activeProject, openProjectIds } from '$lib/stores/workspace';
+  import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
   import { activeFile } from '$lib/stores/editor';
 
   let maximizedPaneIndex = $state<number | null>(null);
@@ -951,7 +952,7 @@
   <div class="terminal-toolbar">
 
     <!-- Session tabs (macOS pill style) -->
-    <div class="session-tabs">
+    <div class="session-tabs" use:clampHorizontalScroll>
       {#each $sessions as session (session.id)}
         <div
           class="session-tab"
@@ -1209,6 +1210,8 @@
     min-width: 0;
     gap: 3px;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
     scrollbar-width: none;
     padding: 4px 0;
   }
@@ -1221,6 +1224,7 @@
     gap: 2px;
     padding: 0 4px 0 10px;
     border-radius: 20px;
+    scroll-snap-align: start;
     font-size: 11.5px;
     font-weight: 500;
     color: var(--text-muted);

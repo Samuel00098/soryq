@@ -98,3 +98,29 @@ export function deleteTask(id: string) {
 export function getProjectTasks(projectId: string) {
   return derived(tasks, $tasks => $tasks.filter(t => t.projectId === projectId));
 }
+
+function compactTaskTitle(title: string): string {
+  const text = title.replace(/\s+/g, ' ').trim();
+  return text.length <= 90 ? text : `${text.slice(0, 89)}...`;
+}
+
+export function getProjectTaskPanelLines(projectId: string): string[] {
+  const projectTasks = get(tasks).filter(t => t.projectId === projectId);
+  if (projectTasks.length === 0) return [];
+
+  const labels: Record<TaskStatus, string> = {
+    todo: 'To do',
+    doing: 'In progress',
+    done: 'Done',
+  };
+  return (['doing', 'todo', 'done'] as TaskStatus[])
+    .map((status) => {
+      const items = projectTasks
+        .filter((task) => task.status === status)
+        .slice(0, 6)
+        .map((task) => compactTaskTitle(task.title));
+      if (items.length === 0) return '';
+      return `${labels[status]} (${items.length}): ${items.join('; ')}`;
+    })
+    .filter(Boolean);
+}

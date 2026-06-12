@@ -57,6 +57,7 @@ export interface RouteContext {
   projectName?: string;
   recentUserMessages?: string[];
   taskMemory?: string[];
+  taskPanel?: string[];
   runningAgents?: RunningAgentRef[];
   reviewingAgents?: RunningAgentRef[];
   taskOutputs?: AgentOutputRef[];
@@ -116,10 +117,15 @@ function buildUserText(message: string, ctx?: RouteContext): string {
       }
     }
   }
-  const memory = (ctx?.taskMemory ?? []).slice(-5);
+  const memory = (ctx?.taskMemory ?? []).slice(-8);
   if (memory.length) {
-    parts.push('Recent task activity:');
+    parts.push('Project memory and recent task activity:');
     for (const line of memory) parts.push(`- ${compactText(line, 240)}`);
+  }
+  const taskPanel = (ctx?.taskPanel ?? []).slice(0, 6);
+  if (taskPanel.length) {
+    parts.push('Task panel board:');
+    for (const line of taskPanel) parts.push(`- ${compactText(line, 240)}`);
   }
   const recentUserMessages = (ctx?.recentUserMessages ?? []).slice(-6);
   if (recentUserMessages.length) {
@@ -157,6 +163,9 @@ const STATUS_CHECK_RE = /^(status|what[‘’]?s (?:the )?status|what[‘’]?s 
 // Intercept before routing so we never send a new message to the agent.
 const OUTPUT_QUERY_RE =
   /^(what did|what has|what[‘’]?s|show me what|get|fetch|read|check|see what|summari[sz]e|tell me what)\b.{0,80}\b(said?|respond(?:ed)?|wrot[eo]|output(?:ted)?|terminal|result(?:s)?|response|reply|answer|return(?:ed)?|produc(?:ed)?|finish(?:ed)?|complet(?:ed)?|done)\b/i;
+
+const TASK_ADVICE_RE =
+  /\b(what should|what[‘’]?s next|what next|next task|should we|prioriti[sz]e|recommend|suggest)\b/i;
 
 function pickDefaultAgent(agents: AgentChoice[]): AgentChoice | null {
   return agents.find((a) => a.command === 'claude') ?? agents[0] ?? null;
@@ -282,6 +291,17 @@ function formatOutputReply(refs: AgentOutputRef[], conversational = false): stri
     return `${intro}\n\nLatest terminal output:\n\`\`\`\n${output}\n\`\`\``;
   });
   return parts.join('\n\n');
+}
+
+function formatTaskPanelAdvice(taskPanel: string[]): string {
+  const doing = taskPanel.find((line) => /^In progress\b/i.test(line));
+  const todo = taskPanel.find((line) => /^To do\b/i.test(line));
+  if (doing && todo) {
+    return `I would focus on ${compactText(doing, 150)} first, then pick from ${compactText(todo, 150)}. Work already in progress usually has the best payoff unless it is blocked.`;
+  }
+  if (doing) return `I would finish or unblock ${compactText(doing, 170)} before starting new work.`;
+  if (todo) return `I would start with ${compactText(todo, 170)}. Nothing is currently marked in progress.`;
+  return 'The task panel is empty right now, so there is no queued work to prioritize.';
 }
 
 /** Routing without an LLM: pick a sensible agent and decide chat vs dispatch. */
@@ -427,6 +447,7 @@ function buildSystemPrompt(
     '- Each spawn/send prompt must be fully self-contained — the agent has NO access to this conversation.',
     '- If the user refers to a running agent (by name, "the first one", "that agent"), prefer send/name over spawning a duplicate.',
     '- If a task is awaiting review and the user wants more work, use send to resume it automatically instead of waiting for approval.',
+    '- Use the task panel board in the user message as project truth. Prefer work that unblocks "In progress" items, then "To do" items. If the user asks for advice, suggest what should be done next and what can wait; use an empty actions array unless they explicitly ask you to act.',
     '- To shut an agent down that the user is finished with, use close (never spawn a new agent to "close" one).',
     '- If the user asks what an agent said, responded, wrote, outputted, or what its result/response/answer was — report it from the terminal output shown above. Use an EMPTY actions array. Never send a new message to the agent for this.',
     '- If the user asks whether something is done, still running, blocked, failed, or what the terminal says, answer from the recent agent/task status and terminal output. Use an EMPTY actions array unless they explicitly ask you to continue or change something.',
@@ -552,6 +573,10 @@ export async function routeOrchestratorRequest(
   // Never send a new message; just surface the terminal output directly.
   if (OUTPUT_QUERY_RE.test(trimmed)) {
     return { reply: formatOutputReply(outputRefs(ctx), !!ctx?.conversational), actions: [], viaLLM: false };
+  }
+
+  if (TASK_ADVICE_RE.test(trimmed) && (ctx?.taskPanel?.length ?? 0) > 0) {
+    return { reply: formatTaskPanelAdvice(ctx?.taskPanel ?? []), actions: [], viaLLM: false };
   }
 
   const provider = ctx?.llmConfig?.provider ?? get(aiProvider);

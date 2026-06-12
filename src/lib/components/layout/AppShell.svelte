@@ -19,13 +19,14 @@
   import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
   import UpdateBanner from '$lib/components/shared/UpdateBanner.svelte';
   import DbExplorerPanel from '$lib/components/db/DbExplorerPanel.svelte';
+  import ContainersPanel from '$lib/components/containers/ContainersPanel.svelte';
   // Developer workspace panels
   import ToolboxPanel from '$lib/components/toolbox/ToolboxPanel.svelte';
   import DevPetPanel from '$lib/components/pet/DevPetPanel.svelte';
   import { checkForUpdate } from '$lib/stores/updater';
   import { fly } from 'svelte/transition';
 
-  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, toggleSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, toggleDbVisible, toggleToolboxVisible, openQuickCapture, openEnvManager } from '$lib/stores/layout';
+  import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, toggleSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, toggleDbVisible, toggleContainersVisible, toggleToolboxVisible, openQuickCapture, openEnvManager } from '$lib/stores/layout';
   import { initNavigationHistory } from '$lib/stores/navigation';
   import SketchCanvas from '$lib/components/workspace/SketchCanvas.svelte';
   import { sketchCanvasOpen, toggleSketchCanvas } from '$lib/stores/sketch';
@@ -37,6 +38,7 @@
   import { startProxy, stopProxy } from '$lib/stores/preview';
   import { userShortcuts, matchShortcut, uiZoom } from '$lib/stores/settings';
   import { createTerminalSession, focusPromptBar, launchPromptBarVoiceMode } from '$lib/stores/terminal';
+  import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
 
   // Sidebar resize state
   let sidebarResizing = $state(false);
@@ -64,31 +66,6 @@
   // Aux panel tabs collapse to icon-only when the panel is too narrow for labels
   let auxTabsNarrow = $derived(auxPanelWidth < 300);
 
-  // Edge-fade affordance for the horizontally-scrollable aux tab bar: fade the
-  // left/right edge only when there are more tabs hidden that way, so the masks
-  // stay pinned ("sticky") to the container edges as the tabs scroll under them.
-  let auxFadeLeft = $state(false);
-  let auxFadeRight = $state(false);
-  function auxTabsScrollFade(node: HTMLElement, _deps?: unknown) {
-    const measure = () => {
-      const max = node.scrollWidth - node.clientWidth;
-      auxFadeLeft = node.scrollLeft > 1;
-      auxFadeRight = max > 1 && node.scrollLeft < max - 1;
-    };
-    const schedule = () => requestAnimationFrame(measure);
-    schedule();
-    node.addEventListener('scroll', measure, { passive: true });
-    const ro = new ResizeObserver(schedule);
-    ro.observe(node);
-    return {
-      update() { schedule(); }, // re-measure when icon-only / width changes
-      destroy() {
-        node.removeEventListener('scroll', measure);
-        ro.disconnect();
-      },
-    };
-  }
-
   const sidebarTabsList = ['files', 'git', 'snapshots', 'snippets'];
   let activeTabIdx = $derived(sidebarTabsList.indexOf($layout.sidebarTab));
 
@@ -99,6 +76,7 @@
     { id: 'http', visible: $layout.httpVisible },
     { id: 'tasks', visible: $layout.tasksVisible },
     { id: 'db', visible: $layout.dbVisible },
+    { id: 'containers', visible: $layout.containersVisible },
     { id: 'toolbox', visible: $layout.toolboxVisible },
     { id: 'pet', visible: $layout.petVisible },
   ].filter(p => p.visible));
@@ -145,7 +123,7 @@
   $effect(() => {
     if (windowWidth < 500 || (typeof document !== 'undefined' && document.hidden)) return;
     const maxAllowedWidth = auxMaxWidth();
-    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible || $layout.petVisible) && auxPanelWidth > maxAllowedWidth) {
+    if (($layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.containersVisible || $layout.toolboxVisible || $layout.petVisible) && auxPanelWidth > maxAllowedWidth) {
       auxPanelWidth = Math.max(200, maxAllowedWidth);
     }
   });
@@ -469,6 +447,19 @@
           </button>
           <button
             class="svt-btn"
+            class:svt-active={$layout.containersVisible}
+            onclick={toggleContainersVisible}
+            title="Containers"
+            aria-label="Containers"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z"/>
+              <path d="M4 12.5 12 17l8-4.5"/>
+              <path d="M4 17.5 12 22l8-4.5"/>
+            </svg>
+          </button>
+          <button
+            class="svt-btn"
             class:svt-active={$layout.toolboxVisible}
             onclick={toggleToolboxVisible}
             title="Dev Toolbox"
@@ -570,7 +561,7 @@
           </div>
 
         <!-- If any auxiliary panel is visible, show the resize divider and the right auxiliary panel -->
-        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible || $layout.petVisible}
+        {#if $layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.containersVisible || $layout.toolboxVisible || $layout.petVisible}
           <!-- Vertical Resize Handle between Terminal and Auxiliary Panel -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
@@ -605,9 +596,7 @@
             <div
               class="aux-tabs-bar"
               class:icon-only={auxTabsNarrow}
-              class:fade-left={auxFadeLeft}
-              class:fade-right={auxFadeRight}
-              use:auxTabsScrollFade={auxTabsNarrow}
+              use:clampHorizontalScroll
             >
               <button
                 class="aux-tab"
@@ -684,6 +673,19 @@
               </button>
               <button
                 class="aux-tab"
+                class:active={$layout.containersVisible}
+                onclick={() => setActiveView('containers')}
+                title="Containers"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z"/>
+                  <path d="M4 12.5 12 17l8-4.5"/>
+                  <path d="M4 17.5 12 22l8-4.5"/>
+                </svg>
+                <span>Containers</span>
+              </button>
+              <button
+                class="aux-tab"
                 class:active={$layout.toolboxVisible}
                 onclick={() => setActiveView('toolbox')}
                 title="Dev Toolbox"
@@ -722,6 +724,8 @@
                     <TasksPanel />
                   {:else if firstPanelId === 'db'}
                     <DbExplorerPanel />
+                  {:else if firstPanelId === 'containers'}
+                    <ContainersPanel />
                   {:else if firstPanelId === 'toolbox'}
                     <ToolboxPanel />
                   {:else if firstPanelId === 'pet'}
@@ -742,6 +746,8 @@
                     <TasksPanel />
                   {:else if secondPanelId === 'db'}
                     <DbExplorerPanel />
+                  {:else if secondPanelId === 'containers'}
+                    <ContainersPanel />
                   {:else if secondPanelId === 'toolbox'}
                     <ToolboxPanel />
                   {:else if secondPanelId === 'pet'}
@@ -762,6 +768,8 @@
                     <TasksPanel />
                   {:else if thirdPanelId === 'db'}
                     <DbExplorerPanel />
+                  {:else if thirdPanelId === 'containers'}
+                    <ContainersPanel />
                   {:else if thirdPanelId === 'toolbox'}
                     <ToolboxPanel />
                   {:else if thirdPanelId === 'pet'}
@@ -783,6 +791,8 @@
                     <TasksPanel />
                   {:else if firstPanelId === 'db'}
                     <DbExplorerPanel />
+                  {:else if firstPanelId === 'containers'}
+                    <ContainersPanel />
                   {:else if firstPanelId === 'toolbox'}
                     <ToolboxPanel />
                   {:else if firstPanelId === 'pet'}
@@ -813,6 +823,8 @@
                     <TasksPanel />
                   {:else if secondPanelId === 'db'}
                     <DbExplorerPanel />
+                  {:else if secondPanelId === 'containers'}
+                    <ContainersPanel />
                   {:else if secondPanelId === 'toolbox'}
                     <ToolboxPanel />
                   {:else if secondPanelId === 'pet'}
@@ -834,6 +846,8 @@
                     <TasksPanel />
                   {:else if firstPanelId === 'db'}
                     <DbExplorerPanel />
+                  {:else if firstPanelId === 'containers'}
+                    <ContainersPanel />
                   {:else if firstPanelId === 'toolbox'}
                     <ToolboxPanel />
                   {:else if firstPanelId === 'pet'}
@@ -1321,19 +1335,10 @@
 
 
   /* Auxiliary Panel Tabs Navigation Header */
-  /* Animatable edge-fade widths so the masks ease in/out as you scroll. */
-  @property --aux-fade-left {
-    syntax: '<length>';
-    inherits: false;
-    initial-value: 0px;
-  }
-  @property --aux-fade-right {
-    syntax: '<length>';
-    inherits: false;
-    initial-value: 0px;
-  }
-
   .aux-tabs-bar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
     display: flex;
     align-items: center;
     background: transparent;
@@ -1346,31 +1351,10 @@
     user-select: none;
     -webkit-user-select: none;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
     scrollbar-width: none;
-    /* Fade widths default to 0 (no mask); set by .fade-left / .fade-right when
-       there are tabs scrolled out of view on that side. The gradient is relative
-       to the element box, so it stays pinned to the edges while tabs scroll. */
-    --aux-fade-left: 0px;
-    --aux-fade-right: 0px;
-    -webkit-mask-image: linear-gradient(
-      to right,
-      transparent 0,
-      #000 var(--aux-fade-left),
-      #000 calc(100% - var(--aux-fade-right)),
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to right,
-      transparent 0,
-      #000 var(--aux-fade-left),
-      #000 calc(100% - var(--aux-fade-right)),
-      transparent 100%
-    );
-    transition: --aux-fade-left 0.18s ease, --aux-fade-right 0.18s ease;
   }
-
-  .aux-tabs-bar.fade-left { --aux-fade-left: 24px; }
-  .aux-tabs-bar.fade-right { --aux-fade-right: 32px; }
 
   :root.light-theme .aux-tabs-bar {
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
@@ -1412,6 +1396,7 @@
     border: 1px solid transparent;
     cursor: pointer;
     position: relative;
+    scroll-snap-align: start;
     transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   }
 

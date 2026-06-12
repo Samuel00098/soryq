@@ -3,6 +3,24 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.6] - 2026-06-12
+
+### Added
+
+- **Containers panel** — a new Docker / Compose toolbox panel (its own activity-bar view) with one-click actions that run straight into a terminal session: check Docker & Compose availability, `compose up --build`, `compose down`, list running containers, and tail compose logs.
+
+- **Orchestrator memory** — the agent orchestrator now keeps a per-project memory of completed work in `.soryq/orchestrator-memory.json`. Finished task summaries are remembered (capped at 40 entries, deduplicated), loaded when a project opens, and folded into the brain's context so follow-up requests build on what's already been done instead of starting cold.
+
+- **Task-panel awareness for the orchestrator** — the brain now reads your Kanban board (In progress / To do / Done) as project truth. When you ask "what should I do next?" it recommends what to tackle and what can wait, prioritising in-progress work over the backlog, and dispatched agents receive a compact task-panel context block so they share the same picture without you re-explaining it.
+
+- **Hand-drawn sketch rendering** — the Sketch Canvas gains a dependency-free "rough" renderer (`roughSketch`) for the Excalidraw-style sketchy look: perturbed double-stroke outlines and jittered hachure / cross-hatch fills, deterministic per shape so a drawing looks identical across redraws, zoom, and export.
+
+### Changed
+
+- **Sketch Canvas small-screen polish** — the canvas toolbar and controls reflow more gracefully on narrow windows, the native font picker is replaced with a custom styled font dropdown, and the settings popover z-index is fixed so it no longer renders behind other canvas chrome.
+
+- **Tab strips no longer over-scroll** — a new `clampHorizontalScroll` action keeps horizontally scrollable strips (editor tabs and panel headers) pinned within their content bounds instead of drifting past the last item.
+
 ## [v0.3.5] - 2026-06-12
 
 ### Added

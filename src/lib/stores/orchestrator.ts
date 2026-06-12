@@ -2,6 +2,7 @@ import { writable, get, derived } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '$lib/stores/notification';
 import { getPresetRuns } from '$lib/stores/runs';
+import { getProjectTaskPanelLines, loadProjectTasks, tasks } from '$lib/stores/tasks';
 import { loadJson } from '$lib/utils/storage';
 import {
   routeOrchestratorRequest,
@@ -50,6 +51,11 @@ import {
 import { pickAssistantName, isGenericAgentName } from '$lib/services/orchestrator/agent-names';
 import { buildAgentCharter, buildAgentTaskMessage } from '$lib/services/orchestrator/agent-charter';
 import { agentReadsRulesFile } from '$lib/services/orchestrator/agent-rules-file';
+import {
+  getProjectMemoryLines,
+  loadProjectMemory,
+  rememberTask,
+} from '$lib/services/orchestrator/memory';
 import {
   onSessionExit,
   getAgentDisplayName,
@@ -185,6 +191,7 @@ function releaseTaskLease(task: OrchestratorTask): void {
 
 export async function loadProjectOrchestratorTasks(project: { id: string; root_path: string }): Promise<void> {
   projectPaths.set(project.id, project.root_path);
+  await loadProjectMemory(project.id, project.root_path);
   let rawPersistedTasks: Array<Partial<PersistedTask> | null | undefined> = [];
   try {
     const raw = await invoke<string>('fs_read_file', { path: storePath(project.root_path) });
@@ -428,6 +435,8 @@ function completeLeasedTask(
     } else {
       logTaskActivity(taskId, 'finished', 'Finished its turn.');
     }
+    const rememberedTask = get(orchestratorTasks).find((t) => t.id === updated.id) ?? updated;
+    void rememberTask(updated.projectId, projectPaths.get(updated.projectId), rememberedTask);
   }
 
   if (opts?.notify === false || !updated) return;
@@ -561,10 +570,27 @@ export function unlinkOrchestratorTask(id: string) {
  * brief wrapped around the goal (the legacy paste channel). This is the single
  * decision point so dispatch, resend, and resume stay consistent.
  */
-function buildLeasedAgentMessage(goal: string, agentCommand: string | null | undefined, name?: string | null): string {
+function buildAgentTaskPanelContext(projectId: string): string {
+  const lines = getProjectTaskPanelLines(projectId);
+  if (!lines.length) return '';
+  return [
+    'PROJECT TASK PANEL CONTEXT',
+    'Use this as situational context. Do not edit task records unless the user explicitly asks.',
+    ...lines.map((line) => `- ${line}`),
+  ].join('\n');
+}
+
+function withAgentTaskPanelContext(goal: string, projectId: string): string {
+  const panelContext = buildAgentTaskPanelContext(projectId);
+  if (!panelContext) return goal;
+  return `${goal.trim()}\n\n${panelContext}`;
+}
+
+function buildLeasedAgentMessage(goal: string, agentCommand: string | null | undefined, name?: string | null, projectId?: string): string {
+  const contextualGoal = projectId ? withAgentTaskPanelContext(goal, projectId) : goal;
   return agentReadsRulesFile(agentCommand)
-    ? buildAgentTaskMessage(goal, { name: name ?? null })
-    : buildAgentCharter(goal, { name: name ?? null });
+    ? buildAgentTaskMessage(contextualGoal, { name: name ?? null })
+    : buildAgentCharter(contextualGoal, { name: name ?? null });
 }
 
 function sendGoalToLeasedTask(
@@ -581,7 +607,7 @@ function sendGoalToLeasedTask(
       // only the task; the rest get the charter-wrapped goal. The stored goal and
       // the activity log keep the clean task text either way.
       const task = get(orchestratorTasks).find((t) => t.id === id);
-      const message = buildLeasedAgentMessage(goal, agentCommand, task?.name ?? null);
+      const message = buildLeasedAgentMessage(goal, agentCommand, task?.name ?? null, task?.projectId);
       const sent = await sendOrchestratorGoalWhenReady(sessionId, message, {
         shouldContinue: () => leasedSessionLive(id, sessionId),
       });
@@ -710,7 +736,7 @@ export function resendOrchestratorGoal(id: string): void {
   // rules-file agents, whose brief is already in CLAUDE.md / AGENTS.md).
   resendLeasedOrchestratorGoal(
     task.assignedSessionId,
-    buildLeasedAgentMessage(task.goal, task.agentPreset, task.name ?? null)
+    buildLeasedAgentMessage(task.goal, task.agentPreset, task.name ?? null, task.projectId)
   );
   patchTask(id, (current) => (current.status === 'in-progress' ? { ...current, promptSentAt: Date.now() } : current));
   logTaskActivity(id, 'follow-up', `Re-sent goal: ${task.goal}`);
@@ -939,7 +965,7 @@ async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootP
   if (task.assignedSessionId != null) {
     const live = getTerminalProjectState(task.projectId).sessions.find((s) => s.id === task.assignedSessionId);
     if (!live?.isRunning || live.ownerTaskId !== task.id) return false;
-    const sent = await sendOrchestratorFollowUpWhenReady(task.assignedSessionId, prompt, {
+    const sent = await sendOrchestratorFollowUpWhenReady(task.assignedSessionId, withAgentTaskPanelContext(prompt, task.projectId), {
       shouldContinue: () => leasedSessionLive(task.id, task.assignedSessionId!),
     });
     if (!sent) return false;
@@ -982,7 +1008,7 @@ async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootP
   // still records the clean prompt, not the message text.
   const sent = await sendOrchestratorFollowUpWhenReady(
     sessionId,
-    buildLeasedAgentMessage(prompt, task.agentPreset, task.name ?? null),
+    buildLeasedAgentMessage(prompt, task.agentPreset, task.name ?? null, task.projectId),
     { shouldContinue: () => leasedSessionLive(task.id, sessionId) }
   );
   if (!sent) return false;
@@ -1010,7 +1036,8 @@ function formatTaskActivity(event: ActivityEvent): string {
 }
 
 function buildProjectTaskMemory(projectId: string): string[] {
-  return get(orchestratorTasks)
+  const learnedMemory = getProjectMemoryLines(projectId);
+  const recentTaskMemory = get(orchestratorTasks)
     .filter((task) => task.projectId === projectId)
     .filter((task) => (task.activity?.length ?? 0) > 0 || task.status !== 'todo')
     .map((task) => {
@@ -1030,6 +1057,7 @@ function buildProjectTaskMemory(projectId: string): string[] {
       const goal = compactInlineText(task.goal, 120);
       return goal ? `${head} — goal: ${goal}` : head;
     });
+  return [...learnedMemory, ...recentTaskMemory].slice(-10);
 }
 
 function msgId(): string {
@@ -1065,11 +1093,19 @@ export async function sendChatMessage(
   }
 
   const agents = getDispatchableAgents(projectId);
+  if (!get(tasks).some((task) => task.projectId === projectId)) {
+    try {
+      await loadProjectTasks({ id: projectId, root_path: rootPath });
+    } catch {
+      // Task-panel context is helpful but must never block dispatch.
+    }
+  }
   const recentUserMessages = (get(chatMessages)[projectId] ?? [])
     .filter((m) => !m.pending && m.role === 'user')
     .map((m) => m.text)
     .slice(-6);
   const taskMemory = buildProjectTaskMemory(projectId);
+  const taskPanel = getProjectTaskPanelLines(projectId);
   const llmConfig = getConversationLlmConfig(!!opts?.voiceConversation);
 
   appendChat(projectId, { id: msgId(), role: 'user', text: trimmed, ts: Date.now() });
@@ -1092,6 +1128,7 @@ export async function sendChatMessage(
         projectName: opts?.projectName,
         recentUserMessages,
         taskMemory,
+        taskPanel,
         runningAgents: getRunningAgentRefs(projectId),
         reviewingAgents: getReviewableAgentRefs(projectId),
         taskOutputs: getAgentOutputRefs(projectId),

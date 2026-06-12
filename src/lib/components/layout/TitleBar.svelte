@@ -307,7 +307,7 @@
     {#if $activeWorkspaceId}
       <button
         class="icon-btn"
-        class:active={$layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.toolboxVisible}
+        class:active={$layout.editorVisible || $layout.previewVisible || $layout.reviewVisible || $layout.httpVisible || $layout.tasksVisible || $layout.dbVisible || $layout.containersVisible || $layout.toolboxVisible}
         onclick={handleToggleAuxPanel}
         aria-label="Toggle Right Panel"
         title="Toggle Right Panel"

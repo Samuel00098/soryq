@@ -157,8 +157,8 @@
     | 'diamond'
     | 'image';
   let currentTool = $state<SketchTool>('select');
-  let currentColor = $state('#06b6d4'); // Default Soryq Cyan
-  let customColor = $state('#e2e2eb');
+  let currentColor = $state('#f8fafc');
+  let customColor = $state('#f8fafc');
   let brushSize = $state(6);
   let brushOpacity = $state(1.0);
 
@@ -283,6 +283,8 @@
 
   // Theme tracking
   let isLightTheme = $derived($appearance === 'light' || ($appearance === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches));
+  let defaultCanvasInk = $derived(isLightTheme ? '#18181e' : '#f8fafc');
+  let lastAppliedDefaultInk = $state('#f8fafc');
 
   // When the 'transparent' background is active, scale the overlay + viewport
   // backdrop by backgroundOpacity so it can go from the default dark look all
@@ -359,6 +361,25 @@
   // Viewport sizes
   let viewportWidth = $state(800);
   let viewportHeight = $state(600);
+
+  function contextMenuStyle(anchorX: number, anchorY: number, estimatedWidth: number) {
+    const margin = 12;
+    const panelReserve = showProperties ? (viewportWidth <= 768 ? 300 : 320) : 0;
+    const rightEdge = Math.max(margin + 220, viewportWidth - margin - panelReserve);
+    const availableWidth = Math.max(220, rightEdge - margin);
+    const menuWidth = Math.min(estimatedWidth, availableWidth);
+    const unclampedLeft = anchorX - menuWidth / 2;
+    const left = Math.min(Math.max(unclampedLeft, margin), Math.max(margin, rightEdge - menuWidth));
+
+    return `
+      position: absolute;
+      left: ${Math.round(left)}px;
+      top: ${Math.round(anchorY - 12)}px;
+      transform: translateY(-100%);
+      z-index: 9030;
+      --context-menu-max-width: ${Math.round(availableWidth)}px;
+    `;
+  }
 
   // Vector strokes list
   let strokes = $state<Stroke[]>([]);
@@ -3040,6 +3061,16 @@
     }
   });
 
+  $effect(() => {
+    const ink = defaultCanvasInk;
+    if (ink === lastAppliedDefaultInk) return;
+    if (currentColor === lastAppliedDefaultInk && customColor === lastAppliedDefaultInk) {
+      currentColor = ink;
+      customColor = ink;
+    }
+    lastAppliedDefaultInk = ink;
+  });
+
   // Watch backgroundStyle, gridSpacing, and appearance theme updates to redraw grid & canvas
   $effect(() => {
     const _style = backgroundStyle;
@@ -3216,18 +3247,12 @@
     {/each}
 
     <!-- Floating text context toolbar -->
-    {#if selectedTextId && currentTool === 'select'}
+    {#if selectedTextId && currentTool === 'select' && !showSettingsDropdown}
       {#each sketchTexts.filter(t => t.id === selectedTextId) as activeText (activeText.id)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="text-context-menu bento-card"
-          style="
-            position: absolute;
-            left: {activeText.x * zoomScale + panOffset.x}px;
-            top: {activeText.y * zoomScale + panOffset.y - 12}px;
-            transform: translate(0, -100%);
-            z-index: 9030;
-          "
+          style={contextMenuStyle(activeText.x * zoomScale + panOffset.x, activeText.y * zoomScale + panOffset.y, 690)}
           transition:scale={{ start: 0.9, duration: 120 }}
           onpointerdown={e => e.stopPropagation()}
         >
@@ -3378,17 +3403,11 @@
     {/if}
 
     <!-- Floating shape context toolbar -->
-    {#if selectedShapeId && currentTool === 'select'}
+    {#if selectedShapeId && currentTool === 'select' && !showSettingsDropdown}
       {#each sketchShapes.filter(s => s.id === selectedShapeId) as activeShape (activeShape.id)}
         <div
           class="shape-context-menu bento-card"
-          style="
-            position: absolute;
-            left: {(activeShape.x + activeShape.width / 2) * zoomScale + panOffset.x}px;
-            top: {activeShape.y * zoomScale + panOffset.y - 12}px;
-            transform: translate(-50%, -100%);
-            z-index: 9030;
-          "
+          style={contextMenuStyle((activeShape.x + activeShape.width / 2) * zoomScale + panOffset.x, activeShape.y * zoomScale + panOffset.y, 720)}
           transition:scale={{ start: 0.9, duration: 120 }}
           onpointerdown={e => e.stopPropagation()}
         >
@@ -3576,18 +3595,12 @@
     {/if}
 
     <!-- Floating image context toolbar -->
-    {#if selectedImageId && currentTool === 'select'}
+    {#if selectedImageId && currentTool === 'select' && !showSettingsDropdown}
       {#each sketchImages.filter(im => im.id === selectedImageId) as activeImage (activeImage.id)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="image-context-menu bento-card"
-          style="
-            position: absolute;
-            left: {(activeImage.x + activeImage.width / 2) * zoomScale + panOffset.x}px;
-            top: {activeImage.y * zoomScale + panOffset.y - 12}px;
-            transform: translate(-50%, -100%);
-            z-index: 9030;
-          "
+          style={contextMenuStyle((activeImage.x + activeImage.width / 2) * zoomScale + panOffset.x, activeImage.y * zoomScale + panOffset.y, 230)}
           transition:scale={{ start: 0.9, duration: 120 }}
           onpointerdown={e => e.stopPropagation()}
         >
@@ -3692,6 +3705,7 @@
           </button>
         </div>
 
+        <div class="properties-scroll-body">
         <div class="properties-section">
           <span class="properties-label">Stroke</span>
           <div class="properties-swatches">
@@ -3925,6 +3939,7 @@
               </svg>
             </button>
           </div>
+        </div>
         </div>
       </aside>
     {:else}
@@ -4198,6 +4213,7 @@
             class:open={showSettingsDropdown}
             onclick={(e) => {
               e.stopPropagation();
+              showFontDropdown = false;
               showSettingsDropdown = !showSettingsDropdown;
             }}
             title="Canvas Grid & Export Settings"
@@ -4539,9 +4555,9 @@
     max-height: calc(100% - 112px);
     display: flex;
     flex-direction: column;
-    gap: 13px;
-    overflow: auto;
-    padding: 14px;
+    gap: 0;
+    overflow: hidden;
+    padding: 0;
     border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
     border-radius: 8px;
     background: rgba(12, 15, 21, 0.86);
@@ -4564,9 +4580,35 @@
   }
 
   .properties-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 14px 14px 10px;
+    background: rgba(12, 15, 21, 0.92);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
     color: var(--text-primary);
     font-size: 13px;
     font-weight: 650;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  :root.light-theme .properties-header {
+    background: rgba(255, 255, 255, 0.94);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+  }
+
+  .properties-scroll-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: none;
+    scrollbar-gutter: stable;
+    padding: 14px;
   }
 
   .properties-section {
@@ -4866,7 +4908,8 @@
     border-radius: 8px;
     box-shadow: var(--shadow-md);
     min-height: 32px;
-    white-space: nowrap;
+    max-width: var(--context-menu-max-width, calc(100% - 24px));
+    box-sizing: border-box;
     animation: popIn 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
@@ -4998,7 +5041,9 @@
     border-radius: 8px;
     box-shadow: var(--shadow-md);
     min-height: 32px;
-    white-space: nowrap;
+    max-width: var(--context-menu-max-width, calc(100% - 24px));
+    box-sizing: border-box;
+    overflow: visible !important;
     animation: popIn 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
@@ -5009,13 +5054,14 @@
   }
 
   @keyframes popIn {
-    from { transform: translate(-50%, -85%) scale(0.95); opacity: 0; }
-    to { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .menu-section {
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 4px;
   }
 
@@ -5036,6 +5082,7 @@
     border: 1px solid transparent;
     color: var(--text-secondary);
     cursor: pointer;
+    white-space: nowrap;
     transition: all 0.1s ease;
   }
 
@@ -5054,6 +5101,7 @@
   .menu-dropdown-wrapper {
     position: relative;
     display: inline-block;
+    overflow: visible;
   }
 
   .menu-dropdown-trigger {
@@ -5091,6 +5139,11 @@
     top: calc(100% + 4px);
     left: 0;
     min-width: 110px;
+    max-height: min(220px, calc(100vh - 96px));
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: none;
+    scrollbar-gutter: stable;
     background: rgba(12, 15, 21, 0.94);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -5101,7 +5154,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    z-index: 9060;
+    z-index: 9999;
   }
 
   :root.light-theme .menu-dropdown-trigger {
@@ -5853,28 +5906,31 @@
   @container sketch-container (max-width: 1160px) {
     .sketch-toolbar {
       top: 14px;
-      width: min(100%, calc(100% - 24px));
-      max-width: calc(100% - 24px);
-      flex-direction: column;
-      padding: 10px 16px;
-      gap: 10px;
+      width: min(100%, calc(100% - 16px));
+      max-width: calc(100% - 16px);
+      flex-direction: row;
+      align-content: center;
+      padding: 8px 10px;
+      gap: 6px;
       border-radius: 8px;
     }
     .hide-on-stack {
       display: none !important;
     }
     .toolbar-group {
-      width: 100%;
+      width: auto;
       justify-content: center;
+      gap: 6px;
     }
     .draw-group,
     .utility-group {
-      row-gap: 10px;
+      row-gap: 6px;
     }
     .main-tools {
-      grid-template-columns: repeat(6, minmax(32px, 1fr));
+      grid-template-columns: repeat(11, minmax(26px, 1fr));
       justify-items: center;
       width: auto;
+      gap: 4px;
     }
     .actions {
       justify-content: center;
@@ -5889,12 +5945,12 @@
       transform: translateX(-50%);
     }
     .sketch-properties-panel {
-      top: 156px;
+      top: 112px;
       right: 16px;
-      max-height: calc(100% - 196px);
+      max-height: calc(100% - 132px);
     }
     .properties-toggle {
-      top: 160px;
+      top: 116px;
       right: 18px;
     }
   }
@@ -5902,8 +5958,8 @@
   @container sketch-container (max-width: 768px) {
     .sketch-toolbar {
       top: 10px;
-      padding: 10px 12px;
-      gap: 8px;
+      padding: 7px 8px;
+      gap: 5px;
       border-radius: 8px;
     }
     .active-style-label {
@@ -5914,10 +5970,11 @@
     }
     .draw-group {
       justify-content: center;
-      gap: 6px;
+      gap: 5px;
     }
     .main-tools {
-      grid-template-columns: repeat(6, minmax(30px, 1fr));
+      grid-template-columns: repeat(11, minmax(24px, 1fr));
+      gap: 3px;
       width: auto;
     }
     .toolbar-section {
@@ -5929,9 +5986,10 @@
     .opacity-slider {
       justify-content: center;
       width: auto;
+      gap: 5px;
     }
     .opacity-slider input[type="range"] {
-      width: min(100px, 30vw);
+      width: min(72px, 22vw);
     }
     .settings-trigger-btn {
       padding-inline: 10px;
@@ -5943,15 +6001,15 @@
       display: none;
     }
     .sketch-properties-panel {
-      top: 154px;
+      top: 104px;
       right: 10px;
       left: auto;
       bottom: auto;
       width: min(240px, calc(100% - 20px));
-      max-height: calc(100% - 174px);
+      max-height: calc(100% - 124px);
     }
     .properties-toggle {
-      top: 158px;
+      top: 108px;
       right: 12px;
       left: auto;
       bottom: auto;
@@ -5962,16 +6020,16 @@
     .sketch-toolbar {
       width: min(100%, calc(100% - 16px));
       max-width: calc(100% - 16px);
-      padding: 6px 8px;
-      gap: 6px;
+      padding: 5px 6px;
+      gap: 4px;
       border-radius: 8px;
     }
     .tool-btn, .action-btn, .exit-btn {
-      width: 28px;
-      height: 28px;
+      width: 26px;
+      height: 26px;
     }
     .main-tools {
-      grid-template-columns: repeat(6, minmax(26px, 1fr));
+      grid-template-columns: repeat(6, minmax(24px, 1fr));
       gap: 3px;
       width: auto;
     }
@@ -5982,6 +6040,9 @@
     .color-dot {
       width: 14px;
       height: 14px;
+    }
+    .opacity-slider {
+      display: none;
     }
     .settings-trigger-btn {
       padding-inline: 8px;

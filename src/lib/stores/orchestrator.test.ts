@@ -88,6 +88,7 @@ vi.mock('$lib/stores/terminal', () => ({
 import { orchestratorTasks, chatMessages, createOrchestratorTask, deleteOrchestratorTask, loadProjectOrchestratorTasks, launchOrchestratorTask, unlinkOrchestratorTask, resendOrchestratorGoal, resumeBlockedOrchestratorTask, renameOrchestratorAgent, sendChatMessage } from './orchestrator';
 import { makeActivityEvent } from '$lib/services/orchestrator/activity-log';
 import { buildAgentCharter, buildAgentTaskMessage } from '$lib/services/orchestrator/agent-charter';
+import { tasks } from '$lib/stores/tasks';
 
 function resetMocks() {
   invoke.mockReset();
@@ -126,6 +127,7 @@ function resetMocks() {
   getTerminalProjectState.mockReset();
   getTerminalProjectState.mockReturnValue({ sessions: [] });
   chatMessages.set({});
+  tasks.set([]);
   sessions.subscribe.mockReset();
   sessions.subscribe.mockImplementation((cb: (value: MockLiveSession[]) => void) => {
     sessionSubscribers.push(cb);

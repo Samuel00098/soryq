@@ -1,5 +1,6 @@
 <script lang="ts">
   import { openFiles, activeFile, fileCache, closeFile } from '$lib/stores/editor';
+  import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
 
   function handleTabClick(path: string) {
     activeFile.set(path);
@@ -15,7 +16,7 @@
   }
 </script>
 
-<div class="editor-tabs">
+<div class="editor-tabs" use:clampHorizontalScroll>
   {#each $openFiles as file (file)}
     {@const fileState = $fileCache.get(file)}
     {#if fileState}
@@ -65,6 +66,8 @@
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
     overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
   }
 
   .editor-tabs::-webkit-scrollbar {
@@ -92,6 +95,7 @@
     transition: background-color 0.2s, color 0.2s;
     min-width: 100px;
     max-width: 180px;
+    scroll-snap-align: start;
   }
 
   .editor-tab:hover {
