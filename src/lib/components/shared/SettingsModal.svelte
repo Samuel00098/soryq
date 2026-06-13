@@ -3391,10 +3391,6 @@
         </div>
 
         <div class="updater-section">
-          <div class="security-note compact">
-            <span class="security-note-label">Updates</span>
-            <span>Checks the configured release channel and installs signed Soryq builds. Keep release artifacts and update metadata in the trusted release repo.</span>
-          </div>
           {#if updateStatus === 'idle'}
             <button class="updater-btn" onclick={handleCheckForUpdates}>
               Check for Updates

@@ -12,6 +12,10 @@ export const fileCache = writable<Map<string, EditorFile>>(new Map());
 export const activeLine = writable<number>(1);
 export const activeColumn = writable<number>(1);
 export const jumpToLine = writable<{ path: string; line: number } | null>(null);
+// The text currently selected in the editor (empty when nothing is selected).
+// Fed by CodeEditor's update listener so the in-app assistant can see what the
+// user has highlighted ("explain this", "refactor the selection").
+export const activeSelection = writable<string>('');
 
 const IMAGE_EXTENSIONS = new Set([
   'png', 'apng', 'jpg', 'jpeg', 'jpe', 'jfif', 'gif', 'webp', 'bmp', 'ico', 'cur',
@@ -154,6 +158,8 @@ export function detectLanguage(path: string): string {
 
 export async function openFile(path: string) {
   const currentOpenFiles = get(openFiles);
+  // Switching files invalidates any prior selection.
+  activeSelection.set('');
 
   if (currentOpenFiles.includes(path)) {
     activeFile.set(path);

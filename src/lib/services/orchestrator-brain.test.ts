@@ -68,6 +68,7 @@ describe('routeOrchestratorRequest', () => {
 
     const result = await routeOrchestratorRequest('Ship it now', [{ command: 'claude', name: 'Claude' }], {
       projectName: 'Atlas',
+      projectRoot: 'C:/work/Atlas',
       recentUserMessages: ['Need docs', 'Make it fast'],
       taskMemory: ['Backend [claude, complete] — dispatch: launched; finished: green'],
       taskPanel: ['In progress (1): Finish agent memory', 'To do (2): Add Docker switch; Improve canvas colors'],
@@ -77,7 +78,7 @@ describe('routeOrchestratorRequest', () => {
     expect(result).toEqual({ reply: 'Sure.', actions: [], viaLLM: true });
     expect(invoke).toHaveBeenCalledTimes(1);
     const call = invoke.mock.calls[0][1] as { systemPrompt: string; userText: string };
-    expect(call.userText).toContain('Project: Atlas');
+    expect(call.userText).toContain('Current active project: Atlas at C:/work/Atlas.');
     expect(call.userText).toContain('Tasks awaiting review that can be resumed automatically:');
     expect(call.userText).toContain('- "Backend" [claude] — Refactor the launcher (awaiting review)');
     expect(call.userText).toContain('Project memory and recent task activity:');
@@ -99,6 +100,84 @@ describe('routeOrchestratorRequest', () => {
 
     expect(result.viaLLM).toBe(true);
     expect(result.actions).toEqual([{ kind: 'close', target: 'Iris' }]);
+  });
+
+  it('renders the application state into the prompt context', async () => {
+    invoke.mockResolvedValueOnce('{"reply":"You are on the editor.","actions":[]}');
+
+    await routeOrchestratorRequest('what file am I on?', [{ command: 'claude', name: 'Claude' }], {
+      appState: {
+        activeView: 'editor',
+        visiblePanels: ['editor'],
+        editor: {
+          activeFile: 'src/app.ts',
+          openFiles: ['src/app.ts', 'src/lib/x.ts'],
+          dirtyFiles: ['src/lib/x.ts'],
+          cursor: { line: 12, col: 4 },
+          language: 'typescript',
+          content: 'export const x = 1;\nconsole.log(x);',
+          selection: 'const x = 1;',
+        },
+        terminals: [
+          { label: 'Iris', agent: 'Claude Code', running: true, busy: true },
+          { label: 'Terminal 2', running: true, busy: false, recentOutput: '$ npm run build\nBuild failed: TS2322' },
+        ],
+        preview: { url: 'http://localhost:5173/', running: true },
+        branch: 'main',
+        availableRuns: [{ name: 'dev', command: 'npm run dev' }],
+      },
+    });
+
+    const call = invoke.mock.calls[0][1] as { userText: string };
+    expect(call.userText).toContain('Application state (what the user is looking at right now):');
+    expect(call.userText).toContain('- Active view: editor');
+    expect(call.userText).toContain('- Active editor file: src/app.ts (cursor 12:4), typescript');
+    expect(call.userText).toContain('- Unsaved changes in: src/lib/x.ts');
+    expect(call.userText).toContain('- Highlighted selection in the editor:');
+    expect(call.userText).toContain('const x = 1;');
+    expect(call.userText).toContain('- Contents of the active file:');
+    expect(call.userText).toContain('console.log(x);');
+    expect(call.userText).toContain('Build failed: TS2322');
+    expect(call.userText).toContain('- Preview URL: http://localhost:5173/ (dev server connected)');
+    expect(call.userText).toContain('- Git branch: main');
+    expect(call.userText).toContain('npm run dev');
+  });
+
+  it('parses app-control actions (navigate / open-file / preview / run / task) from the model', async () => {
+    invoke.mockResolvedValueOnce(
+      '{"reply":"Done.","actions":[' +
+        '{"kind":"open-file","path":"src/lib/router.ts","line":42},' +
+        '{"kind":"navigate","view":"Editor"},' +
+        '{"kind":"preview","url":"/login"},' +
+        '{"kind":"run","command":"npm test"},' +
+        '{"kind":"task","op":"create","title":"Wire up auth"}]}'
+    );
+
+    const result = await routeOrchestratorRequest('open the router and run the tests', [{ command: 'claude', name: 'Claude' }]);
+
+    expect(result.viaLLM).toBe(true);
+    expect(result.actions).toEqual([
+      { kind: 'open-file', path: 'src/lib/router.ts', line: 42 },
+      { kind: 'navigate', view: 'editor' },
+      { kind: 'preview', url: '/login' },
+      { kind: 'run', command: 'npm test' },
+      { kind: 'task', op: 'create', title: 'Wire up auth' },
+    ]);
+  });
+
+  it('heuristically navigates to a view without an LLM, but treats "open codex" as a spawn', async () => {
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
+
+    const nav = await routeOrchestratorRequest('show me the editor', ALL_AGENTS);
+    expect(nav.viaLLM).toBe(false);
+    expect(nav.actions).toEqual([{ kind: 'navigate', view: 'editor' }]);
+
+    const hide = await routeOrchestratorRequest('hide the preview', ALL_AGENTS);
+    expect(hide.actions).toEqual([{ kind: 'navigate', view: 'terminal' }]);
+
+    // "open codex" names an agent → spawn, not navigation.
+    const spawn = await routeOrchestratorRequest('open codex', ALL_AGENTS);
+    expect(spawn.actions[0].kind).toBe('spawn');
   });
 
   it('can use an explicit llm config for voice conversations', async () => {

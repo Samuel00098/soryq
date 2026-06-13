@@ -27,6 +27,14 @@ export interface OrchestratorTask {
   activity?: ActivityEvent[];
   /** Verbatim, ANSI-stripped snapshot of the agent's terminal output. */
   transcript?: string | null;
+  /**
+   * True when the orchestrator adopted an agent the user launched by hand
+   * (typed `claude`/`codex`/… into a terminal) rather than spawning it itself.
+   * Adopted tasks are ephemeral: never persisted, never claim the brief lease
+   * (the terminal's own auto-brief still runs), but ARE addressable for
+   * follow-ups / close so agent mode can drive them like any other.
+   */
+  adopted?: boolean;
   createdAt: number;
   startedAt?: number | null;
   completedAt?: number | null;

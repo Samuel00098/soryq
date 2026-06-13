@@ -89,6 +89,90 @@ pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Resu
         .map_err(|e| format!("Failed to open browser: {}", e))
 }
 
+/// Clear cookies and cache for the embedded preview WebView2 profile.
+///
+/// The preview renders proxied content (and external sites) inside the main
+/// webview, so stale auth cookies — e.g. a JWT minted against a skewed clock —
+/// and cached assets accumulate in the shared WebView2 profile. This clears the
+/// cookie + HTTP/cache layers (`COOKIES | DISK_CACHE | CACHE_STORAGE |
+/// SERVICE_WORKERS`) only; `LOCAL_STORAGE`/`INDEXED_DB` are deliberately left
+/// untouched so the app's own persisted state (settings, sketches) survives.
+#[tauri::command]
+pub async fn preview_clear_browsing_data(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        window
+            .with_webview(move |webview| {
+                let _ = tx.send(clear_webview2_browsing_data(webview));
+            })
+            .map_err(|e| e.to_string())?;
+
+        return rx
+            .recv()
+            .map_err(|_| "Clearing browsing data was interrupted".to_string())?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        Err("Clearing preview cookies and cache is only supported on Windows".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn clear_webview2_browsing_data(
+    webview: tauri::webview::PlatformWebview,
+) -> Result<(), String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2Profile2, ICoreWebView2_13, COREWEBVIEW2_BROWSING_DATA_KINDS,
+        COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE,
+        COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE,
+        COREWEBVIEW2_BROWSING_DATA_KINDS_SERVICE_WORKERS,
+    };
+    use webview2_com::ClearBrowsingDataCompletedHandler;
+    use windows::core::Interface;
+
+    let controller = webview.controller();
+    let core = unsafe { controller.CoreWebView2() }.map_err(|e| e.to_string())?;
+
+    // Profile() lives on ICoreWebView2_13; ClearBrowsingData() on ICoreWebView2Profile2.
+    let core13: ICoreWebView2_13 = core.cast().map_err(|e| e.to_string())?;
+    let profile = unsafe { core13.Profile() }.map_err(|e| e.to_string())?;
+    let profile2: ICoreWebView2Profile2 = profile.cast().map_err(|e| e.to_string())?;
+
+    let kinds = COREWEBVIEW2_BROWSING_DATA_KINDS(
+        COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES.0
+            | COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE.0
+            | COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE.0
+            | COREWEBVIEW2_BROWSING_DATA_KINDS_SERVICE_WORKERS.0,
+    );
+
+    unsafe {
+        ClearBrowsingDataCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| {
+                profile2
+                    .ClearBrowsingData(kinds, &handler)
+                    .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(|result| {
+                result?;
+                Ok(())
+            }),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 /// Capture the preview panel region as PNG bytes.
 /// x, y, width, height are CSS (logical) pixels relative to the webview; scale = devicePixelRatio.
 ///

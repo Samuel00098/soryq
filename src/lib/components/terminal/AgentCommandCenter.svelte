@@ -216,7 +216,7 @@
           <path d="M12 7v4"/>
           <circle cx="12" cy="5" r="2"/>
         </svg>
-        <span>Tell me what to build, fix, or investigate — I'll dispatch an agent.</span>
+        <span>Ask me about your project, tell me to open files or pages, or describe what to build — I'll handle it or put an agent on it.</span>
       </div>
     {:else}
       {#each messages as msg (msg.id)}

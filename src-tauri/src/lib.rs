@@ -130,6 +130,7 @@ pub fn run() {
             commands::preview::preview_clear_proxy_target,
             commands::preview::preview_open_in_browser,
             commands::preview::preview_capture_screenshot,
+            commands::preview::preview_clear_browsing_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running forge application");

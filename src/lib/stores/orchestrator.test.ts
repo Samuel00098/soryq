@@ -30,7 +30,7 @@ const detectAgentAccess = vi.hoisted(() =>
     })
   )
 );
-type MockLiveSession = { id: number; isRunning: boolean; ownerTaskId: string | null; lastExitCode?: number | null };
+type MockLiveSession = { id: number; isRunning: boolean; ownerTaskId: string | null; lastExitCode?: number | null; agentName?: string | null; agentPreset?: string | null; isExecuting?: boolean; role?: string | null };
 const getTerminalProjectState = vi.hoisted(() =>
   vi.fn((): { sessions: MockLiveSession[] } => ({ sessions: [] }))
 );
@@ -55,6 +55,33 @@ const onSessionExit = vi.hoisted(() =>
     };
   })
 );
+type MockAgentDetectedInfo = { sessionId: number; projectId: string; preset: string };
+const agentDetectedListeners = vi.hoisted(() => [] as Array<(info: MockAgentDetectedInfo) => void>);
+const onAgentDetected = vi.hoisted(() =>
+  vi.fn((cb: (info: MockAgentDetectedInfo) => void) => {
+    agentDetectedListeners.push(cb);
+    return () => {
+      const idx = agentDetectedListeners.indexOf(cb);
+      if (idx >= 0) agentDetectedListeners.splice(idx, 1);
+    };
+  })
+);
+
+const setActiveView = vi.hoisted(() => vi.fn());
+const openSettings = vi.hoisted(() => vi.fn());
+const sanitiseActiveView = vi.hoisted(() => vi.fn((v: string) => v));
+const createTerminalSession = vi.hoisted(() => vi.fn(async (): Promise<number | null> => 99));
+const sendPromptToSession = vi.hoisted(() => vi.fn());
+const openFile = vi.hoisted(() => vi.fn(async (): Promise<void> => {}));
+const closeFile = vi.hoisted(() => vi.fn());
+const jumpToLine = vi.hoisted(() => ({ set: vi.fn() }));
+const navigatePreviewTab = vi.hoisted(() => vi.fn());
+const getAppContextSnapshot = vi.hoisted(() => vi.fn(() => ({})));
+const sessionHasRunningProcess = vi.hoisted(() => vi.fn((s: MockLiveSession) => {
+  const role = (s as { role?: string | null }).role?.toLowerCase();
+  return !!role && (role === 'server' || role === 'build');
+}));
+const NAVIGABLE_VIEWS = vi.hoisted(() => ['editor', 'terminal', 'preview', 'review', 'http', 'tasks', 'db', 'containers', 'toolbox', 'pet', 'settings']);
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('$lib/services/orchestrator-brain', () => ({ routeOrchestratorRequest }));
@@ -63,11 +90,15 @@ vi.mock('$lib/services/agent-access', () => ({
   getAgentAccessBlockedMessage: () => 'To access the agent, add an API key or load a local model into the application.',
 }));
 vi.mock('$lib/stores/notification', () => ({ showToast }));
-vi.mock('$lib/stores/layout', () => ({ showTerminal }));
+vi.mock('$lib/stores/layout', () => ({ showTerminal, setActiveView, openSettings, sanitiseActiveView }));
+vi.mock('$lib/stores/editor', () => ({ openFile, closeFile, jumpToLine }));
+vi.mock('$lib/stores/preview', () => ({ navigatePreviewTab }));
+vi.mock('$lib/services/orchestrator/app-context', () => ({ getAppContextSnapshot, NAVIGABLE_VIEWS }));
 vi.mock('$lib/stores/runs', () => ({ getPresetRuns }));
 vi.mock('$lib/stores/terminal', () => ({
   sessions,
   onSessionExit,
+  onAgentDetected,
   spawnAgentPreset,
   setSessionOwnerTask,
   setSessionTaskSummary,
@@ -83,12 +114,15 @@ vi.mock('$lib/stores/terminal', () => ({
   summarizeTerminalTask,
   getTerminalProjectState,
   waitForAgentReady,
+  createTerminalSession,
+  sendPromptToSession,
+  sessionHasRunningProcess,
 }));
 
 import { orchestratorTasks, chatMessages, createOrchestratorTask, deleteOrchestratorTask, loadProjectOrchestratorTasks, launchOrchestratorTask, unlinkOrchestratorTask, resendOrchestratorGoal, resumeBlockedOrchestratorTask, renameOrchestratorAgent, sendChatMessage } from './orchestrator';
 import { makeActivityEvent } from '$lib/services/orchestrator/activity-log';
 import { buildAgentCharter, buildAgentTaskMessage } from '$lib/services/orchestrator/agent-charter';
-import { tasks } from '$lib/stores/tasks';
+import { tasks, addTask } from '$lib/stores/tasks';
 
 function resetMocks() {
   invoke.mockReset();
@@ -126,6 +160,18 @@ function resetMocks() {
   });
   getTerminalProjectState.mockReset();
   getTerminalProjectState.mockReturnValue({ sessions: [] });
+  setActiveView.mockReset();
+  openSettings.mockReset();
+  openFile.mockReset();
+  openFile.mockResolvedValue(undefined);
+  closeFile.mockReset();
+  jumpToLine.set.mockReset();
+  navigatePreviewTab.mockReset();
+  createTerminalSession.mockReset();
+  createTerminalSession.mockResolvedValue(99);
+  sendPromptToSession.mockReset();
+  getAppContextSnapshot.mockReset();
+  getAppContextSnapshot.mockReturnValue({});
   chatMessages.set({});
   tasks.set([]);
   sessions.subscribe.mockReset();
@@ -754,6 +800,151 @@ describe('orchestrator chat actions', () => {
     else g.localStorage = previousLocalStorage;
   });
 
+
+  it('adopts an agent the user launched by hand into a running task', async () => {
+    vi.resetModules();
+    const g = globalThis as unknown as { window?: unknown; localStorage?: unknown };
+    const previousWindow = g.window;
+    const previousLocalStorage = g.localStorage;
+    g.window = {};
+    g.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+    sessionExitListeners.length = 0;
+    agentDetectedListeners.length = 0;
+    const mod = await import('./orchestrator');
+    mod.orchestratorTasks.set([]);
+
+    // A typed `claude` launch: the session is live, unleased (no ownerTaskId),
+    // and has no task tracking it yet.
+    getTerminalProjectState.mockReturnValue({ sessions: [{ id: 77, isRunning: true, ownerTaskId: null, agentName: null }] });
+
+    expect(agentDetectedListeners).toHaveLength(1);
+    agentDetectedListeners[0]({ sessionId: 77, projectId: 'project-1', preset: 'claude' });
+
+    const adopted = get(mod.orchestratorTasks);
+    expect(adopted).toHaveLength(1);
+    expect(adopted[0].adopted).toBe(true);
+    expect(adopted[0].status).toBe('in-progress');
+    expect(adopted[0].assignedSessionId).toBe(77);
+    expect(adopted[0].agentPreset).toBe('claude');
+
+    // Idempotent — a second detection for the same live session is a no-op.
+    agentDetectedListeners[0]({ sessionId: 77, projectId: 'project-1', preset: 'claude' });
+    expect(get(mod.orchestratorTasks)).toHaveLength(1);
+
+    if (previousWindow === undefined) delete g.window;
+    else g.window = previousWindow;
+    if (previousLocalStorage === undefined) delete g.localStorage;
+    else g.localStorage = previousLocalStorage;
+  });
+
+  it('completes an adopted agent quietly when its process exits', async () => {
+    vi.resetModules();
+    const g = globalThis as unknown as { window?: unknown; localStorage?: unknown };
+    const previousWindow = g.window;
+    const previousLocalStorage = g.localStorage;
+    g.window = {};
+    g.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+    sessionExitListeners.length = 0;
+    agentDetectedListeners.length = 0;
+    const mod = await import('./orchestrator');
+    const task = mod.createOrchestratorTask('project-1', '', 'claude');
+    mod.orchestratorTasks.set([{ ...task, status: 'in-progress', assignedSessionId: 88, adopted: true, startedAt: 1 }]);
+
+    // Natural exit: the session is still present (flagged isRunning:false).
+    getTerminalProjectState.mockReturnValue({ sessions: [{ id: 88, isRunning: false, ownerTaskId: null, agentName: null }] });
+
+    expect(sessionExitListeners).toHaveLength(1);
+    sessionExitListeners[0]({ sessionId: 88, projectId: 'project-1', code: 0 });
+
+    const updated = get(mod.orchestratorTasks)[0];
+    expect(updated.status).toBe('complete');
+    expect(updated.assignedSessionId).toBeNull();
+    // An adopted exit must not raise an orchestrator completion chat card.
+    const chat = get(mod.chatMessages)['project-1'] ?? [];
+    expect(chat.some((m) => !!m.completion)).toBe(false);
+
+    if (previousWindow === undefined) delete g.window;
+    else g.window = previousWindow;
+    if (previousLocalStorage === undefined) delete g.localStorage;
+    else g.localStorage = previousLocalStorage;
+  });
+
+  it('executes app-control actions: navigate, open-file, preview, run, and task', async () => {
+    addTask('project-1', 'Wire up auth', 'todo');
+    routeOrchestratorRequest.mockResolvedValue({
+      reply: 'On it.',
+      actions: [
+        { kind: 'navigate', view: 'editor' },
+        { kind: 'open-file', path: 'src/lib/router.ts', line: 42 },
+        { kind: 'preview', url: '/login' },
+        { kind: 'run', command: 'npm test' },
+        { kind: 'task', op: 'doing', title: 'Wire up auth' },
+      ],
+      viaLLM: true,
+    });
+    // A plain shell to run the command in.
+    getTerminalProjectState.mockReturnValue({
+      sessions: [{ id: 7, isRunning: true, ownerTaskId: null, agentPreset: null, isExecuting: false }],
+    });
+
+    await sendChatMessage('project-1', '/repo', 'open the router, preview login, run tests, start the auth task');
+
+    expect(setActiveView).toHaveBeenCalledWith('editor');
+    expect(openFile).toHaveBeenCalledWith('/repo/src/lib/router.ts');
+    expect(jumpToLine.set).toHaveBeenCalledWith({ path: '/repo/src/lib/router.ts', line: 42 });
+    expect(navigatePreviewTab).toHaveBeenCalledWith('/login');
+    expect(sendPromptToSession).toHaveBeenCalledWith(7, 'npm test');
+    const moved = get(tasks).find((t) => t.projectId === 'project-1' && t.title === 'Wire up auth');
+    expect(moved?.status).toBe('doing');
+  });
+
+  it('adopts a live spawned terminal agent just in time when sending by name', async () => {
+    routeOrchestratorRequest.mockResolvedValue({
+      reply: 'I will ask Opal.',
+      actions: [{ kind: 'send', target: 'Opal', prompt: 'tell me about the project' }],
+      viaLLM: true,
+    });
+    getTerminalProjectState.mockReturnValue({
+      sessions: [
+        {
+          id: 51,
+          isRunning: true,
+          ownerTaskId: null,
+          agentName: 'Opal',
+          agentPreset: 'codex',
+          isExecuting: false,
+        },
+      ],
+    });
+
+    await sendChatMessage('project-1', '/repo', 'ask Opal to tell me about the project');
+
+    expect(sendAgentPromptDirect).toHaveBeenCalledWith(51, 'tell me about the project');
+    expect(showToast).not.toHaveBeenCalledWith('No running agent named "Opal"', 'warning', 4000);
+    const adopted = get(orchestratorTasks).find((t) => t.assignedSessionId === 51);
+    expect(adopted?.adopted).toBe(true);
+    expect(adopted?.name).toBe('Opal');
+    expect(adopted?.agentPreset).toBe('codex');
+  });
+
+  it('runs a command in a fresh terminal instead of clobbering a dev-server pane', async () => {
+    routeOrchestratorRequest.mockResolvedValue({
+      reply: 'Running tests.',
+      actions: [{ kind: 'run', command: 'npm test' }],
+      viaLLM: true,
+    });
+    // The only live shell is running a dev server (role 'Server'); it must not be reused.
+    getTerminalProjectState.mockReturnValue({
+      sessions: [{ id: 5, isRunning: true, ownerTaskId: null, agentPreset: null, isExecuting: false, role: 'Server' }],
+    });
+    createTerminalSession.mockResolvedValue(88);
+
+    await sendChatMessage('project-1', '/repo', 'run the tests');
+
+    expect(createTerminalSession).toHaveBeenCalled();
+    expect(sendPromptToSession).toHaveBeenCalledWith(88, 'npm test');
+    expect(sendPromptToSession).not.toHaveBeenCalledWith(5, 'npm test');
+  });
 
   it('warns when no running agent matches a send target', async () => {
     routeOrchestratorRequest.mockResolvedValue({

@@ -375,6 +375,19 @@ export async function setPreferredLocalHost(host: string | null) {
   }
 }
 
+export async function clearPreviewData(): Promise<boolean> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('preview_clear_browsing_data');
+    showToast('Preview cookies & cache cleared', 'success');
+    return true;
+  } catch (err: any) {
+    console.error('Failed to clear preview cookies & cache:', err);
+    showToast(`Failed to clear cookies & cache: ${err?.message || err}`, 'error');
+    return false;
+  }
+}
+
 export async function clearProxyTarget() {
   try {
     const { invoke } = await import('@tauri-apps/api/core');

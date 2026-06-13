@@ -3,6 +3,32 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.8] - 2026-06-13
+
+### Added
+
+- **The orchestrator is now a full in-app assistant** — beyond dispatching coding agents, it can see and answer questions about the whole application (the active page, open editor files and cursor, unsaved changes, every terminal and what it's running, the preview URL, the git branch, and your run presets) and act on it directly: switch pages/panels, open files and jump to a line, point the preview at a route, run commands, and manage the task board. Actual code changes are still delegated to spawned agents.
+
+- **Live content awareness** — the assistant also sees the contents of the file you're viewing, your current editor selection, and the recent output of every terminal (not just agents), so it can reason about the real code and what your processes are printing. File contents and selection are only shared while the editor is the focused view.
+
+- **Manually-launched agents are adopted automatically** — when you start an agent CLI yourself by typing it into a terminal (e.g. `claude`, `codex`), the orchestrator now recognises it, tracks it as a running agent you can address by name, reads its output, and can send it follow-ups or close it — exactly like agents it spawned itself.
+
+- **Clear preview cookies & cache** — a new preview-toolbar button (backed by the `preview_clear_browsing_data` command) clears the embedded preview's cookies, disk cache, cache storage, and service workers — handy when stale auth (e.g. a clock-skewed JWT) or cached assets break a local app. The app's own persisted state (settings, sketches) is deliberately left untouched. (Windows / WebView2.)
+
+### Changed
+
+- **Sketch Canvas grid and background follow the app theme** — in transparent and grid background modes the canvas grid, dots, and backdrop now read the active Soryq theme palette (and match it on export), and the canvas no longer stacks an opaque slab over the frosted wallpaper.
+
+- **Embedded commands open their own terminal** — Arduino / PlatformIO / Raspberry Pi commands now run in a fresh, project-scoped terminal session instead of reusing whatever pane is focused, so they can't interrupt something you're already running.
+
+- **Orchestrator memory tracks freshness** — remembered task summaries now carry an age / last-confirmed label and mark themselves stale once old, so the assistant weights recent work over old context.
+
+- **About tab cleanup** — removed the redundant descriptive "Updates" note from the updater section.
+
+### Fixed
+
+- **Agents no longer spawn on top of a busy terminal** — clicking "+" to launch an agent (and orchestrator dispatch) now skips any pane running a detected dev server or build, opening a new pane instead of clobbering the running process. The reuse check previously relied only on an output-quiescence flag, so a server that had gone quiet read as an idle shell and got overwritten.
+
 ## [v0.3.7] - 2026-06-12
 
 ### Security

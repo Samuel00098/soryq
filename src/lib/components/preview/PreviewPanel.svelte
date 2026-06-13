@@ -20,6 +20,7 @@
     ensureLocalDevProxy,
     setPreferredLocalHost,
     clearProxyTarget,
+    clearPreviewData,
     localDevProxyKey,
     navigatePreviewTab,
     goBackPreviewTab,
@@ -38,6 +39,7 @@
   let previewContentEl = $state<HTMLDivElement>();
   let deviceShellEl = $state<HTMLDivElement>();
   let screenshotting = $state(false);
+  let clearingData = $state(false);
   let tempPort = $state($targetPort);
   let inputUrl = $state($currentUrl);
   let inspectMode = $state(false);
@@ -456,6 +458,19 @@
     if (activeIframe) {
       startLoadFeedback(activeTab?.id);
       activeIframe.src = activeIframe.src;
+    }
+  }
+
+  async function clearBrowsingData() {
+    if (clearingData) return;
+    clearingData = true;
+    try {
+      const ok = await clearPreviewData();
+      // Reload so the cleared cookies/cache take effect immediately and the page
+      // re-authenticates with a fresh session.
+      if (ok) refresh();
+    } finally {
+      clearingData = false;
     }
   }
 
@@ -1037,6 +1052,28 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
             <circle cx="12" cy="13" r="4"/>
+          </svg>
+        {/if}
+      </button>
+
+      <!-- Clear cookies & cache -->
+      <button
+        class="nav-btn clear-data-btn"
+        class:clearing={clearingData}
+        onclick={clearBrowsingData}
+        disabled={clearingData}
+        title="Clear preview cookies & cache (keeps app settings)"
+      >
+        {#if clearingData}
+          <svg class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
+          </svg>
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5Z"/>
+            <circle cx="9.5" cy="11" r="0.6" fill="currentColor"/>
+            <circle cx="14" cy="14.5" r="0.6" fill="currentColor"/>
+            <circle cx="9.5" cy="16" r="0.6" fill="currentColor"/>
           </svg>
         {/if}
       </button>

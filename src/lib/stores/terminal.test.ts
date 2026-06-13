@@ -60,6 +60,7 @@ import {
   normalizeForEchoMatch,
   pasteEchoLanded,
   sessions,
+  sessionHasRunningProcess,
   setActiveTerminalProject,
   setTerminalProjectRoot,
   setSessionAgentName,
@@ -74,6 +75,27 @@ import {
 } from './terminal';
 import { openPty } from '$lib/services/pty-bridge';
 import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
+
+describe('sessionHasRunningProcess', () => {
+  const base = { id: 1, isRunning: true, isExecuting: false } as const;
+
+  it('flags panes running a detected dev server or build', () => {
+    expect(sessionHasRunningProcess({ ...base, role: 'Server' } as any)).toBe(true);
+    expect(sessionHasRunningProcess({ ...base, role: 'Build' } as any)).toBe(true);
+    expect(sessionHasRunningProcess({ ...base, role: 'server' } as any)).toBe(true);
+  });
+
+  it('does not flag idle shells, agents, or unrelated roles', () => {
+    expect(sessionHasRunningProcess({ ...base, role: null } as any)).toBe(false);
+    expect(sessionHasRunningProcess({ ...base, role: 'Agent' } as any)).toBe(false);
+    expect(sessionHasRunningProcess({ ...base, role: 'Tests' } as any)).toBe(false);
+  });
+
+  it('ignores roles on a session whose process already exited', () => {
+    expect(sessionHasRunningProcess({ ...base, isRunning: false, role: 'Server' } as any)).toBe(false);
+    expect(sessionHasRunningProcess(null)).toBe(false);
+  });
+});
 
 describe('terminal task summaries', () => {
   const projectId = 'project-terminal-summary';

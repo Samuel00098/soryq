@@ -227,6 +227,20 @@ export function onSessionExit(listener: (info: SessionExitInfo) => void): () => 
   sessionExitListeners.add(listener);
   return () => sessionExitListeners.delete(listener);
 }
+
+// Project-independent "agent launched" broadcast. Fires when a manually-typed
+// command is recognized as an AI agent CLI — the typed-launch path only, NOT an
+// orchestrator/floating-bar spawn (those manage their own bookkeeping). The
+// orchestrator listens so it can *adopt* agents it didn't spawn itself:
+// surface them in its running-agents list, read their terminal, and route
+// follow-ups / close to them. Mirrors the `onSessionExit` channel so background
+// projects are covered too.
+export type AgentDetectedInfo = { sessionId: number; projectId: string; preset: string };
+const agentDetectedListeners = new Set<(info: AgentDetectedInfo) => void>();
+export function onAgentDetected(listener: (info: AgentDetectedInfo) => void): () => void {
+  agentDetectedListeners.add(listener);
+  return () => agentDetectedListeners.delete(listener);
+}
 const sessionOutputBuffers = new Map<number, string>();
 const sessionOutputDecoders = new Map<number, TextDecoder>();
 const sessionInputBuffers = new Map<number, string>();
@@ -461,6 +475,20 @@ function processSessionInput(id: number, data: string) {
         if (preset && !suppressAgentDetection.has(id)) {
           agentLaunchStartLengths.set(id, getSessionOutputBuffer(id).length);
           markSessionAgentPreset(id, preset);
+          // Broadcast a genuine typed launch so the orchestrator can adopt it.
+          // Skip panes already leased by the orchestrator (it tracks those via
+          // its own task model). `suppressAgentDetection` already excludes the
+          // programmatic writes spawnAgentPreset makes, so this is user typing.
+          const detectedProjectId = terminalSessionProjects.get(id);
+          if (detectedProjectId) {
+            const detectedSession = getProjectState(detectedProjectId).sessions.find((s) => s.id === id);
+            if (!detectedSession?.ownerTaskId) {
+              for (const listener of agentDetectedListeners) {
+                try { listener({ sessionId: id, projectId: detectedProjectId, preset }); }
+                catch (err) { console.error('Agent detected listener failed:', err); }
+              }
+            }
+          }
         }
         // A real command was just submitted — mark the shell busy so agent
         // runs won't target a terminal that's actively running something.
@@ -1605,6 +1633,18 @@ export function isAgentSession(session: TerminalSessionInfo | null | undefined):
   return Boolean(session.agentPreset);
 }
 
+// Roles the app auto-assigns when it detects a long-lived foreground process in
+// a pane (a dev server, or a build/watch). A pane carrying one is considered
+// occupied so we never launch an agent on top of it — even once its output has
+// gone quiet and the transient `isExecuting` flag has cleared.
+const RUNNING_PROCESS_ROLES = new Set(['server', 'build']);
+
+export function sessionHasRunningProcess(session: TerminalSessionInfo | null | undefined): boolean {
+  if (!session || !session.isRunning) return false;
+  const role = session.role?.trim().toLowerCase();
+  return !!role && RUNNING_PROCESS_ROLES.has(role);
+}
+
 
 export function setSessionTaskSummary(id: number, taskSummary: string | null) {
   const projectId = terminalSessionProjects.get(id);
@@ -1752,10 +1792,18 @@ export function findAvailablePaneForAgentRun() {
 
   // A pane is reusable if its session is a live, non-agent shell that is not
   // currently executing a command (i.e. genuinely idle and not in use).
+  //
+  // `isExecuting` alone is not enough: it's an output-quiescence flag that the
+  // pane clears after ~800ms of silence, so a long-running process that has gone
+  // quiet (a dev server watching for changes, a finished-printing build/watch)
+  // would read as "idle" and get an agent launched on top of it. The app already
+  // detects those and tags the session with a 'Server'/'Build' role, so treat
+  // any pane carrying a running-process role as occupied and never reuse it.
   const isIdleShell = (sessionId: number | null): boolean => {
     if (sessionId === null) return false;
     const session = allSessions.find((entry) => entry.id === sessionId);
     if (!session) return false;
+    if (sessionHasRunningProcess(session)) return false;
     return Boolean(session.isRunning) && !isAgentSession(session) && !session.isExecuting;
   };
 

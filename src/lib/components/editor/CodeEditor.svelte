@@ -55,7 +55,7 @@
   import { kotlin, csharp } from '@codemirror/legacy-modes/mode/clike';
   import { toml } from '@codemirror/legacy-modes/mode/toml';
 
-  import { updateContent, updateCursorPosition, jumpToLine } from '$lib/stores/editor';
+  import { updateContent, updateCursorPosition, jumpToLine, activeSelection } from '$lib/stores/editor';
   import { devpet } from '$lib/stores/devpet';
   import {
     fontSize,
@@ -244,9 +244,12 @@
             }
           }
           if (update.selectionSet) {
-            const pos = update.state.selection.main.head;
-            const lineObj = update.state.doc.lineAt(pos);
-            updateCursorPosition(lineObj.number, pos - lineObj.from + 1);
+            const sel = update.state.selection.main;
+            const lineObj = update.state.doc.lineAt(sel.head);
+            updateCursorPosition(lineObj.number, sel.head - lineObj.from + 1);
+            // Surface the highlighted text (capped) so the assistant can see it.
+            const selectedText = sel.empty ? '' : update.state.sliceDoc(sel.from, sel.to);
+            activeSelection.set(selectedText.length > 2000 ? selectedText.slice(0, 2000) : selectedText);
           }
         }),
       ],

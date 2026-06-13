@@ -4,12 +4,10 @@
   import { showToast } from '$lib/stores/notification';
   import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
   import {
-    activeSessionId,
     createTerminalSession,
     sendPromptToSession,
-    sessions
+    setActiveSession,
   } from '$lib/stores/terminal';
-  import { showTerminal } from '$lib/stores/layout';
 
   type EmbeddedMode = 'arduino' | 'platformio' | 'pi';
   type CommandAction = {
@@ -112,32 +110,26 @@
     }
   }
 
-  async function ensureSession(): Promise<number | null> {
-    const currentId = get(activeSessionId);
-    const existingSessions = get(sessions);
-    if (currentId !== null && existingSessions.some((session) => session.id === currentId)) {
-      return currentId;
-    }
-
+  async function createEmbeddedCommandSession(): Promise<number | null> {
     const project = get(activeProject);
     if (!project) {
       showToast('Open a project before running embedded commands', 'warning');
       return null;
     }
 
-    return createTerminalSession(project.root_path);
+    return createTerminalSession(project.root_path, undefined, project.id);
   }
 
   async function runCommand(command: string) {
     const value = getRunnableCommand(command);
     if (!value) return;
 
-    const sessionId = await ensureSession();
+    const sessionId = await createEmbeddedCommandSession();
     if (sessionId === null) return;
 
-    showTerminal();
+    setActiveSession(sessionId);
     sendPromptToSession(sessionId, value);
-    showToast('Command sent to terminal', 'success');
+    showToast('Embedded command sent to a new terminal', 'success');
   }
 </script>
 

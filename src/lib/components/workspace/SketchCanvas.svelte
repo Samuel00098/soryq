@@ -7,6 +7,7 @@
   import { showToast } from '$lib/stores/notification';
   import { fade, scale } from 'svelte/transition';
   import { appearance, matchShortcut, userShortcuts } from '$lib/stores/settings';
+  import { activeTheme } from '$lib/stores/theme';
   import {
     roughRect,
     roughEllipse,
@@ -130,6 +131,20 @@
     sketchShapes?: SketchShape[];
     images?: SketchImage[];
     sketchImages?: SketchImage[];
+  }
+
+  interface SketchAppThemePalette {
+    accent: string;
+    accentRgb: string;
+    bgPrimary: string;
+    bgPrimaryRgb: string;
+    bgSecondary: string;
+    bgSecondaryRgb: string;
+    bgTertiaryRgb: string;
+    textPrimary: string;
+    textPrimaryRgb: string;
+    borderRgb: string;
+    ink: string;
   }
 
   const LEGACY_SKETCH_STATE_V3_KEY = 'soryq_sketch_state_v3';
@@ -281,9 +296,57 @@
   // Largest dimension (px) an imported image is downscaled to before storing.
   const MAX_IMAGE_DIM = 1600;
 
-  // Theme tracking
-  let isLightTheme = $derived($appearance === 'light' || ($appearance === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches));
-  let defaultCanvasInk = $derived(isLightTheme ? '#18181e' : '#f8fafc');
+  // Theme tracking. The canvas has its own background modes, but transparent
+  // and grid modes should follow the main Soryq theme variables.
+  let isLightTheme = $derived(
+    $activeTheme?.type
+      ? $activeTheme.type === 'light'
+      : ($appearance === 'light' || ($appearance === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches))
+  );
+  let appThemeKey = $derived(`${$activeTheme?.id ?? 'none'}:${$activeTheme?.type ?? 'unknown'}:${$appearance}`);
+  function fallbackThemePalette(): SketchAppThemePalette {
+    return {
+      accent: '#06b6d4',
+      accentRgb: '6, 182, 212',
+      bgPrimary: isLightTheme ? '#ffffff' : '#18181e',
+      bgPrimaryRgb: isLightTheme ? '255, 255, 255' : '24, 24, 30',
+      bgSecondary: isLightTheme ? '#f4f7fa' : '#121216',
+      bgSecondaryRgb: isLightTheme ? '244, 247, 250' : '18, 18, 22',
+      bgTertiaryRgb: isLightTheme ? '238, 242, 246' : '30, 30, 38',
+      textPrimary: isLightTheme ? '#18181e' : '#f8fafc',
+      textPrimaryRgb: isLightTheme ? '24, 24, 30' : '248, 250, 252',
+      borderRgb: isLightTheme ? '15, 23, 42' : '255, 255, 255',
+      ink: isLightTheme ? '#18181e' : '#f8fafc',
+    };
+  }
+  function cssVar(name: string, fallback: string): string {
+    if (typeof document === 'undefined') return fallback;
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  }
+  function cssRgbVar(name: string, fallback: string): string {
+    const value = cssVar(name, fallback);
+    return value.replace(/\s+/g, ' ');
+  }
+  function readAppThemePalette(): SketchAppThemePalette {
+    void appThemeKey;
+    const fallback = fallbackThemePalette();
+    return {
+      accent: cssVar('--accent', fallback.accent),
+      accentRgb: cssRgbVar('--accent-rgb', fallback.accentRgb),
+      bgPrimary: cssVar('--bg-primary', fallback.bgPrimary),
+      bgPrimaryRgb: cssRgbVar('--bg-primary-rgb', fallback.bgPrimaryRgb),
+      bgSecondary: cssVar('--bg-secondary', fallback.bgSecondary),
+      bgSecondaryRgb: cssRgbVar('--bg-secondary-rgb', fallback.bgSecondaryRgb),
+      bgTertiaryRgb: cssRgbVar('--bg-tertiary-rgb', fallback.bgTertiaryRgb),
+      textPrimary: cssVar('--text-primary', fallback.textPrimary),
+      textPrimaryRgb: cssRgbVar('--text-primary-rgb', fallback.textPrimaryRgb),
+      borderRgb: cssRgbVar('--border-rgb', fallback.borderRgb),
+      ink: cssVar('--text-primary', fallback.ink),
+    };
+  }
+  let appThemePalette = $derived.by(readAppThemePalette);
+  let defaultCanvasInk = $derived(appThemePalette.ink);
   let lastAppliedDefaultInk = $state('#f8fafc');
 
   // When the 'transparent' background is active, scale the overlay + viewport
@@ -293,19 +356,15 @@
     if (backgroundStyle !== 'transparent') return '';
     const a = backgroundOpacity;
     const blur = (18 * a).toFixed(2);
+    const palette = appThemePalette;
     const filter = `backdrop-filter: blur(${blur}px) saturate(1.05); -webkit-backdrop-filter: blur(${blur}px) saturate(1.05);`;
-    if (isLightTheme) {
-      return `background: linear-gradient(135deg, rgba(15,118,110,${0.08 * a}), transparent 24%), linear-gradient(180deg, rgba(246,248,251,${0.94 * a}), rgba(238,242,246,${0.9 * a})); ${filter}`;
-    }
-    return `background: linear-gradient(135deg, rgba(6,182,212,${0.07 * a}), transparent 24%), linear-gradient(180deg, rgba(11,13,18,${0.96 * a}), rgba(16,18,24,${0.92 * a})); ${filter}`;
+    return `background: linear-gradient(135deg, rgba(${palette.accentRgb},${0.1 * a}), transparent 24%), linear-gradient(180deg, rgba(${palette.bgPrimaryRgb},${0.94 * a}), rgba(${palette.bgSecondaryRgb},${0.88 * a})); ${filter}`;
   });
   let viewportBackdropStyle = $derived.by(() => {
     if (backgroundStyle !== 'transparent') return '';
     const a = backgroundOpacity;
-    if (isLightTheme) {
-      return `background: repeating-linear-gradient(0deg, rgba(15,23,42,${0.045 * a}) 0 1px, transparent 1px 48px), repeating-linear-gradient(90deg, rgba(15,23,42,${0.035 * a}) 0 1px, transparent 1px 48px), linear-gradient(180deg, rgba(255,255,255,${0.72 * a}), rgba(244,247,250,${0.62 * a})); box-shadow: inset 0 1px 0 rgba(255,255,255,${0.72 * a}), inset 0 -80px 120px rgba(15,23,42,${0.06 * a});`;
-    }
-    return `background: repeating-linear-gradient(0deg, rgba(255,255,255,${0.025 * a}) 0 1px, transparent 1px 48px), repeating-linear-gradient(90deg, rgba(255,255,255,${0.018 * a}) 0 1px, transparent 1px 48px), linear-gradient(180deg, rgba(12,15,21,${0.78 * a}), rgba(16,19,26,${0.64 * a})); box-shadow: inset 0 1px 0 rgba(255,255,255,${0.06 * a}), inset 0 -80px 120px rgba(0,0,0,${0.16 * a});`;
+    const palette = appThemePalette;
+    return `background: repeating-linear-gradient(0deg, rgba(${palette.textPrimaryRgb},${0.035 * a}) 0 1px, transparent 1px 48px), repeating-linear-gradient(90deg, rgba(${palette.textPrimaryRgb},${0.026 * a}) 0 1px, transparent 1px 48px), linear-gradient(180deg, rgba(${palette.bgPrimaryRgb},${0.78 * a}), rgba(${palette.bgSecondaryRgb},${0.64 * a})); box-shadow: inset 0 1px 0 rgba(${palette.borderRgb},${0.08 * a}), inset 0 -80px 120px rgba(${palette.textPrimaryRgb},${0.05 * a});`;
   });
 
   // Connector drawing state
@@ -405,8 +464,8 @@
     if (style === 'blackboard') return '#f7f0d8';
     if (style === 'blueprint') return '#d8ecff';
     if (style === 'solid-dark') return '#f8fafc';
-    if (style === 'solid-light' || style === 'line-grid' || style === 'dot-grid' || style === 'isometric-grid') return '#18181e';
-    return isLightTheme ? '#18181e' : '#f8fafc';
+    if (style === 'solid-light') return '#18181e';
+    return appThemePalette.ink;
   }
 
   function adaptCanvasElementsToBackground(style: SketchBackgroundStyle) {
@@ -530,12 +589,11 @@
     const dpr = window.devicePixelRatio || 1;
     const w = gridCanvasEl.width / dpr;
     const h = gridCanvasEl.height / dpr;
+    const palette = appThemePalette;
     
     gridCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     gridCtx.clearRect(0, 0, w, h);
-    
-    const isLightTheme = document.documentElement.classList.contains('light-theme');
-    
+
     // Set background color
     if (backgroundStyle === 'solid-dark') {
       gridCtx.fillStyle = '#121216';
@@ -550,7 +608,7 @@
       gridCtx.fillStyle = '#0f2c59'; // Blueprint Blue
       gridCtx.fillRect(0, 0, w, h);
     } else if (backgroundStyle === 'dot-grid' || backgroundStyle === 'line-grid' || backgroundStyle === 'isometric-grid') {
-      gridCtx.fillStyle = isLightTheme ? 'rgba(255, 255, 255, 0.85)' : 'rgba(24, 24, 30, 0.7)';
+      gridCtx.fillStyle = `rgba(${palette.bgPrimaryRgb}, 0.84)`;
       gridCtx.fillRect(0, 0, w, h);
     }
     
@@ -564,8 +622,8 @@
       gridStyleColor = 'rgba(100, 210, 255, 0.25)'; // Blueprint dots
       gridStyleLineColor = 'rgba(100, 210, 255, 0.15)'; // Blueprint lines
     } else {
-      gridStyleColor = isLightTheme ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.15)';
-      gridStyleLineColor = isLightTheme ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.06)';
+      gridStyleColor = `rgba(${palette.textPrimaryRgb}, 0.15)`;
+      gridStyleLineColor = `rgba(${palette.textPrimaryRgb}, 0.06)`;
     }
 
     const scaledSpacing = gridSpacing * zoomScale;
@@ -736,7 +794,7 @@
   function resolveShapeFillColor(shape: SketchShape): string | null {
     const fc = shape.fillColor;
     if (!fc || fc === 'transparent') return null;
-    if (fc === 'glass') return isLightTheme ? 'rgba(255, 255, 255, 0.42)' : 'rgba(28, 28, 38, 0.45)';
+    if (fc === 'glass') return `rgba(${appThemePalette.bgSecondaryRgb}, 0.45)`;
     if (fc === 'tint' || fc.endsWith('22')) return shape.color + '33';
     return fc;
   }
@@ -2509,7 +2567,7 @@
     
     const w = tempCanvas.width;
     const h = tempCanvas.height;
-    const isLightTheme = document.documentElement.classList.contains('light-theme');
+    const palette = appThemePalette;
     
     // Draw background
     if (backgroundStyle === 'solid-dark') {
@@ -2518,19 +2576,31 @@
     } else if (backgroundStyle === 'solid-light') {
       tempCtx.fillStyle = '#f3f3f6';
       tempCtx.fillRect(0, 0, w, h);
-    } else if (backgroundStyle === 'dot-grid' || backgroundStyle === 'line-grid') {
-      tempCtx.fillStyle = isLightTheme ? '#ffffff' : '#18181e';
+    } else if (backgroundStyle === 'blackboard') {
+      tempCtx.fillStyle = '#182d27';
+      tempCtx.fillRect(0, 0, w, h);
+    } else if (backgroundStyle === 'blueprint') {
+      tempCtx.fillStyle = '#0f2c59';
       tempCtx.fillRect(0, 0, w, h);
     } else {
-      // transparent mode - use theme color background
-      tempCtx.fillStyle = isLightTheme ? '#ffffff' : '#18181e';
+      tempCtx.fillStyle = palette.bgPrimary;
       tempCtx.fillRect(0, 0, w, h);
+    }
+
+    let exportGridDotColor = `rgba(${palette.textPrimaryRgb}, 0.15)`;
+    let exportGridLineColor = `rgba(${palette.textPrimaryRgb}, 0.06)`;
+    if (backgroundStyle === 'blackboard') {
+      exportGridDotColor = 'rgba(235, 230, 215, 0.15)';
+      exportGridLineColor = 'rgba(235, 230, 215, 0.08)';
+    } else if (backgroundStyle === 'blueprint') {
+      exportGridDotColor = 'rgba(100, 210, 255, 0.25)';
+      exportGridLineColor = 'rgba(100, 210, 255, 0.15)';
     }
     
     // Draw Grid Lines/Dots
     if (backgroundStyle === 'dot-grid') {
-      tempCtx.fillStyle = isLightTheme ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.15)';
-      const dotSpacing = 24;
+      tempCtx.fillStyle = exportGridDotColor;
+      const dotSpacing = gridSpacing;
       const scaledSpacing = dotSpacing * zoomScale;
       const startX = panOffset.x % scaledSpacing;
       const startY = panOffset.y % scaledSpacing;
@@ -2546,10 +2616,10 @@
           tempCtx.fill();
         }
       }
-    } else if (backgroundStyle === 'line-grid') {
-      tempCtx.strokeStyle = isLightTheme ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.06)';
+    } else if (backgroundStyle === 'line-grid' || backgroundStyle === 'blackboard' || backgroundStyle === 'blueprint') {
+      tempCtx.strokeStyle = exportGridLineColor;
       tempCtx.lineWidth = Math.max(0.5, 1 * zoomScale);
-      const lineSpacing = 24;
+      const lineSpacing = gridSpacing;
       const scaledSpacing = lineSpacing * zoomScale;
       const startX = panOffset.x % scaledSpacing;
       const startY = panOffset.y % scaledSpacing;
@@ -2567,6 +2637,28 @@
         tempCtx.moveTo(0, y);
         tempCtx.lineTo(w, y);
         tempCtx.stroke();
+      }
+    } else if (backgroundStyle === 'isometric-grid') {
+      tempCtx.fillStyle = exportGridDotColor;
+      const colSpacing = gridSpacing * zoomScale;
+      const rowSpacing = colSpacing * 0.866025;
+      const dotRadius = Math.max(0.5, 1 * zoomScale);
+      const startRow = Math.floor(-panOffset.y / rowSpacing) - 1;
+      const endRow = Math.ceil((h - panOffset.y) / rowSpacing) + 1;
+      const startCol = Math.floor(-panOffset.x / colSpacing) - 1;
+      const endCol = Math.ceil((w - panOffset.x) / colSpacing) + 1;
+
+      for (let r = startRow; r <= endRow; r++) {
+        const y = r * rowSpacing + panOffset.y;
+        const xShift = r % 2 === 0 ? 0 : colSpacing / 2;
+
+        for (let c = startCol; c <= endCol; c++) {
+          const x = c * colSpacing + xShift + panOffset.x;
+          if (x < 0 || y < 0 || x > w || y > h) continue;
+          tempCtx.beginPath();
+          tempCtx.arc(x, y, dotRadius, 0, Math.PI * 2);
+          tempCtx.fill();
+        }
       }
     }
     
@@ -2669,7 +2761,7 @@
       const h = shape.height * zoomScale;
       tempCtx.save();
       tempCtx.globalAlpha = shape.opacity;
-      tempCtx.fillStyle = shape.color === '#ffffff' ? '#ffffff' : (shape.color === '#18181e' ? (isLightTheme ? '#18181e' : '#ffffff') : shape.color);
+      tempCtx.fillStyle = shape.color === '#ffffff' ? '#ffffff' : (shape.color === '#18181e' ? appThemePalette.textPrimary : shape.color);
       const displayFontSize = Math.max(11, 13 * zoomScale);
       tempCtx.font = `500 ${displayFontSize}px sans-serif`;
       tempCtx.textAlign = 'center';
@@ -3076,6 +3168,8 @@
     const _style = backgroundStyle;
     const _spacing = gridSpacing;
     const _app = $appearance;
+    const _theme = appThemeKey;
+    const _palette = appThemePalette;
     drawGrid();
     redraw();
   });
@@ -4502,8 +4596,8 @@
     flex-direction: column;
     align-items: center;
     background:
-      linear-gradient(135deg, rgba(6, 182, 212, 0.07), transparent 24%),
-      linear-gradient(180deg, rgba(11, 13, 18, 0.96), rgba(16, 18, 24, 0.92));
+      linear-gradient(135deg, rgba(var(--accent-rgb, 6, 182, 212), 0.08), transparent 24%),
+      linear-gradient(180deg, rgba(var(--bg-primary-rgb, 18, 18, 22), 0.96), rgba(var(--bg-secondary-rgb, 16, 18, 24), 0.9));
     backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.05);
     -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.05);
     transition: background-color 0.22s ease;
@@ -4514,12 +4608,6 @@
     container-name: sketch-container;
   }
 
-  :root.light-theme .sketch-overlay {
-    background:
-      linear-gradient(135deg, rgba(15, 118, 110, 0.08), transparent 24%),
-      linear-gradient(180deg, rgba(246, 248, 251, 0.94), rgba(238, 242, 246, 0.9));
-  }
-
   .canvas-viewport {
     position: absolute;
     inset: 0;
@@ -4528,22 +4616,12 @@
     overflow: hidden;
     border-radius: 8px;
     background:
-      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 48px),
-      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 48px),
-      linear-gradient(180deg, rgba(12, 15, 21, 0.78), rgba(16, 19, 26, 0.64));
+      repeating-linear-gradient(0deg, rgba(var(--text-primary-rgb, 248, 250, 252), 0.035) 0 1px, transparent 1px 48px),
+      repeating-linear-gradient(90deg, rgba(var(--text-primary-rgb, 248, 250, 252), 0.026) 0 1px, transparent 1px 48px),
+      linear-gradient(180deg, rgba(var(--bg-primary-rgb, 18, 18, 22), 0.78), rgba(var(--bg-secondary-rgb, 16, 18, 24), 0.64));
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      inset 0 -80px 120px rgba(0, 0, 0, 0.16);
-  }
-
-  :root.light-theme .canvas-viewport {
-    background:
-      repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.045) 0 1px, transparent 1px 48px),
-      repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 48px),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 247, 250, 0.62));
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.72),
-      inset 0 -80px 120px rgba(15, 23, 42, 0.06);
+      inset 0 1px 0 rgba(var(--border-rgb, 255, 255, 255), 0.08),
+      inset 0 -80px 120px rgba(var(--text-primary-rgb, 248, 250, 252), 0.05);
   }
 
   .sketch-properties-panel {
@@ -4560,15 +4638,10 @@
     padding: 0;
     border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
     border-radius: 8px;
-    background: rgba(12, 15, 21, 0.86);
-    box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+    background: rgba(var(--bg-primary-rgb, 18, 18, 22), 0.86);
+    box-shadow: 0 18px 46px rgba(var(--shadow-rgb, 0, 0, 0), 0.28);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-  }
-
-  :root.light-theme .sketch-properties-panel {
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 18px 46px rgba(15, 23, 42, 0.13);
   }
 
   .properties-header,
@@ -4584,18 +4657,13 @@
     top: 0;
     z-index: 2;
     padding: 14px 14px 10px;
-    background: rgba(12, 15, 21, 0.92);
+    background: rgba(var(--bg-primary-rgb, 18, 18, 22), 0.92);
     border-bottom: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
     color: var(--text-primary);
     font-size: 13px;
     font-weight: 650;
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-  }
-
-  :root.light-theme .properties-header {
-    background: rgba(255, 255, 255, 0.94);
-    border-bottom-color: rgba(0, 0, 0, 0.06);
   }
 
   .properties-scroll-body {
@@ -4749,7 +4817,7 @@
     top: 96px;
     right: 22px;
     z-index: 9025;
-    background: rgba(12, 15, 21, 0.84);
+    background: rgba(var(--bg-primary-rgb, 18, 18, 22), 0.84);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
   }
@@ -5288,11 +5356,11 @@
     width: min(1040px, calc(100% - 40px));
     max-width: calc(100% - 40px);
     z-index: 9010;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 18px 50px rgba(var(--shadow-rgb, 0, 0, 0), 0.28);
     background:
-      linear-gradient(180deg, rgba(22, 26, 34, 0.92), rgba(11, 13, 18, 0.92));
+      linear-gradient(180deg, rgba(var(--bg-primary-rgb, 18, 18, 22), 0.92), rgba(var(--bg-secondary-rgb, 16, 18, 24), 0.92));
     border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-    border-top-color: rgba(255, 255, 255, 0.12);
+    border-top-color: rgba(var(--border-rgb, 255, 255, 255), 0.12);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     border-radius: 8px;
@@ -5321,13 +5389,6 @@
     background-color: var(--accent-light) !important;
   }
 
-  :root.light-theme .sketch-toolbar {
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(242, 245, 248, 0.92));
-    border-color: rgba(15, 23, 42, 0.1);
-    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.14);
-  }
-
   .toolbar-section {
     display: flex;
     align-items: center;
@@ -5341,9 +5402,9 @@
     grid-template-columns: repeat(11, minmax(28px, 1fr));
     gap: 6px;
     padding: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(var(--border-rgb, 255, 255, 255), 0.08);
     border-radius: 8px;
-    background: rgba(0, 0, 0, 0.18);
+    background: rgba(var(--bg-secondary-rgb, 16, 18, 24), 0.46);
   }
 
   .divider {
@@ -5351,10 +5412,6 @@
     height: 20px;
     background-color: var(--border);
     margin: 0 4px;
-  }
-
-  :root.light-theme .divider {
-    background-color: rgba(0, 0, 0, 0.08);
   }
 
   /* Tool Buttons */
@@ -5373,15 +5430,15 @@
 
   .tool-btn:hover, .action-btn:not(:disabled):hover, .exit-btn:hover {
     color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(var(--text-primary-rgb, 248, 250, 252), 0.07);
+    border-color: rgba(var(--border-rgb, 255, 255, 255), 0.1);
   }
 
   .tool-btn.active {
     color: #ffffff;
     background: linear-gradient(180deg, var(--accent-hover), var(--accent));
-    border-color: rgba(255, 255, 255, 0.18);
-    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.3);
+    border-color: rgba(var(--border-rgb, 255, 255, 255), 0.18);
+    box-shadow: 0 8px 18px rgba(var(--accent-rgb, 15, 118, 110), 0.3);
   }
 
   .action-btn:disabled {
@@ -5417,7 +5474,7 @@
   }
 
   .size-btn.active {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(var(--text-primary-rgb, 248, 250, 252), 0.08);
     border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
   }
 
@@ -5460,10 +5517,6 @@
   .color-dot.active {
     transform: translateY(-1px);
     box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 3.5px var(--accent), 0 8px 18px rgba(0, 0, 0, 0.25);
-  }
-
-  :root.light-theme .color-dot.active {
-    box-shadow: 0 0 0 2px #ffffff, 0 0 0 3.5px var(--accent);
   }
 
   .custom-color-trigger {
@@ -5537,7 +5590,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.055);
+    background: rgba(var(--text-primary-rgb, 248, 250, 252), 0.055);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-secondary);
@@ -5551,7 +5604,7 @@
   .settings-trigger-btn:hover {
     border-color: var(--accent);
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(var(--text-primary-rgb, 248, 250, 252), 0.08);
   }
 
   .settings-trigger-btn.open {
@@ -5585,23 +5638,17 @@
     right: 0;
     width: 280px;
     max-width: min(280px, calc(100vw - 32px));
-    background: rgba(12, 15, 21, 0.94);
+    background: rgba(var(--bg-primary-rgb, 18, 18, 22), 0.94);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
     border-radius: 8px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 16px 40px rgba(var(--shadow-rgb, 0, 0, 0), 0.3);
     padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 12px;
     z-index: 9050;
-  }
-
-  :root.light-theme .settings-dropdown-panel {
-    background: rgba(255, 255, 255, 0.92);
-    border-color: rgba(0, 0, 0, 0.08);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
   }
 
   .panel-section {
@@ -5613,10 +5660,6 @@
   .panel-section:not(:last-child) {
     border-bottom: 1px solid var(--border);
     padding-bottom: 12px;
-  }
-
-  :root.light-theme .panel-section:not(:last-child) {
-    border-bottom-color: rgba(0, 0, 0, 0.06);
   }
 
   .section-title {
@@ -5698,14 +5741,10 @@
   .spacing-btn-group {
     display: flex;
     gap: 4px;
-    background: rgba(0, 0, 0, 0.15);
+    background: rgba(var(--bg-secondary-rgb, 16, 18, 24), 0.62);
     padding: 2px;
     border-radius: 6px;
     border: 1px solid var(--border);
-  }
-
-  :root.light-theme .spacing-btn-group {
-    background: rgba(0, 0, 0, 0.03);
   }
 
   .spacing-btn {
@@ -5790,7 +5829,7 @@
     font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.045);
+    background: rgba(var(--text-primary-rgb, 248, 250, 252), 0.045);
     border: 1px solid var(--border);
     border-radius: 6px;
     cursor: pointer;
@@ -5882,7 +5921,7 @@
     height: 36px;
     border-radius: 8px;
     z-index: 9015;
-    background: rgba(12, 15, 21, 0.84);
+    background: rgba(var(--bg-primary-rgb, 18, 18, 22), 0.84);
     border: 1px solid var(--border);
     color: var(--text-secondary);
     box-shadow: var(--shadow-md);
@@ -5895,11 +5934,6 @@
     background: var(--bg-hover);
     border-color: var(--accent);
     transform: scale(1.05);
-  }
-
-  :root.light-theme .toolbar-toggle {
-    background: rgba(255, 255, 255, 0.85);
-    border-color: rgba(0, 0, 0, 0.08);
   }
 
   /* Responsive Toolbar adaptations for smaller screens */

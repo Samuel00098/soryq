@@ -13,6 +13,7 @@ export interface OrchestratorMemoryEntry {
 }
 
 const MAX_MEMORY_ENTRIES = 40;
+const STALE_MEMORY_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const orchestratorMemory = writable<Record<string, OrchestratorMemoryEntry[]>>({});
 
@@ -24,6 +25,19 @@ function compactText(raw: string, maxChars: number): string {
   const text = raw.replace(/\s+/g, ' ').trim();
   if (!text) return '';
   return text.length <= maxChars ? text : `${text.slice(0, maxChars - 1)}...`;
+}
+
+function ageLabel(ts: number, now = Date.now()): string {
+  const ageMs = Math.max(0, now - ts);
+  const minutes = Math.floor(ageMs / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
 
 function normalizeKey(text: string): string {
@@ -135,9 +149,15 @@ export async function rememberTask(projectId: string, rootPath: string | null | 
 }
 
 export function getProjectMemoryLines(projectId: string): string[] {
+  const now = Date.now();
   return (get(orchestratorMemory)[projectId] ?? [])
     .slice()
     .sort((a, b) => (b.lastSeenAt - a.lastSeenAt) || (b.uses - a.uses))
     .slice(0, 8)
-    .map((entry) => `${entry.text}${entry.uses > 1 ? ` (seen ${entry.uses}x)` : ''}`);
+    .map((entry) => {
+      const stale = now - entry.lastSeenAt > STALE_MEMORY_MS;
+      const uses = entry.uses > 1 ? `; seen ${entry.uses}x` : '';
+      const freshness = `${stale ? 'stale memory' : 'memory'}; last confirmed ${ageLabel(entry.lastSeenAt, now)}${uses}`;
+      return `${entry.text} (${freshness})`;
+    });
 }

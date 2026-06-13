@@ -2,7 +2,21 @@ import { writable, get, derived } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '$lib/stores/notification';
 import { getPresetRuns } from '$lib/stores/runs';
-import { getProjectTaskPanelLines, loadProjectTasks, tasks } from '$lib/stores/tasks';
+import {
+  getProjectTaskPanelLines,
+  loadProjectTasks,
+  tasks,
+  addTask,
+  updateTaskStatus,
+  deleteTask,
+  type TaskStatus,
+} from '$lib/stores/tasks';
+import { setActiveView, showTerminal, openSettings } from '$lib/stores/layout';
+import { sanitiseActiveView } from '$lib/stores/layout';
+import type { ActiveView } from '$lib/types/layout';
+import { openFile, closeFile, jumpToLine } from '$lib/stores/editor';
+import { navigatePreviewTab } from '$lib/stores/preview';
+import { getAppContextSnapshot, NAVIGABLE_VIEWS } from '$lib/services/orchestrator/app-context';
 import { loadJson } from '$lib/utils/storage';
 import {
   routeOrchestratorRequest,
@@ -11,6 +25,7 @@ import {
   type RouteLlmConfig,
   type AgentOutputRef,
   type RunningAgentRef,
+  type OrchestratorAction,
 } from '$lib/services/orchestrator-brain';
 import { detectAgentAccess, getAgentAccessBlockedMessage } from '$lib/services/agent-access';
 import { reconnoiter } from '$lib/services/orchestrator/recon';
@@ -58,6 +73,7 @@ import {
 } from '$lib/services/orchestrator/memory';
 import {
   onSessionExit,
+  onAgentDetected,
   getAgentDisplayName,
   promptBarInput,
   focusPromptBar,
@@ -65,6 +81,9 @@ import {
   getTerminalProjectState,
   getSessionOutputBuffer,
   killSession,
+  createTerminalSession,
+  sendPromptToSession,
+  sessionHasRunningProcess,
 } from '$lib/stores/terminal';
 
 export type {
@@ -265,9 +284,19 @@ export async function loadProjectOrchestratorTasks(project: { id: string; root_p
     reconciledTasks.push(reconciledTask);
   }
 
+  // Adopted tasks aren't persisted, so a reload would otherwise wipe agents the
+  // user launched by hand that are still running. Preserve the live ones.
+  const liveAdopted = get(orchestratorTasks).filter(
+    (t) =>
+      t.projectId === project.id &&
+      t.adopted &&
+      t.status === 'in-progress' &&
+      liveSessions.some((s) => s.id === t.assignedSessionId && s.isRunning)
+  );
   orchestratorTasks.update((all) => [
     ...all.filter((t) => t.projectId !== project.id),
     ...reconciledTasks,
+    ...liveAdopted,
   ]);
   if (needsFlush) await flush(project.id);
 }
@@ -275,7 +304,9 @@ export async function loadProjectOrchestratorTasks(project: { id: string; root_p
 async function flush(projectId: string): Promise<void> {
   const rootPath = projectPaths.get(projectId);
   if (!rootPath) return;
-  const projectTasks = get(orchestratorTasks).filter((t) => t.projectId === projectId);
+  // Adopted tasks track manually-launched agents and die with the process —
+  // they're in-memory only, never written to disk.
+  const projectTasks = get(orchestratorTasks).filter((t) => t.projectId === projectId && !t.adopted);
   try {
     try { await invoke('fs_create_dir', { path: `${rootPath}/.soryq` }); } catch { /* exists */ }
     await invoke('fs_write_file', { path: storePath(rootPath), content: JSON.stringify(projectTasks, null, 2) });
@@ -392,7 +423,9 @@ function leasedSessionLive(taskId: string, sessionId: number): boolean {
   const task = get(orchestratorTasks).find((t) => t.id === taskId);
   if (!task || task.status !== 'in-progress' || task.assignedSessionId !== sessionId) return false;
   const live = getTerminalProjectState(task.projectId).sessions.find((s) => s.id === sessionId);
-  return Boolean(live?.isRunning && live.ownerTaskId === task.id);
+  // Adopted agents are tracked without claiming the `ownerTaskId` lease (so the
+  // terminal's own auto-brief still runs), so for them a running session is enough.
+  return Boolean(live?.isRunning && (task.adopted || live.ownerTaskId === task.id));
 }
 
 /**
@@ -538,7 +571,7 @@ export function renameOrchestratorAgent(id: string, name: string): void {
   const updated = patchTask(id, (t) => ({ ...t, name: trimmed ? trimmed : null }));
   if (!updated || updated.assignedSessionId == null) return;
   const live = getTerminalProjectState(updated.projectId).sessions.find((s) => s.id === updated.assignedSessionId);
-  if (live?.ownerTaskId === updated.id) applyOrchestratorAgentName(updated.assignedSessionId, updated.name);
+  if (live?.ownerTaskId === updated.id || updated.adopted) applyOrchestratorAgentName(updated.assignedSessionId, updated.name);
 }
 
 /** Release the terminal lease without killing the terminal; task returns to todo. */
@@ -787,6 +820,124 @@ export async function closeOrchestratorAgent(id: string, note?: string): Promise
   patchTask(id, (t) => ({ ...cancelTask(t, note), assignedSessionId: null }));
   logTaskActivity(id, 'cancelled', note?.trim() ? `Closed: ${note.trim()}` : 'Closed.');
 }
+
+// ─── App-control actions ──────────────────────────────────────────────────────
+// The orchestrator is a full in-app assistant: besides driving the agent fleet
+// it can navigate the app, open editor files, point the preview, run commands,
+// and manage the task board. These execute the brain's APP actions by calling
+// the relevant stores directly.
+
+function resolveProjectFilePath(path: string, rootPath: string): string {
+  const norm = path.replace(/\\/g, '/').trim();
+  // Already absolute (Windows drive or POSIX root)?
+  if (/^[a-zA-Z]:\//.test(norm) || norm.startsWith('/')) return norm;
+  const root = rootPath.replace(/\\/g, '/').replace(/\/$/, '');
+  return root ? `${root}/${norm.replace(/^\.?\//, '')}` : norm;
+}
+
+/** Find a plain shell terminal to run a command in, creating one if needed. */
+async function ensureRunTerminal(projectId: string, rootPath: string): Promise<number | null> {
+  const sessions = getTerminalProjectState(projectId).sessions;
+  // Never reuse a pane that is an agent, busy, or running a detected long-lived
+  // process (dev server / build) — running a command there would clobber it.
+  const reusable = sessions.filter(
+    (s) => s.isRunning && !s.agentPreset && !s.ownerTaskId && !sessionHasRunningProcess(s)
+  );
+  const shell = reusable.find((s) => !s.isExecuting) ?? reusable[0];
+  if (shell) return shell.id;
+  return await createTerminalSession(rootPath || undefined, undefined, projectId);
+}
+
+function executeTaskAction(action: Extract<OrchestratorAction, { kind: 'task' }>, projectId: string): boolean {
+  const title = action.title.trim();
+  if (!title) return false;
+  if (action.op === 'create') {
+    addTask(projectId, title, 'todo');
+    showToast(`Added task: ${title}`, 'success', 2500);
+    return true;
+  }
+  const projectTasks = get(tasks).filter((t) => t.projectId === projectId);
+  const wanted = title.toLowerCase();
+  const found =
+    projectTasks.find((t) => t.title.toLowerCase() === wanted) ??
+    projectTasks.find((t) => t.title.toLowerCase().includes(wanted)) ??
+    projectTasks.find((t) => wanted.includes(t.title.toLowerCase()));
+  if (!found) {
+    showToast(`No task matching "${title}"`, 'warning', 3500);
+    return false;
+  }
+  if (action.op === 'delete') {
+    deleteTask(found.id);
+    showToast(`Deleted task: ${found.title}`, 'info', 2500);
+    return true;
+  }
+  updateTaskStatus(found.id, action.op as TaskStatus);
+  return true;
+}
+
+/**
+ * Execute one app-control action by driving the relevant store. Returns true on
+ * success. Agent actions (spawn/send/name/close) are handled elsewhere; this
+ * only covers the APP family.
+ */
+export async function executeAppAction(
+  action: OrchestratorAction,
+  projectId: string,
+  rootPath: string
+): Promise<boolean> {
+  switch (action.kind) {
+    case 'navigate': {
+      const v = action.view.trim().toLowerCase();
+      if (v === 'terminal') { showTerminal(); return true; }
+      if (v === 'settings') { openSettings(); return true; }
+      if (!NAVIGABLE_VIEWS.includes(v as (typeof NAVIGABLE_VIEWS)[number])) {
+        showToast(`I don't know a "${action.view}" view`, 'warning', 3500);
+        return false;
+      }
+      setActiveView(sanitiseActiveView(v) as ActiveView);
+      return true;
+    }
+    case 'open-file': {
+      const full = resolveProjectFilePath(action.path, rootPath);
+      try {
+        await openFile(full);
+        setActiveView('editor');
+        if (action.line && action.line > 0) jumpToLine.set({ path: full, line: action.line });
+        return true;
+      } catch {
+        showToast(`Couldn't open ${action.path}`, 'error', 4000);
+        return false;
+      }
+    }
+    case 'close-file': {
+      closeFile(resolveProjectFilePath(action.path, rootPath));
+      return true;
+    }
+    case 'preview': {
+      const url = action.url.trim();
+      if (!url) return false;
+      navigatePreviewTab(url);
+      setActiveView('preview');
+      return true;
+    }
+    case 'run': {
+      const command = action.command.trim();
+      if (!command) return false;
+      const sid = await ensureRunTerminal(projectId, rootPath);
+      if (sid == null) {
+        showToast('No terminal available to run that', 'error', 4000);
+        return false;
+      }
+      showTerminal();
+      sendPromptToSession(sid, command);
+      return true;
+    }
+    case 'task':
+      return executeTaskAction(action, projectId);
+    default:
+      return false;
+  }
+}
 // The orchestrator is something you talk to: you send a natural-language
 // message, the "brain" decides which agent should handle it and crafts the
 // prompt, and the work is dispatched into a terminal automatically.
@@ -878,10 +1029,105 @@ export function getDispatchableAgents(projectId: string): AgentChoice[] {
 
 const BRAIN_OUTPUT_TAIL = 2500;
 const TASK_OUTPUT_TAIL = 4000;
+const STALLED_TASK_MS = 10 * 60 * 1000;
+
+function lastTaskSignalAt(task: OrchestratorTask): number {
+  const activity = task.activity ?? [];
+  const lastActivity = activity.length ? activity[activity.length - 1].ts : 0;
+  return Math.max(lastActivity, task.promptSentAt ?? 0, task.startedAt ?? 0, task.completedAt ?? 0, task.createdAt ?? 0);
+}
+
+function relativeAge(ts: number, now = Date.now()): string {
+  const ageMs = Math.max(0, now - ts);
+  const mins = Math.floor(ageMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function taskFreshness(task: OrchestratorTask, now = Date.now()): string {
+  const signalAt = lastTaskSignalAt(task);
+  const age = relativeAge(signalAt, now);
+  if (task.status === 'in-progress' && now - signalAt > STALLED_TASK_MS) {
+    return `possibly stalled; no orchestrator-visible update for ${age}`;
+  }
+  return `last orchestrator-visible update ${age}`;
+}
+
+function trackedSessionIds(projectId: string): Set<number> {
+  return new Set(
+    get(orchestratorTasks)
+      .filter((t) => t.projectId === projectId && t.assignedSessionId != null)
+      .map((t) => t.assignedSessionId as number)
+  );
+}
+
+type LiveTerminalSession = ReturnType<typeof getTerminalProjectState>['sessions'][number];
+
+function adoptLiveAgentSession(projectId: string, session: LiveTerminalSession, preset?: string | null): OrchestratorTask | null {
+  const agentPreset = preset ?? session.agentPreset ?? null;
+  if (!session.isRunning || !agentPreset) return null;
+
+  const tracked = get(orchestratorTasks).find(
+    (t) =>
+      t.projectId === projectId &&
+      t.assignedSessionId === session.id &&
+      (t.status === 'in-progress' || t.status === 'todo')
+  );
+  if (tracked) return tracked;
+
+  const taken = [
+    ...getRunningAgentRefs(projectId).map((r) => r.name).filter((n): n is string => !!n),
+    ...getTerminalProjectState(projectId).sessions
+      .filter((s) => s.id !== session.id && s.isRunning && s.agentName?.trim())
+      .map((s) => (s.agentName as string).trim()),
+  ];
+  const name = session.agentName?.trim() || pickAssistantName(taken);
+  const adopted: OrchestratorTask = {
+    ...transitionTask(createTaskRecord(projectId, '', agentPreset, name), 'in-progress'),
+    title: session.taskSummary || session.paneTitle || session.title || 'Idle terminal agent',
+    assignedSessionId: session.id,
+    adopted: true,
+  };
+  orchestratorTasks.update((all) => [...all, adopted]);
+  if (!session.agentName?.trim()) applyOrchestratorAgentName(session.id, name);
+  logTaskActivity(adopted.id, 'dispatch', `Adopted live ${getAgentDisplayName(agentPreset) ?? agentPreset} session.`);
+  return adopted;
+}
+
+function matchesLiveAgentTarget(session: LiveTerminalSession, wanted: string): boolean {
+  if (!wanted) return false;
+  const labels = [
+    session.agentName,
+    session.agentPreset,
+    getAgentDisplayName(session.agentPreset),
+    session.taskSummary,
+    session.paneTitle,
+    session.title,
+    session.role,
+  ]
+    .map((value) => value?.trim().toLowerCase())
+    .filter((value): value is string => !!value);
+  return labels.some((label) => label === wanted || label.includes(wanted) || wanted.includes(label));
+}
+
+function adoptMatchingLiveAgent(projectId: string, wanted: string): OrchestratorTask | null {
+  const sessions = getTerminalProjectState(projectId).sessions
+    .filter((s) => s.isRunning && s.agentPreset && !trackedSessionIds(projectId).has(s.id))
+    .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0));
+  if (!sessions.length) return null;
+
+  const positional = wanted === 'last' || wanted === 'it' || wanted === 'that agent' || wanted === 'that one';
+  const match = positional ? sessions[0] : sessions.find((s) => matchesLiveAgentTarget(s, wanted));
+  return match ? adoptLiveAgentSession(projectId, match, match.agentPreset) : null;
+}
 
 /** In-progress agents the brain can address by name (most-recent first). */
 export function getRunningAgentRefs(projectId: string): RunningAgentRef[] {
-  return get(orchestratorTasks)
+  const tracked = trackedSessionIds(projectId);
+  const taskRefs = get(orchestratorTasks)
     .filter((t) => t.projectId === projectId && t.status === 'in-progress' && t.assignedSessionId != null)
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))
     .map((t) => {
@@ -889,6 +1135,21 @@ export function getRunningAgentRefs(projectId: string): RunningAgentRef[] {
       const recentOutput = full ? full.slice(-BRAIN_OUTPUT_TAIL) : null;
       return { name: t.name ?? null, agent: t.agentPreset ?? 'agent', title: t.goal ? t.title : 'idle', recentOutput };
     });
+
+  const liveSessionRefs = getTerminalProjectState(projectId).sessions
+    .filter((s) => s.isRunning && s.agentPreset && !tracked.has(s.id))
+    .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))
+    .map((s) => {
+      const full = captureTranscript(getSessionOutputBuffer(s.id));
+      return {
+        name: s.agentName?.trim() || null,
+        agent: s.agentPreset ?? 'agent',
+        title: s.taskSummary || s.paneTitle || s.title || 'idle terminal agent',
+        recentOutput: full ? full.slice(-BRAIN_OUTPUT_TAIL) : null,
+      };
+    });
+
+  return [...taskRefs, ...liveSessionRefs];
 }
 
 /** Recent task state plus terminal output for conversational status/output answers. */
@@ -907,6 +1168,7 @@ export function getAgentOutputRefs(projectId: string): AgentOutputRef[] {
         status: t.status as AgentOutputRef['status'],
         updatedAt,
         reason,
+        freshness: taskFreshness(t),
         recentOutput,
       };
     })
@@ -940,12 +1202,11 @@ function resolveRunningTaskByName(projectId: string, target: string): Orchestrat
   const running = tasks.filter((t) => t.status === 'in-progress' && t.assignedSessionId != null);
   const resumable = tasks.filter((t) => t.status === 'blocked');
   const candidates = [...running, ...resumable];
-  if (candidates.length === 0) return null;
 
   const byName = candidates.find((t) => t.name && t.name.toLowerCase() === wanted);
   if (byName) return byName;
 
-  if (wanted === 'last' || wanted === 'it' || wanted === 'that agent' || wanted === 'that one') {
+  if (candidates.length > 0 && (wanted === 'last' || wanted === 'it' || wanted === 'that agent' || wanted === 'that one')) {
     return candidates[0];
   }
 
@@ -954,14 +1215,18 @@ function resolveRunningTaskByName(projectId: string, target: string): Orchestrat
       (t.agentPreset && t.agentPreset.toLowerCase() === wanted) ||
       (getAgentDisplayName(t.agentPreset)?.toLowerCase() === wanted)
   );
-  return byAgent ?? null;
+  if (byAgent) return byAgent;
+
+  return adoptMatchingLiveAgent(projectId, wanted);
 }
 
 /** Push a prompt to a running agent's live terminal; if blocked, reopen it and send automatically. */
 async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootPath: string): Promise<boolean> {
   if (task.assignedSessionId != null) {
     const live = getTerminalProjectState(task.projectId).sessions.find((s) => s.id === task.assignedSessionId);
-    if (!live?.isRunning || live.ownerTaskId !== task.id) return false;
+    // Adopted agents have no `ownerTaskId` lease (see leasedSessionLive); a live
+    // session is enough to route a follow-up into.
+    if (!live?.isRunning || (!task.adopted && live.ownerTaskId !== task.id)) return false;
     const sent = await sendOrchestratorFollowUpWhenReady(task.assignedSessionId, withAgentTaskPanelContext(prompt, task.projectId), {
       shouldContinue: () => leasedSessionLive(task.id, task.assignedSessionId!),
     });
@@ -1050,9 +1315,10 @@ function buildProjectTaskMemory(projectId: string): string[] {
       const agent = compactInlineText(task.agentPreset ?? 'agent', 48);
       const head = label ? `${label} [${agent}, ${task.status}]` : `[${agent}, ${task.status}]`;
       const activity = activities.slice(-2).map(formatTaskActivity).filter((line) => line.length > 0);
-      if (activity.length) return `${head} — ${activity.join('; ')}`;
+      const freshness = taskFreshness(task);
+      if (activity.length) return `${head} (${freshness}) — ${activity.join('; ')}`;
       const goal = compactInlineText(task.goal, 120);
-      return goal ? `${head} — goal: ${goal}` : head;
+      return goal ? `${head} (${freshness}) — goal: ${goal}` : `${head} (${freshness})`;
     });
   return [...learnedMemory, ...recentTaskMemory].slice(-10);
 }
@@ -1123,12 +1389,14 @@ export async function sendChatMessage(
     try {
       result = await routeOrchestratorRequest(trimmed, agents, {
         projectName: opts?.projectName,
+        projectRoot: rootPath,
         recentUserMessages,
         taskMemory,
         taskPanel,
         runningAgents: getRunningAgentRefs(projectId),
         reviewingAgents: getReviewableAgentRefs(projectId),
         taskOutputs: getAgentOutputRefs(projectId),
+        appState: getAppContextSnapshot(projectId, rootPath),
         llmConfig,
         conversational: !!opts?.voiceConversation,
       });
@@ -1320,6 +1588,16 @@ export async function sendChatMessage(
         if (target) await closeOrchestratorAgent(target.id);
         else showToast(`No running agent named "${action.target}"`, 'warning', 4000);
       }
+    } else if (
+      action.kind === 'navigate' ||
+      action.kind === 'open-file' ||
+      action.kind === 'close-file' ||
+      action.kind === 'preview' ||
+      action.kind === 'run' ||
+      action.kind === 'task'
+    ) {
+      // APP-control actions: drive the application UI directly (no agent).
+      await executeAppAction(action, projectId, rootPath);
     }
   }
 
@@ -1330,7 +1608,29 @@ export async function sendChatMessage(
   }
 }
 
+/**
+ * Adopt an agent CLI the user launched by hand (typed `claude`/`codex`/… into a
+ * terminal) so agent mode treats it like one it spawned: visible in the
+ * running-agents list the brain routes against, transcript readable for status
+ * answers, and addressable for follow-ups / close. Creates a lightweight
+ * in-progress task bound to the live session. Adopted tasks are NOT persisted
+ * (they vanish with the process) and never claim the `ownerTaskId` brief lease,
+ * so the terminal's own auto-brief still delivers the standing charter.
+ */
+function adoptDetectedAgent(sessionId: number, projectId: string, preset: string): void {
+  const session = getTerminalProjectState(projectId).sessions.find((s) => s.id === sessionId);
+  if (!session) return;
+  adoptLiveAgentSession(projectId, session, preset);
+}
+
 if (typeof window !== 'undefined') {
+  // A user typed an agent CLI into a terminal themselves — adopt it so agent
+  // mode is aware of it and can read/drive it (see adoptDetectedAgent).
+  onAgentDetected(({ sessionId, projectId, preset }) => {
+    try { adoptDetectedAgent(sessionId, projectId, preset); }
+    catch (err) { console.error('Failed to adopt detected agent:', err); }
+  });
+
   // Process exit is the fallback completion path (covers agents that do exit,
   // crashes, and turns the watcher missed). Driven by the project-independent
   // `onSessionExit` broadcast rather than the `sessions` store, so an agent that
@@ -1348,6 +1648,14 @@ if (typeof window !== 'undefined') {
     // path is handling — don't race it to a "finished" completion.
     const sessionStillPresent = getTerminalProjectState(projectId).sessions.some((s) => s.id === sessionId);
     if (!sessionStillPresent) return;
+    // An adopted agent (one the user launched by hand) just exited. Snapshot its
+    // output and complete it quietly — the user drove this directly, so don't
+    // raise an orchestrator completion card / summary for it.
+    if (task.adopted) {
+      captureTaskTranscript(task.id, sessionId);
+      patchTask(task.id, (t) => ({ ...transitionTask(t, 'complete'), assignedSessionId: null }));
+      return;
+    }
     // Distinguish clean exit (code 0 or unknown) from crash (non-zero code) so
     // the task ends up in the right terminal state rather than always showing
     // "complete" for both success and crashes. The terminal layer already raised

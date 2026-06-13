@@ -80,7 +80,11 @@
   box-shadow: none !important;
 }
 
-/* Make canvas translucent in transparency mode by removing double-stacking */
+/* Make canvas translucent in transparency mode by removing double-stacking.
+   Both the overlay (card backdrop) and the viewport paint a near-opaque dark
+   gradient by default; clearing both lets the frosted wallpaper show through
+   instead of stacking into a dark slab. The overlay keeps its backdrop blur. */
+:root:not(.solid-theme) .sketch-overlay,
 :root:not(.solid-theme) .canvas-viewport {
   background: transparent !important;
   box-shadow: none !important;

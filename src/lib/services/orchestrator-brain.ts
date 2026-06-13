@@ -18,6 +18,10 @@ export interface AgentChoice {
 /**
  * One thing the orchestrator decided to do this turn. A single message can yield
  * several of these — e.g. "open two claude agents" → two `spawn` actions.
+ *
+ * Actions split into two families: AGENT actions (spawn/send/name/close) drive
+ * the fleet of coding agents, and APP actions (navigate/open-file/…) drive the
+ * application UI itself so the orchestrator works as a full in-app assistant.
  */
 export type OrchestratorAction =
   /** Launch a new agent. Omit `prompt` to open it idle/ready; `name` labels it. */
@@ -27,7 +31,19 @@ export type OrchestratorAction =
   /** Give a running agent a name (or rename it). */
   | { kind: 'name'; target: string; name: string }
   /** Stop a running agent and close its terminal. `target` is its name, or "all". */
-  | { kind: 'close'; target: string };
+  | { kind: 'close'; target: string }
+  /** Switch the active page/panel (e.g. "editor", "preview", "tasks", "settings", "terminal"). */
+  | { kind: 'navigate'; view: string }
+  /** Open a file in the editor (path relative to the project root), optionally jumping to a line. */
+  | { kind: 'open-file'; path: string; line?: number | null }
+  /** Close an open editor file (path relative to the project root). */
+  | { kind: 'close-file'; path: string }
+  /** Point the preview browser at a URL or route (e.g. "/", "/login", a full URL). */
+  | { kind: 'preview'; url: string }
+  /** Run a shell command (or a named run preset) in a terminal. */
+  | { kind: 'run'; command: string }
+  /** Manage the task board: create a new item, move one by title, or delete one. */
+  | { kind: 'task'; op: 'create' | 'todo' | 'doing' | 'done' | 'delete'; title: string };
 
 export interface RouteResult {
   /** Short conversational message shown back to the user. */
@@ -51,16 +67,55 @@ export interface AgentOutputRef extends RunningAgentRef {
   status: 'in-progress' | 'complete' | 'blocked' | 'failed' | 'cancelled';
   updatedAt?: number | null;
   reason?: string | null;
+  freshness?: string | null;
+}
+
+/**
+ * A structured read of what the user currently sees and is working with across
+ * the whole application. Lets the orchestrator answer questions about the app
+ * ("what's open?", "am I on the preview?") and choose app-control actions.
+ */
+export interface AppStateRef {
+  /** The active main view, e.g. "editor" | "terminal" | "preview" | "tasks". */
+  activeView?: string;
+  settingsOpen?: boolean;
+  /** Aux panels currently visible. */
+  visiblePanels?: string[];
+  sidebar?: { open: boolean; tab?: string };
+  editor?: {
+    activeFile?: string | null;
+    openFiles?: string[];
+    dirtyFiles?: string[];
+    cursor?: { line: number; col: number } | null;
+    /** Language of the active file (e.g. "typescript", "svelte"). */
+    language?: string | null;
+    /** Live text of the active file (capped). Null when not on the editor or binary. */
+    content?: string | null;
+    /** True when `content` was truncated to fit the token budget. */
+    contentTruncated?: boolean;
+    /** The text the user currently has highlighted in the editor (capped). */
+    selection?: string | null;
+  };
+  terminals?: Array<{ label: string; agent?: string | null; cwd?: string | null; running: boolean; busy?: boolean; recentOutput?: string | null }>;
+  preview?: { url?: string | null; running?: boolean };
+  branch?: string | null;
+  /** Views the assistant may navigate to. */
+  availableViews?: string[];
+  /** Saved run presets the assistant may launch by name. */
+  availableRuns?: Array<{ name: string; command: string }>;
 }
 
 export interface RouteContext {
   projectName?: string;
+  projectRoot?: string;
   recentUserMessages?: string[];
   taskMemory?: string[];
   taskPanel?: string[];
   runningAgents?: RunningAgentRef[];
   reviewingAgents?: RunningAgentRef[];
   taskOutputs?: AgentOutputRef[];
+  /** Full read of the application UI state (active page, editor, terminals, …). */
+  appState?: AppStateRef;
   llmConfig?: RouteLlmConfig;
   /**
    * Spoken voice-conversation mode. The user is primarily *talking* with the
@@ -85,9 +140,59 @@ function compactText(raw: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars - 1)}…`;
 }
 
+function describeAppState(app: AppStateRef): string[] {
+  const lines: string[] = ['Application state (what the user is looking at right now):'];
+  if (app.activeView) lines.push(`- Active view: ${compactText(app.activeView, 40)}${app.settingsOpen ? ' (Settings panel open)' : ''}`);
+  if (app.visiblePanels?.length) lines.push(`- Visible panels: ${app.visiblePanels.map((p) => compactText(p, 24)).join(', ')}`);
+  const ed = app.editor;
+  if (ed) {
+    if (ed.activeFile) {
+      const cur = ed.cursor ? ` (cursor ${ed.cursor.line}:${ed.cursor.col})` : '';
+      const lang = ed.language && ed.language !== 'image' ? `, ${compactText(ed.language, 24)}` : '';
+      lines.push(`- Active editor file: ${compactText(ed.activeFile, 120)}${cur}${lang}`);
+    }
+    if (ed.openFiles?.length) lines.push(`- Open files: ${ed.openFiles.slice(0, 12).map((f) => compactText(f, 80)).join(', ')}`);
+    if (ed.dirtyFiles?.length) lines.push(`- Unsaved changes in: ${ed.dirtyFiles.map((f) => compactText(f, 80)).join(', ')}`);
+    if (ed.selection?.trim()) {
+      lines.push('- Highlighted selection in the editor:');
+      lines.push('```');
+      lines.push(ed.selection.trim());
+      lines.push('```');
+    }
+    if (ed.content?.trim()) {
+      lines.push(`- Contents of the active file${ed.contentTruncated ? ' (truncated)' : ''}:`);
+      lines.push('```' + (ed.language && ed.language !== 'image' ? ed.language : ''));
+      lines.push(ed.content);
+      lines.push('```');
+    }
+  }
+  if (app.terminals?.length) {
+    lines.push(`- Terminals (${app.terminals.length}):`);
+    for (const t of app.terminals.slice(0, 8)) {
+      const tags = [t.agent ? `agent: ${compactText(t.agent, 32)}` : null, t.running ? (t.busy ? 'busy' : 'idle') : 'exited', t.cwd ? `cwd: ${compactText(t.cwd, 48)}` : null]
+        .filter(Boolean)
+        .join(', ');
+      lines.push(`  - ${compactText(t.label, 40)}${tags ? ` [${tags}]` : ''}`);
+      if (t.recentOutput?.trim()) {
+        const out = t.recentOutput.trim().split('\n').slice(-6).map((l) => `      | ${l}`).join('\n');
+        lines.push(out);
+      }
+    }
+  }
+  if (app.preview?.url) lines.push(`- Preview URL: ${compactText(app.preview.url, 120)}${app.preview.running ? ' (dev server connected)' : ''}`);
+  if (app.branch) lines.push(`- Git branch: ${compactText(app.branch, 60)}`);
+  if (app.availableRuns?.length) lines.push(`- Run presets: ${app.availableRuns.map((r) => `${compactText(r.name, 24)} (\`${compactText(r.command, 40)}\`)`).join(', ')}`);
+  return lines;
+}
+
 function buildUserText(message: string, ctx?: RouteContext): string {
   const parts: string[] = [];
-  if (ctx?.projectName) parts.push(`Project: ${compactText(ctx.projectName, 80)}`);
+  if (ctx?.projectName || ctx?.projectRoot) {
+    const name = ctx.projectName ? compactText(ctx.projectName, 80) : '(unnamed project)';
+    const root = ctx.projectRoot ? ` at ${compactText(ctx.projectRoot, 180)}` : '';
+    parts.push(`Current active project: ${name}${root}. Treat this as the only current project unless the user switches projects.`);
+  }
+  if (ctx?.appState) parts.push(...describeAppState(ctx.appState));
   const running = ctx?.runningAgents ?? [];
   if (running.length) {
     parts.push('Currently running agents:');
@@ -111,6 +216,7 @@ function buildUserText(message: string, ctx?: RouteContext): string {
     parts.push('Recent agent/task status and terminal output:');
     for (const r of taskOutputs) {
       parts.push(`- ${r.name ? `"${compactText(r.name, 48)}"` : '(unnamed)'} [${compactText(r.agent, 48)}, ${r.status}] - ${compactText(r.title, 120)}`);
+      if (r.freshness) parts.push(`  Freshness: ${compactText(r.freshness, 160)}`);
       if (r.reason) parts.push(`  Reason: ${compactText(r.reason, 180)}`);
       if (r.recentOutput?.trim()) {
         const lines = r.recentOutput.trim().split('\n').slice(-10).map((l) => `  | ${l}`).join('\n');
@@ -170,6 +276,39 @@ const TASK_ADVICE_RE =
 
 function pickDefaultAgent(agents: AgentChoice[]): AgentChoice | null {
   return agents.find((a) => a.command === 'claude') ?? agents[0] ?? null;
+}
+
+// App-navigation command, anchored at the start so a task that merely mentions
+// "open" doesn't trigger it. "hide"/"close" a panel maps to the terminal view.
+const NAV_CMD_RE = /^(?:please\s+|can you\s+|could you\s+)?(go to|open|show(?:\s+me)?|switch to|take me to|navigate to|bring up|jump to|hide|close)\b/i;
+const VIEW_TERMS: Array<{ view: string; re: RegExp }> = [
+  { view: 'editor', re: /\beditor\b/i },
+  { view: 'preview', re: /\b(preview|browser)\b/i },
+  { view: 'tasks', re: /\btasks?\b|\btask board\b|\bkanban\b/i },
+  { view: 'terminal', re: /\b(terminal|console|shell)\b/i },
+  { view: 'settings', re: /\b(settings?|preferences)\b/i },
+  { view: 'review', re: /\breview\b/i },
+  { view: 'http', re: /\b(http|api client|rest client)\b/i },
+  { view: 'db', re: /\b(database|db)\b/i },
+  { view: 'containers', re: /\b(containers?|docker)\b/i },
+  { view: 'toolbox', re: /\btoolbox\b/i },
+  { view: 'pet', re: /\bpet\b/i },
+];
+
+/**
+ * Recognize a plain "go to / show / hide <view>" command so navigation works
+ * without an LLM. Returns null when the message names an agent (that's a spawn,
+ * not navigation) or doesn't clearly reference a known view.
+ */
+function navigationRoute(text: string, agents: AgentChoice[]): RouteResult | null {
+  if (!NAV_CMD_RE.test(text)) return null;
+  if (resolveAgentCommand(text, agents)) return null; // "open codex" is a spawn
+  const hideVerb = /^(?:please\s+|can you\s+|could you\s+)?(hide|close)\b/i.test(text);
+  const match = VIEW_TERMS.find(({ re }) => re.test(text));
+  if (!match) return null;
+  const view = hideVerb && match.view !== 'terminal' ? 'terminal' : match.view;
+  const label = view === 'terminal' && hideVerb ? 'Hiding that panel.' : `Opening ${view}.`;
+  return { reply: label, actions: [{ kind: 'navigate', view }], viaLLM: false };
 }
 
 // Spoken synonyms for command ids that aren't an obvious word. The command id
@@ -320,6 +459,10 @@ function heuristicRoute(message: string, agents: AgentChoice[], ctx?: RouteConte
     return { reply: 'Closing that agent.', actions: [{ kind: 'close', target }], viaLLM: false };
   }
 
+  // Plain app navigation ("show the editor", "go to tasks") — no agent needed.
+  const nav = navigationRoute(text, agents);
+  if (nav) return nav;
+
   const defaultAgent = pickDefaultAgent(agents);
   if (!defaultAgent) {
     return { reply: 'No agents are configured for this project yet.', actions: [], viaLLM: false };
@@ -418,7 +561,7 @@ function buildSystemPrompt(
         .join('\n')
     : '(none awaiting review)';
   return [
-    "You are Soryq's agent orchestrator. The user talks to you in natural language and you control a fleet of local terminal coding agents. You decide what to do this turn and craft precise, self-contained prompts for the agents.",
+    "You are Soryq's in-app assistant. The user talks to you in natural language. You can see the whole application — the active page, open editor files and cursor, terminals, preview, git branch, the task board — shown under \"Application state\" in the user message. You do two kinds of things: (1) DRIVE THE APP directly (navigate pages, open files, run the preview, manage tasks), and (2) DELEGATE coding work to a fleet of local terminal agents you spawn and direct. Answer questions about anything you can see, and take the right actions to do what the user asks inside the app.",
     '',
     'Available agent types (use the exact command id on the left when spawning):',
     list,
@@ -443,7 +586,24 @@ function buildSystemPrompt(
     '- {"kind": "close", "target": "<running agent name, or \\"all\\">"}',
     '    Stop a running agent and close its terminal. Use when the user wants to close, stop, end, dismiss, release, or shut down an agent they are done with. "close everything"/"stop them all" → one close with target "all".',
     '',
+    'APP-CONTROL actions — drive the application UI directly (no agent needed):',
+    '- {"kind": "navigate", "view": "<one of: editor, terminal, preview, review, http, tasks, db, containers, toolbox, pet, settings>"}',
+    '    Switch the active page/panel. "show me the editor" → editor; "open settings" → settings; "go back to the terminal" / "hide that panel" → terminal.',
+    '- {"kind": "open-file", "path": "<path relative to project root>", "line": <number or null>}',
+    '    Open a file in the editor (optionally jump to a line). Use the open-files / project paths shown in the app state. Prefer this over spawning an agent when the user just wants to SEE or go to a file.',
+    '- {"kind": "close-file", "path": "<path relative to project root>"}',
+    '    Close an open editor file.',
+    '- {"kind": "preview", "url": "<route or full URL>"}',
+    '    Point the preview browser at a route ("/login") or URL. Switch to the preview view first with a navigate action if it is not visible.',
+    '- {"kind": "run", "command": "<shell command or a run-preset name>"}',
+    '    Run a command in a terminal (e.g. "npm run dev", "npm test"). If the user names a saved run preset, pass its command. This is for plain shell commands — to do CODING work, spawn an agent instead.',
+    '- {"kind": "task", "op": "create"|"todo"|"doing"|"done"|"delete", "title": "<task title>"}',
+    '    Manage the task board. "add a task to …" → create; "mark X done" / "move X to in progress" → done/doing (match the existing item by title); "remove the X task" → delete.',
+    '',
     'Rules:',
+    '- Prefer an APP action when the user wants to look at or move around the app (open a file, switch pages, run the preview, jump to a line, manage tasks). Use SPAWN/SEND only when actual code needs writing or investigating.',
+    '- You can combine actions: "open the router file and have claude add a route" → one open-file action AND one spawn action.',
+    '- When the user asks a question about the app ("what file am I on?", "is the dev server running?", "what terminals are open?"), answer from the application state with an EMPTY actions array.',
     '- The actions array may contain MULTIPLE actions. "open two claude agents" → two spawn actions.',
     '- Each spawn/send prompt must be fully self-contained — the agent has NO access to this conversation.',
     '- If the user refers to a running agent (by name, "the first one", "that agent"), prefer send/name over spawning a duplicate.',
@@ -515,6 +675,41 @@ function parseAction(raw: unknown, agents: AgentChoice[]): OrchestratorAction | 
     const target = str(obj.target);
     if (!target) return null;
     return { kind: 'close', target };
+  }
+  if (kind === 'navigate') {
+    const view = str(obj.view).toLowerCase();
+    if (!view) return null;
+    return { kind: 'navigate', view };
+  }
+  if (kind === 'open-file' || kind === 'open_file' || kind === 'openfile') {
+    const path = str(obj.path);
+    if (!path) return null;
+    const lineNum = typeof obj.line === 'number' && Number.isFinite(obj.line) && obj.line > 0 ? Math.floor(obj.line) : null;
+    return { kind: 'open-file', path, line: lineNum };
+  }
+  if (kind === 'close-file' || kind === 'close_file' || kind === 'closefile') {
+    const path = str(obj.path);
+    if (!path) return null;
+    return { kind: 'close-file', path };
+  }
+  if (kind === 'preview' || kind === 'navigate-preview') {
+    const url = str(obj.url);
+    if (!url) return null;
+    return { kind: 'preview', url };
+  }
+  if (kind === 'run') {
+    const command = str(obj.command);
+    if (!command) return null;
+    return { kind: 'run', command };
+  }
+  if (kind === 'task') {
+    const op = str(obj.op).toLowerCase();
+    const title = str(obj.title);
+    if (!title) return null;
+    if (op === 'create' || op === 'todo' || op === 'doing' || op === 'done' || op === 'delete') {
+      return { kind: 'task', op, title };
+    }
+    return null;
   }
   return null;
 }
