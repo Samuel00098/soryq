@@ -1,0 +1,17 @@
+{
+  "name": "soryq-site",
+  "version": "0.1.0",
+  "description": "Marketing site / landing page for Soryq",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/sync-changelog.mjs && astro dev",
+    "prebuild": "node scripts/sync-changelog.mjs",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^5.5.0"
+  }
+}

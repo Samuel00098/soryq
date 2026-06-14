@@ -1,0 +1,205 @@
+---
+import { gallery } from '../config';
+// "A closer look" — a grid of real app captures. Each tile renders a framed
+// screenshot once its `ready` flag is true (see src/config.ts → gallery), and a
+// polished, labelled placeholder until then, so the section always looks finished.
+const shots = gallery.show ? gallery.shots : [];
+---
+
+{
+  shots.length > 0 && (
+    <section id="screenshots">
+      <div class="container">
+        <div class="head reveal">
+          <span class="eyebrow">A closer look</span>
+          <h2 class="section-title">Every surface, one window.</h2>
+          <p class="section-sub">
+            Real captures of Soryq at work — terminal, editor, live preview, AI, and Git, each
+            a keystroke away.
+          </p>
+        </div>
+
+        <div class="grid">
+          {shots.map((s, i) => (
+            <figure
+              class={`shot glass reveal ${i === 0 ? 'feature' : ''} ${s.ready ? 'has-img' : 'is-soon'}`}
+              style={`--c:${s.accent}`}
+            >
+              <div class="frame">
+                <div class="bar" aria-hidden="true">
+                  <span class="tl tl-r" />
+                  <span class="tl tl-y" />
+                  <span class="tl tl-g" />
+                </div>
+                {s.ready ? (
+                  <img class="img" src={s.file} alt={s.title} loading="lazy" decoding="async" />
+                ) : (
+                  <div class="ph">
+                    <span class="glyph" aria-hidden="true" />
+                    <span class="soon">Screenshot coming soon</span>
+                  </div>
+                )}
+              </div>
+              <figcaption>
+                <strong>{s.title}</strong>
+                <span>{s.blurb}</span>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .head {
+    text-align: center;
+    margin-inline: auto;
+    max-width: 640px;
+    margin-bottom: 48px;
+  }
+  .head .section-sub {
+    margin-inline: auto;
+  }
+
+  /* 6-col grid; first tile spans two columns as a featured capture. */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 18px;
+  }
+  .shot {
+    grid-column: span 3;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease;
+  }
+  .shot.feature {
+    grid-column: span 6;
+  }
+  .shot:hover {
+    transform: translateY(-4px);
+    border-color: var(--glass-border-strong);
+  }
+
+  /* Window-style frame so a raw capture still reads as "the app". */
+  .frame {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .tl {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .tl-r { background: #ff5f57; }
+  .tl-y { background: #febc2e; }
+  .tl-g { background: #28c840; }
+
+  .img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+  }
+  .shot.feature .img {
+    aspect-ratio: 16 / 8;
+  }
+
+  /* Placeholder: an accent bloom + glyph that reads as an intentional slot. */
+  .ph {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    aspect-ratio: 16 / 10;
+    background:
+      radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--c) 14%, transparent), transparent 60%),
+      rgba(0, 0, 0, 0.25);
+  }
+  .shot.feature .ph {
+    aspect-ratio: 16 / 8;
+  }
+  .glyph {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--c) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+    box-shadow: 0 0 26px -6px var(--c);
+    position: relative;
+  }
+  .glyph::after {
+    content: '';
+    position: absolute;
+    inset: 11px;
+    border-radius: 5px;
+    background: var(--c);
+    opacity: 0.85;
+  }
+  .soon {
+    font-size: 0.85rem;
+    color: var(--text-soft);
+    background: rgba(0, 0, 0, 0.45);
+    padding: 5px 12px;
+    border-radius: 999px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+
+  figcaption {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 14px 8px 6px;
+  }
+  figcaption strong {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  figcaption span {
+    font-size: 0.9rem;
+    color: var(--text-soft);
+  }
+
+  @media (max-width: 880px) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .shot,
+    .shot.feature {
+      grid-column: span 1;
+    }
+    .shot.feature {
+      grid-column: span 2;
+    }
+  }
+  @media (max-width: 540px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+    .shot.feature {
+      grid-column: span 1;
+    }
+  }
+</style>
