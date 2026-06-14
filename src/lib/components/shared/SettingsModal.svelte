@@ -89,9 +89,13 @@
   let updateMessage = $state('');
   let appVersion = $state(PACKAGE_VERSION);
 
-  // Public site changelog page. Mirrors the site's production-URL fallback
-  // (see site/src/config.ts) — the live deploy auto-binds any custom domain.
-  const CHANGELOG_URL = 'https://site-flame-phi.vercel.app/changelog';
+  // Public site changelog page. Defaults to the live production URL (mirrors the
+  // site's own fallback in site/src/config.ts). Override at build time with
+  // VITE_SITE_URL — e.g. `VITE_SITE_URL=https://soryq.app` — to follow a custom
+  // domain without editing code. The .vercel.app URL keeps working even after a
+  // custom domain is bound, so the default never breaks.
+  const SITE_URL = (import.meta.env.VITE_SITE_URL ?? 'https://site-flame-phi.vercel.app').replace(/\/+$/, '');
+  const CHANGELOG_URL = `${SITE_URL}/changelog`;
 
   async function openChangelog() {
     if (!isTauriRuntime()) {
