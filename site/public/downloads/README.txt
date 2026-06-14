@@ -3,7 +3,7 @@ src/config.ts so the download buttons become real links.
 
 Expected filenames (edit `downloads[].href` in src/config.ts to match yours):
   - Soryq_x64-setup.exe        (Windows, NSIS installer)
-  - Soryq_universal.dmg        (macOS, Intel + Apple Silicon)
+  - Soryq_aarch64.dmg          (macOS, Apple Silicon)
   - Soryq_x86_64.AppImage      (Linux)
 
 These files are served from the site root, e.g. https://yourdomain/downloads/Soryq_x64-setup.exe

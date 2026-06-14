@@ -14,7 +14,7 @@ export const site = {
   tagline: 'A lightweight, terminal-first developer workspace for keyboard-centric professionals.',
   description:
     'Soryq unifies a real PTY terminal grid, a CodeMirror editor, a live web-preview proxy with DOM inspector, and Git — in one fast, native, keyboard-driven window. No Electron. Sub-second startup.',
-  version: '0.3.9',
+  version: '0.4.0',
   // Canonical site URL, resolved at build time from whatever production domain
   // is bound to the Vercel project (see productionUrl above). og:url / canonical
   // / social-card links auto-switch to that domain on the first deploy after
@@ -29,13 +29,13 @@ export const site = {
 // Downloads are CLOSED for now (2026-06-14): every card renders a "Coming soon"
 // state instead of a live installer link.
 //   • TO RE-OPEN: set `downloadsAvailable = true` — the hrefs below already point
-//     at the real public v0.3.9 installers (soryq-releases), so nothing else needs
+//     at the real public v0.4.0 installers (soryq-releases), so nothing else needs
 //     to change to go live.
 //   • TO MOVE to site-hosted files later: drop installers into site/public/downloads/
 //     and swap each `href` to the commented `/downloads/...` path below.
 export const downloadsAvailable = false;
 
-const RELEASE_BASE = 'https://github.com/Samuel00098/soryq-releases/releases/download/v0.3.9';
+const RELEASE_BASE = 'https://github.com/Samuel00098/soryq-releases/releases/download/v0.4.0';
 
 export const downloads = [
   {
@@ -43,7 +43,7 @@ export const downloads = [
     icon: 'windows',
     note: '10 / 11 · 64-bit',
     file: 'Windows installer (.exe)',
-    href: `${RELEASE_BASE}/Soryq_0.3.9_x64-setup.exe`,
+    href: `${RELEASE_BASE}/Soryq_0.4.0_x64-setup.exe`,
     // site-hosted (future): '/downloads/Soryq_x64-setup.exe'
   },
   {
@@ -51,7 +51,7 @@ export const downloads = [
     icon: 'apple',
     note: 'Apple Silicon · 64-bit',
     file: 'Disk image (.dmg)',
-    href: `${RELEASE_BASE}/Soryq_0.3.9_aarch64.dmg`,
+    href: `${RELEASE_BASE}/Soryq_0.4.0_aarch64.dmg`,
     // site-hosted (future): '/downloads/Soryq_aarch64.dmg'
   },
   {
@@ -59,7 +59,7 @@ export const downloads = [
     icon: 'linux',
     note: 'x86_64',
     file: 'AppImage (.AppImage)',
-    href: `${RELEASE_BASE}/Soryq_0.3.9_amd64.AppImage`,
+    href: `${RELEASE_BASE}/Soryq_0.4.0_amd64.AppImage`,
     // site-hosted (future): '/downloads/Soryq_x86_64.AppImage'
   },
 ];

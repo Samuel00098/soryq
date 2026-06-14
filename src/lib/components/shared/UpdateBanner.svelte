@@ -1,7 +1,18 @@
 <script lang="ts">
   import { pendingUpdate, updateDownloading, updateProgress, installUpdate } from '$lib/stores/updater';
+  import { showToast } from '$lib/stores/notification';
+  import { openChangelogPage } from '$lib/services/changelog';
 
   let expanded = $state(false);
+
+  async function viewChangelog() {
+    try {
+      await openChangelogPage();
+    } catch (err) {
+      console.error('Failed to open changelog:', err);
+      showToast('Could not open the changelog', 'error');
+    }
+  }
 </script>
 
 {#if $pendingUpdate}
@@ -18,6 +29,9 @@
           {expanded ? 'Hide' : 'What\'s new'}
         </button>
       {/if}
+      <button class="update-notes-btn" onclick={viewChangelog} title="View the full changelog">
+        View Changelog
+      </button>
     </div>
 
     <div class="update-actions">
@@ -58,7 +72,9 @@
   .update-main {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 7px;
+    min-width: 0;
   }
 
   .update-msg {

@@ -39,7 +39,7 @@ Download the latest build for your platform from the **[official website](https:
 Run the `.exe` setup installer.
 
 ### macOS
-Open the universal `.dmg` disk image (Intel + Apple Silicon) and drag Soryq into Applications.
+Open the Apple Silicon `.dmg` disk image and drag Soryq into Applications.
 
 ### Linux
 Download the `.AppImage`, make it executable, and run it:

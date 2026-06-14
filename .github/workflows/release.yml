@@ -44,12 +44,7 @@ jobs:
             args: ''
             rust-targets: ''
 
-          - platform: macos-13       # macOS Intel (x86_64)
-            os: macos
-            args: '--target x86_64-apple-darwin'
-            rust-targets: 'x86_64-apple-darwin'
-
-          - platform: macos-latest   # macOS Apple Silicon (arm64)
+          - platform: macos-26       # macOS Apple Silicon (arm64)
             os: macos
             args: '--target aarch64-apple-darwin'
             rust-targets: 'aarch64-apple-darwin'

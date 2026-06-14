@@ -77,6 +77,7 @@
   import { getVersion } from '@tauri-apps/api/app';
   import Dropdown, { type DropdownOption } from '$lib/components/shared/Dropdown.svelte';
   import { clearProviderApiKey, providerApiKeyExists, saveProviderApiKey, listProviderModels } from '$lib/services/ai-keychain';
+  import { openChangelogPage } from '$lib/services/changelog';
   import { describeTtsError, getVoiceReplyConfigError, speak, stopSpeaking } from '$lib/services/tts';
   import { isTauriRuntime } from '$lib/utils/tauri';
   import packageJson from '../../../../package.json';
@@ -89,21 +90,9 @@
   let updateMessage = $state('');
   let appVersion = $state(PACKAGE_VERSION);
 
-  // Public site changelog page. Defaults to the live production URL (mirrors the
-  // site's own fallback in site/src/config.ts). Override at build time with
-  // VITE_SITE_URL — e.g. `VITE_SITE_URL=https://soryq.app` — to follow a custom
-  // domain without editing code. The .vercel.app URL keeps working even after a
-  // custom domain is bound, so the default never breaks.
-  const SITE_URL = (import.meta.env.VITE_SITE_URL ?? 'https://site-flame-phi.vercel.app').replace(/\/+$/, '');
-  const CHANGELOG_URL = `${SITE_URL}/changelog`;
-
   async function openChangelog() {
-    if (!isTauriRuntime()) {
-      window.open(CHANGELOG_URL, '_blank', 'noopener,noreferrer');
-      return;
-    }
     try {
-      await invoke('preview_open_in_browser', { url: CHANGELOG_URL });
+      await openChangelogPage();
     } catch (err) {
       console.error('Failed to open changelog:', err);
       showToast('Could not open the changelog', 'error');

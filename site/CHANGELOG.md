@@ -3,6 +3,22 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.0] - 2026-06-14
+
+### Added
+
+- **Update banner changelog link** - the signed update banner now includes a "View Changelog" action next to the inline "What's new" notes, opening the same public changelog page used by Settings.
+
+### Changed
+
+- **Apple Silicon-only macOS builds** - release and CI workflows now build macOS artifacts for Apple Silicon (`aarch64-apple-darwin`) only, alongside Windows and Linux.
+
+- **Version bumped to 0.4.0** - app metadata, native package metadata, and release-site version references now point at v0.4.0.
+
+### Fixed
+
+- **Cross-platform CI typecheck script** - added the missing `npm run check` script expected by the Windows/macOS/Linux build workflow.
+
 ## [v0.3.9] - 2026-06-14
 
 ### Added
