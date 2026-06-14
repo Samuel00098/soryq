@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish, for example v0.4.1'
+        required: true
+        type: string
 
 jobs:
   # Create the release in soryq-releases before the matrix builds run,
@@ -17,7 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
         run: |
-          TAG="${{ github.ref_name }}"
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
 
           # Check if the release already exists in soryq-releases
           if gh release view "$TAG" --repo Samuel00098/soryq-releases >/dev/null 2>&1; then
@@ -100,8 +106,8 @@ jobs:
           # Publish the release to the separate public releases repo
           owner: Samuel00098
           repo: soryq-releases
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Soryq ${{ github.ref_name }}'
+          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          releaseName: "Soryq ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           releaseBody: 'See the changelog for what is new in this release.'
           releaseDraft: false
           prerelease: false
