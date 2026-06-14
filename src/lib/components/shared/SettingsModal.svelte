@@ -89,6 +89,23 @@
   let updateMessage = $state('');
   let appVersion = $state(PACKAGE_VERSION);
 
+  // Public site changelog page. Mirrors the site's production-URL fallback
+  // (see site/src/config.ts) — the live deploy auto-binds any custom domain.
+  const CHANGELOG_URL = 'https://site-flame-phi.vercel.app/changelog';
+
+  async function openChangelog() {
+    if (!isTauriRuntime()) {
+      window.open(CHANGELOG_URL, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    try {
+      await invoke('preview_open_in_browser', { url: CHANGELOG_URL });
+    } catch (err) {
+      console.error('Failed to open changelog:', err);
+      showToast('Could not open the changelog', 'error');
+    }
+  }
+
   async function handleCheckForUpdates() {
     if (updateStatus === 'checking') return;
     updateStatus = 'checking';
@@ -3834,7 +3851,20 @@
           </div>
         </div>
 
-        <div class="tour-section" style="margin: 20px 0 10px;">
+        <div class="tour-section" style="margin: 20px 0 10px; display: flex; flex-direction: column; gap: 8px;">
+          <button
+            class="tour-btn"
+            onclick={openChangelog}
+            title="See what's new in Soryq"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="8" y1="13" x2="16" y2="13"/>
+              <line x1="8" y1="17" x2="14" y2="17"/>
+            </svg>
+            View Changelog
+          </button>
           <button
             class="tour-btn"
             onclick={() => { onboardingCompleted.set(false); onclose(); }}
