@@ -93,7 +93,7 @@
     <div class="card-header">
       <div class="logo-wrap">
         {#if !iconError}
-          <img src="/icon.png?v=2" alt="Soryq" class="logo-img" onerror={() => iconError = true} />
+          <img src="/icon.png?v=4" alt="Soryq" class="logo-img" onerror={() => iconError = true} />
         {:else}
           <svg width="24" height="24" viewBox="0 0 36 36" fill="none">
             <rect width="36" height="36" rx="8" fill="var(--accent-light)"/>
@@ -117,7 +117,7 @@
               <defs>
                 <linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%">
                   <stop offset="0%" stop-color="var(--accent)" />
-                  <stop offset="100%" stop-color="#8b5cf6" />
+                  <stop offset="100%" stop-color="#38bdf8" />
                 </linearGradient>
               </defs>
               <g class="float-animation">
@@ -330,7 +330,7 @@
                 <g transform="translate(245, 35)">
                   <rect x="0" y="0" width="90" height="75" rx="6" fill="var(--bg-secondary)" stroke="var(--border)" stroke-width="1.5"/>
                   <!-- Shapes on Canvas -->
-                  <circle cx="25" cy="38" r="12" fill="rgba(139,92,246,0.12)" stroke="#8b5cf6" stroke-width="1.5"/>
+                  <circle cx="25" cy="38" r="12" fill="rgba(245,158,11,0.12)" stroke="#f59e0b" stroke-width="1.5"/>
                   <rect x="55" y="28" width="20" height="20" rx="3" fill="rgba(6,182,212,0.12)" stroke="var(--accent)" stroke-width="1.5"/>
                   <path d="M 37,38 L 55,38" fill="none" stroke="var(--text-muted)" stroke-width="1.2" stroke-linecap="round"/>
                   <!-- Hand Drawn Pencil -->
@@ -544,7 +544,7 @@
               <defs>
                 <linearGradient id="cg2" x1="0%" y1="0%" x2="100%" y2="100%">
                   <stop offset="0%" stop-color="var(--accent)"/>
-                  <stop offset="100%" stop-color="#8b5cf6"/>
+                  <stop offset="100%" stop-color="#38bdf8"/>
                 </linearGradient>
               </defs>
               <g class="float-animation">

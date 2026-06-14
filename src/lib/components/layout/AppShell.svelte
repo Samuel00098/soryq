@@ -6,29 +6,34 @@
   import ProjectSwitcher from '$lib/components/workspace/ProjectSwitcher.svelte';
   import WorkspaceSwitcher from '$lib/components/workspace/WorkspaceSwitcher.svelte';
   import TerminalPanel from '$lib/components/terminal/TerminalPanel.svelte';
-  import EditorPanel from '$lib/components/editor/EditorPanel.svelte';
-  import PreviewPanel from '$lib/components/preview/PreviewPanel.svelte';
+  // Aux panels are loaded on demand via *Lazy boundaries (each renders the real
+  // panel once its chunk arrives) so their code — CodeMirror + language packs in
+  // the editor, the preview webview, etc. — stays out of the startup bundle.
+  // None of these are on the first-paint path (shell + terminal show first).
+  import EditorPanel from '$lib/components/editor/EditorPanelLazy.svelte';
+  import PreviewPanel from '$lib/components/preview/PreviewPanelLazy.svelte';
   import WelcomeScreen from '$lib/components/workspace/WelcomeScreen.svelte';
-  import ReviewPanel from '$lib/components/review/ReviewPanel.svelte';
-  import TasksPanel from '$lib/components/workspace/TasksPanel.svelte';
+  import ReviewPanel from '$lib/components/review/ReviewPanelLazy.svelte';
+  import TasksPanel from '$lib/components/workspace/TasksPanelLazy.svelte';
   import SnapshotsPanel from '$lib/components/layout/SnapshotsPanel.svelte';
   import TerminalSnippetsPanel from '$lib/components/explorer/TerminalSnippetsPanel.svelte';
   import AgentCommandCenter from '$lib/components/terminal/AgentCommandCenter.svelte';
   import { agentCenterOpen } from '$lib/stores/orchestrator';
-  import HttpClientPanel from '$lib/components/http/HttpClientPanel.svelte';
+  import HttpClientPanel from '$lib/components/http/HttpClientPanelLazy.svelte';
   import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.svelte';
   import UpdateBanner from '$lib/components/shared/UpdateBanner.svelte';
-  import DbExplorerPanel from '$lib/components/db/DbExplorerPanel.svelte';
-  import ContainersPanel from '$lib/components/containers/ContainersPanel.svelte';
+  import DbExplorerPanel from '$lib/components/db/DbExplorerPanelLazy.svelte';
+  import ContainersPanel from '$lib/components/containers/ContainersPanelLazy.svelte';
   // Developer workspace panels
-  import ToolboxPanel from '$lib/components/toolbox/ToolboxPanel.svelte';
-  import DevPetPanel from '$lib/components/pet/DevPetPanel.svelte';
+  import ToolboxPanel from '$lib/components/toolbox/ToolboxPanelLazy.svelte';
+  import DevPetPanel from '$lib/components/pet/DevPetPanelLazy.svelte';
   import { checkForUpdate } from '$lib/stores/updater';
   import { fly } from 'svelte/transition';
 
   import { layout, toggleSidebar, setActiveView, toggleEditorSplitPreview, openSettings, toggleSidebarTab, toggleEditorVisible, togglePreviewVisible, toggleTerminal, toggleReviewVisible, toggleHttpVisible, toggleTasksVisible, toggleDbVisible, toggleContainersVisible, toggleToolboxVisible, openQuickCapture, openEnvManager } from '$lib/stores/layout';
   import { initNavigationHistory } from '$lib/stores/navigation';
-  import SketchCanvas from '$lib/components/workspace/SketchCanvas.svelte';
+  // SketchCanvas (the whiteboard) is large and rarely the first thing opened, so
+  // it's loaded on demand from the {#await import()} block in the markup.
   import { sketchCanvasOpen, toggleSketchCanvas } from '$lib/stores/sketch';
   import { openDailyNote } from '$lib/stores/dailyNote';
   import { activeProject, openProject, activeWorkspaceId, newWorkspacePromptOpen, isProjectSwitching } from '$lib/stores/workspace';
@@ -860,7 +865,10 @@
         {/if}
 
         {#if $sketchCanvasOpen}
-          <SketchCanvas />
+          {#await import('$lib/components/workspace/SketchCanvas.svelte') then mod}
+            {@const SketchCanvas = mod.default}
+            <SketchCanvas />
+          {/await}
         {/if}
 
         <FloatingPromptBar />

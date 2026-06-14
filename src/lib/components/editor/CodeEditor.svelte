@@ -55,8 +55,10 @@
   import { kotlin, csharp } from '@codemirror/legacy-modes/mode/clike';
   import { toml } from '@codemirror/legacy-modes/mode/toml';
 
+  import { get } from 'svelte/store';
   import { updateContent, updateCursorPosition, jumpToLine, activeSelection } from '$lib/stores/editor';
   import { devpet } from '$lib/stores/devpet';
+  import { activeProject } from '$lib/stores/workspace';
   import {
     fontSize,
     resolvedFontFamily,
@@ -64,8 +66,11 @@
     wordWrap,
     minimap,
     vimMode,
+    enableLsp,
   } from '$lib/stores/settings';
   import { vim } from '@replit/codemirror-vim';
+  import { createLspExtension, lspSupportsLanguage, lspReload, type LspHandle } from '$lib/services/lsp/client';
+  import { ghostText } from '$lib/services/completion/ghost-text';
 
   let { filePath, initialContent, language } = $props<{
     filePath: string;
@@ -85,6 +90,14 @@
   const tabSizeCompartment = new Compartment();
   const wordWrapCompartment = new Compartment();
   const vimModeCompartment = new Compartment();
+  // LSP extension is loaded asynchronously (server must spawn first), so it lives
+  // in its own compartment that starts empty and gets reconfigured once ready.
+  const lspCompartment = new Compartment();
+
+  // The active language-server document handle for the open file, and a
+  // generation counter so a slow server start can't clobber a newer file switch.
+  let lspHandle: LspHandle | null = null;
+  let lspGeneration = 0;
 
   const customTheme = EditorView.theme({
     "&": {
@@ -213,6 +226,7 @@
         highlightActiveLine(),
         highlightSelectionMatches(),
         getLanguageExtension(language),
+        ghostText(language),
         customTheme,
         scrollPastEnd(),
         EditorView.editable.of(true),
@@ -220,6 +234,7 @@
         tabSizeCompartment.of(EditorState.tabSize.of($tabSize)),
         wordWrapCompartment.of($wordWrap ? EditorView.lineWrapping : []),
         vimModeCompartment.of($vimMode ? vim() : []),
+        lspCompartment.of([]),
         keymap.of([
           ...closeBracketsKeymap,
           ...defaultKeymap,
@@ -272,11 +287,51 @@
   });
 
   onDestroy(() => {
+    if (lspHandle) {
+      lspHandle.dispose();
+      lspHandle = null;
+    }
     if (view) {
       view.scrollDOM.removeEventListener('scroll', syncMinimapScroll);
       view.destroy();
     }
   });
+
+  /**
+   * (Re)load the language server extension for the current file. Tears down any
+   * prior handle, then — if LSP is enabled, the language is supported, and a
+   * project is open — asks the backend to start (or reuse) a server and swaps the
+   * extension into `lspCompartment`. A generation guard discards a stale result
+   * if the user switched files while the server was starting.
+   */
+  async function loadLsp(path: string, lang: string, root: string | undefined, enabled: boolean) {
+    const gen = ++lspGeneration;
+
+    const prev = lspHandle;
+    lspHandle = null;
+    if (prev) prev.dispose();
+    if (view) view.dispatch({ effects: lspCompartment.reconfigure([]) });
+
+    if (!enabled || !root || !lspSupportsLanguage(lang)) return;
+
+    let handle: LspHandle | null = null;
+    try {
+      handle = await createLspExtension(path, lang, root);
+    } catch (e) {
+      console.error('Failed to load LSP extension:', e);
+      return;
+    }
+
+    // A newer load started, or the editor went away, while we were awaiting.
+    if (gen !== lspGeneration || !view) {
+      handle?.dispose();
+      return;
+    }
+    lspHandle = handle;
+    if (handle) {
+      view.dispatch({ effects: lspCompartment.reconfigure(handle.extension) });
+    }
+  }
 
   // Keep editor content in sync if initialContent changes from parent (e.g. file switched or saved)
   $effect(() => {
@@ -325,6 +380,21 @@
       }
       jumpToLine.set(null);
     }
+  });
+
+  // Load / reload the language server whenever the file, language, project root,
+  // or the LSP toggle changes. Declared after the setState effect above so that,
+  // on a file switch, it runs after the fresh editor state (with an empty LSP
+  // compartment) is installed and reconfigures it for the new document.
+  $effect(() => {
+    const enabled = $enableLsp;
+    const root = $activeProject?.root_path;
+    const path = filePath;
+    const lang = language;
+    // Re-run after a successful server install so LSP activates without a reopen.
+    void $lspReload;
+    if (!view) return;
+    void loadLsp(path, lang, root, enabled);
   });
 </script>
 

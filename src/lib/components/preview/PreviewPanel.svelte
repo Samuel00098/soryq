@@ -351,8 +351,10 @@
       return 'https://' + trimmed;
     }
 
-    // Search with Google if it doesn't look like a URL
-    return 'https://www.google.com/search?q=' + encodeURIComponent(trimmed);
+    // Search if it doesn't look like a URL. Use DuckDuckGo, not Google: Google
+    // CAPTCHAs requests coming through the local preview proxy, so it's unusable
+    // in the built-in browser. DuckDuckGo renders fine proxied.
+    return 'https://duckduckgo.com/?q=' + encodeURIComponent(trimmed);
   }
 
   function isAbsoluteUrl(url: string): boolean {
@@ -1354,7 +1356,7 @@
         <h3>Web Preview</h3>
         <p>Type any URL in the address bar to browse the web, or click <strong>Dev: Off</strong> to preview your local dev server running on port {$targetPort}.</p>
         <div class="placeholder-actions">
-          <button class="action-btn web-btn" onclick={() => { navigatePreviewTab('https://www.google.com'); inputUrl = 'https://www.google.com'; }}
+          <button class="action-btn web-btn" onclick={() => { navigatePreviewTab('https://duckduckgo.com/'); inputUrl = 'https://duckduckgo.com/'; }}
             title="Open browser">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>

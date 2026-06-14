@@ -14,12 +14,50 @@
   function getFileName(path: string) {
     return path.split(/[\\\/]/).pop() || path;
   }
+
+  // Short, language-specific badge (label + brand color) shown on each tab,
+  // replacing a generic "TXT" for every file. Keyed by the language ids that
+  // detectLanguage() produces (see stores/editor.ts).
+  type Badge = { label: string; color: string };
+  const LANG_BADGE: Record<string, Badge> = {
+    image: { label: 'IMG', color: '#b78cf0' },
+    javascript: { label: 'JS', color: '#f0db4f' },
+    typescript: { label: 'TS', color: '#3178c6' },
+    html: { label: 'HTML', color: '#e34f26' },
+    css: { label: 'CSS', color: '#519aba' },
+    scss: { label: 'SCSS', color: '#cd6799' },
+    sass: { label: 'SASS', color: '#cd6799' },
+    rust: { label: 'RS', color: '#dea584' },
+    json: { label: 'JSON', color: '#cbcb41' },
+    markdown: { label: 'MD', color: '#519aba' },
+    python: { label: 'PY', color: '#ffd43b' },
+    java: { label: 'JAVA', color: '#e76f00' },
+    cpp: { label: 'C++', color: '#5e97d0' },
+    csharp: { label: 'C#', color: '#a074c4' },
+    svelte: { label: 'SV', color: '#ff3e00' },
+    toml: { label: 'TOML', color: '#b8845f' },
+    php: { label: 'PHP', color: '#8993be' },
+    sql: { label: 'SQL', color: '#e38c00' },
+    xml: { label: 'XML', color: '#e37933' },
+    yaml: { label: 'YAML', color: '#cb171e' },
+    go: { label: 'GO', color: '#00add8' },
+    swift: { label: 'SW', color: '#f05138' },
+    kotlin: { label: 'KT', color: '#a97bff' },
+    shell: { label: 'SH', color: '#89e051' },
+    plaintext: { label: 'TXT', color: 'var(--text-muted)' },
+  };
+
+  function langBadge(language: string | undefined, kind: string): Badge {
+    if (kind === 'image') return LANG_BADGE.image;
+    return LANG_BADGE[language ?? ''] ?? LANG_BADGE.plaintext;
+  }
 </script>
 
 <div class="editor-tabs" use:clampHorizontalScroll>
   {#each $openFiles as file (file)}
     {@const fileState = $fileCache.get(file)}
     {#if fileState}
+      {@const badge = langBadge(fileState.language, fileState.kind)}
       <button
         class="editor-tab"
         class:active={$activeFile === file}
@@ -27,15 +65,7 @@
         onclick={() => handleTabClick(file)}
         title={file}
       >
-        <span class="tab-icon">
-          {#if fileState.kind === 'image'}
-            IMG
-          {:else if fileState.language === 'rust'}
-            RS
-          {:else}
-            TXT
-          {/if}
-        </span>
+        <span class="tab-icon" style:color={badge.color}>{badge.label}</span>
         <span class="tab-label">{getFileName(file)}</span>
         {#if fileState.isDirty}
           <span class="tab-dirty-indicator"></span>
@@ -127,7 +157,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0.8;
+    opacity: 0.95;
+    flex-shrink: 0;
   }
 
   .tab-label {

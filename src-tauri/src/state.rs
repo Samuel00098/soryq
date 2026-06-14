@@ -1,3 +1,4 @@
+use crate::lsp::bridge::LspBridge;
 use crate::preview::PreviewManager;
 use crate::pty::manager::PtyManager;
 use crate::theme::registry::ThemeRegistry;
@@ -42,6 +43,7 @@ pub struct AppState {
     pub theme_registry: ThemeRegistry,
     pub workspace_manager: WorkspaceManager,
     pub pty_manager: PtyManager,
+    pub lsp_bridge: LspBridge,
     pub preview_manager: PreviewManager,
     pub write_rate_limiter: WriteRateLimiter,
     pub config_dir: PathBuf,
@@ -54,6 +56,7 @@ impl AppState {
             theme_registry: ThemeRegistry::new(config_dir.clone()),
             workspace_manager: WorkspaceManager::new(config_dir.clone(), active_project_id.clone()),
             pty_manager: PtyManager::new(),
+            lsp_bridge: LspBridge::new(),
             preview_manager: PreviewManager::new(active_project_id),
             write_rate_limiter: WriteRateLimiter::new(),
             config_dir,

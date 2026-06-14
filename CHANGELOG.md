@@ -3,6 +3,36 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.3.9] - 2026-06-14
+
+### Added
+
+- **Type-aware code intelligence (LSP)** — the editor now offers real completion, diagnostics, and hover backed by language servers (rust-analyzer, typescript-language-server, pyright, gopls), bridged to CodeMirror over a single-use-token-authed loopback WebSocket. Servers are detected on PATH, with one-click install for the ones you're missing. On by default, per language.
+
+- **AI ghost text ("Cursor Tab")** — faded inline code predictions you accept with Tab, powered by a dedicated fast completion provider/model (default Groq) chosen independently of your main AI provider. Opt-in (off by default) since it streams the surrounding code to the provider on each typing pause.
+
+- **Custom CLI agents** — add your own coding-agent commands under Settings → Terminal and they become first-class citizens: they show up in the spawn picker, can be dispatched by the orchestrator (and get a friendly assistant name to address), are auto-detected and adopted when you type them into a plain shell, and receive the standing brief via CLAUDE.md / AGENTS.md when they read a rules file.
+
+- **Language badges on editor tabs** — each tab shows a short, colour-coded language badge instead of a generic "TXT".
+
+### Changed
+
+- **Much faster startup** — the app used to ship as one ~4.5 MB JavaScript bundle. The editor (CodeMirror plus ~20 language packs), Settings, the Sketch Canvas, the preview, and every auxiliary panel now load on demand, cutting the startup bundle by ~40% so the shell and terminal paint sooner. The largest third-party libraries are split into their own vendor chunks.
+
+- **Built-in browser searches with DuckDuckGo** — the preview's "Browse Web" button and the address-bar search fallback now use DuckDuckGo instead of Google, which serves a CAPTCHA wall through the local preview proxy and was effectively unusable in the embedded browser.
+
+- **Cool teal/sky brand carries to saved themes** — on-disk custom themes built on the old amber defaults are migrated once to the new teal/sky palette. The migration is key-aware, so any value you customised is left untouched, and the semantic amber `warning` colour is deliberately preserved.
+
+- **Cross-platform preview screenshots** — capturing the preview region now works via WKWebView (macOS) and WebKitGTK (Linux) in addition to WebView2 (Windows).
+
+### Fixed
+
+- **Terminal input is no longer silently dropped** — a stuck input gate on panes that weren't yet visible/attached (a background tab, or reattaching on app open) could swallow every keystroke. A timeout now guarantees input is re-enabled.
+
+### Security
+
+- **The preview proxy rejects cross-origin requests** — the loopback proxy now requires each request to carry no `Origin`, or a first-party one (loopback / `*.localhost`), so a page open in your normal browser can't drive the proxy to reach your dev server and other loopback services or use it as an SSRF request-forwarder. `Origin: null` (sandboxed / `data:` documents) is rejected too.
+
 ## [v0.3.8] - 2026-06-13
 
 ### Added

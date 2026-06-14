@@ -6,13 +6,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Samuel00098/soryq/releases"><img src="https://img.shields.io/github/v/release/Samuel00098/soryq?color=06b6d4&label=release" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Proprietary-lightgrey" alt="License"></a>
   <img src="https://img.shields.io/badge/Tauri-2-blue?logo=tauri" alt="Tauri">
   <img src="https://img.shields.io/badge/Rust-2021-orange?logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/Svelte-5-red?logo=svelte" alt="Svelte">
   <img src="https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript" alt="TypeScript">
 </p>
+
+<p align="center"><em>This is a private repository. Soryq is distributed as prebuilt installers from the website.</em></p>
 
 Soryq is a cross-platform desktop application that combines a real PTY terminal grid, a CodeMirror code editor, a hot-reloading web preview proxy, and git integration — all unified inside a single keyboard-driven window. Built with Tauri 2 (Rust) and Svelte 5, it stays lean: no Electron, no Node.js runtime, no background cloud services, sub-second startup.
 
@@ -23,35 +24,31 @@ Soryq is a cross-platform desktop application that combines a real PTY terminal 
 - **Multi-pane Terminal Grid** — Full PTY shell sessions using xterm.js, layout configuration (1/2/3/4 panes), automatic shell detection per platform, and drag-to-resize support.
 - **CodeMirror 6 Editor** — Syntax highlighting for 15+ languages, built-in Vim mode, minimap, formatting, format-on-save, and word wrap.
 - **Live Preview Proxy** — Built-in HTTP/WebSocket proxy that routes your local dev server through a managed port, injecting dev tools and the DOM inspector automatically.
-- **DOM Inspector** — Click any element in the live preview panel to inspect its tag, computed styles, selectors, attributes, and jump directly to its definition in the code editor.
+- **DOM Inspector** — Click any element in the live preview panel to inspect its tag, computed styles, selectors, and attributes, then send it (with a screenshot) straight to the AI prompt bar.
 - **Git Integration** — Review staged/unstaged changes, inspect diffs, view commit history, run commit/push actions, and discard files in milliseconds.
-- **Floating Command Palette** — A unified keyboard bar that triggers files, git branches, terminal layouts, and settings instantly.
+- **Floating Command Palette** — A unified keyboard bar that triggers file, view, terminal, formatter, and settings actions instantly.
 - **Workspace Snapshots** — Capture your active layouts, editor states, and open tabs, and restore them with a single click.
 
 ---
 
 ## 📦 Installation
 
+Download the latest build for your platform from the **[official website](https://soryq.app)**.
+
 ### Windows
-You can install Soryq via the Windows Package Manager:
-```bash
-winget install Samuel00098.Soryq
-```
-Alternatively, download the `.msi` setup installer from the [Releases](../../releases) page.
+Run the `.exe` setup installer.
 
 ### macOS
-Install via Homebrew:
-```bash
-brew install Samuel00098/soryq
-```
-Or download the universal `.dmg` disk image (Intel + Apple Silicon) from the latest release.
+Open the universal `.dmg` disk image (Intel + Apple Silicon) and drag Soryq into Applications.
 
 ### Linux
-Download the `.AppImage` or `.deb` package from the [Releases](../../releases) page, make it executable, and run:
+Download the `.AppImage`, make it executable, and run it:
 ```bash
 chmod +x Soryq_x86_64.AppImage
 ./Soryq_x86_64.AppImage
 ```
+
+Soryq ships **signed auto-updates**, so it keeps itself current after install.
 
 ---
 
@@ -114,6 +111,6 @@ npm run tauri dev
 
 ## 📄 License
 
-Soryq is open-source software licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
+Soryq is **proprietary** software. Copyright © 2026 Samuel Solesi. All rights reserved. See the [LICENSE](LICENSE) file for the full terms.
 
-This means you are free to use, modify, and self-host Soryq. If you run a **modified** version as a network service, the AGPL requires you to make your modified source available to its users. Separate commercial/team features may be offered under a different license.
+The source code is proprietary and confidential. Copying, distribution, modification, or use of this software, in whole or in part, is prohibited without the express written permission of the copyright owner.

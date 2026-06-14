@@ -4,6 +4,7 @@ pub mod env_vars;
 pub mod file_system;
 pub mod github;
 pub mod http;
+pub mod lsp;
 pub mod notification;
 pub mod preview;
 pub mod search;

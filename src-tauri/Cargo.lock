@@ -4628,11 +4628,13 @@ dependencies = [
 
 [[package]]
 name = "soryq"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "anyhow",
  "axum",
  "base64 0.22.1",
+ "block2 0.6.2",
+ "cairo-rs",
  "dashmap",
  "dirs 5.0.1",
  "futures-util",
@@ -4640,6 +4642,11 @@ dependencies = [
  "image",
  "keyring",
  "notify",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "objc2-web-kit",
  "portable-pty",
  "regex",
  "reqwest",
@@ -4660,6 +4667,7 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "uuid",
+ "webkit2gtk",
  "webview2-com",
  "window-vibrancy 0.5.3",
  "windows",

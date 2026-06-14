@@ -112,6 +112,9 @@ export const tabSize = persistentWritable('tabSize', 2);
 export const wordWrap = persistentWritable('wordWrap', false);
 export const minimap = persistentWritable('minimap', false);
 export const vimMode = persistentWritable('vimMode', false);
+// Language-server-backed autocomplete, diagnostics and hover. Requires the
+// relevant language server (rust-analyzer, typescript-language-server, …) on PATH.
+export const enableLsp = persistentWritable('enableLsp', true);
 
 // Explorer
 export const showHidden = persistentWritable('showHidden', false);
@@ -685,6 +688,14 @@ export const aiModelByProvider = persistentWritable<Record<string, string>>('aiM
 // Empty means "fall back to the provider's defaultBaseUrl".
 export const aiBaseUrlByProvider = persistentWritable<Record<string, string>>('aiBaseUrlByProvider', {});
 
+// AI ghost text ("Cursor Tab"): faded inline code predictions accepted with Tab.
+// Off by default — it streams surrounding code to an AI provider on every typing
+// pause, so it's opt-in. Uses its own provider/model so completions can use a
+// fast/cheap model independent of the main AI provider (commit msgs, voice).
+export const aiGhostTextEnabled = persistentWritable('aiGhostTextEnabled', false);
+export const aiCompletionProvider = persistentWritable<AiProviderId>('aiCompletionProvider', 'groq');
+export const aiCompletionModelByProvider = persistentWritable<Record<string, string>>('aiCompletionModelByProvider', {});
+
 /** Whether a provider runs locally and is configured by URL rather than key. */
 export function isLocalProvider(id: AiProviderId): boolean {
   return getProviderDef(id).local === true;
@@ -967,6 +978,10 @@ export function updateSetting(key: string, value: unknown) {
     case 'wordWrap':         wordWrap.set(value as boolean); break;
     case 'minimap':          minimap.set(value as boolean); break;
     case 'vimMode':          vimMode.set(value as boolean); break;
+    case 'enableLsp':        enableLsp.set(value as boolean); break;
+    case 'aiGhostTextEnabled': aiGhostTextEnabled.set(value as boolean); break;
+    case 'aiCompletionProvider': aiCompletionProvider.set(value as AiProviderId); break;
+    case 'aiCompletionModelByProvider': aiCompletionModelByProvider.set(value as Record<string, string>); break;
     case 'showHidden':       showHidden.set(value as boolean); break;
     case 'voiceRefinementEnabled': voiceRefinementEnabled.set(value as boolean); break;
     case 'voiceInputProvider': voiceInputProvider.set(value as VoiceInputProviderId); break;
@@ -998,6 +1013,8 @@ export function resetSettingsToDefault() {
   wordWrap.set(false);
   minimap.set(false);
   vimMode.set(false);
+  enableLsp.set(true);
+  aiGhostTextEnabled.set(false);
   showHidden.set(false);
   voiceRefinementEnabled.set(true);
   voiceInputProvider.set('webspeech');

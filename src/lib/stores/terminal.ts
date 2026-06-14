@@ -5,6 +5,7 @@ import { showToast } from '$lib/stores/notification';
 import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
 import { agentReadsRulesFile, ensureAgentRulesFiles } from '$lib/services/orchestrator/agent-rules-file';
 import { devpet } from '$lib/stores/devpet';
+import { getCustomAgents } from '$lib/stores/customAgents';
 
 export type TerminalSessionInfo = {
   id: number;
@@ -448,6 +449,14 @@ function detectAgentPresetFromCommand(command: string): string | null {
 
   for (const { preset, names } of AGENT_COMMAND_EXECUTABLES) {
     if (names.includes(executable)) return preset;
+  }
+
+  // User-defined agents: match on the executable of their stored launch command
+  // (so typing `aider` adopts a custom "aider --flag" agent). The preset key is
+  // the custom agent's full command, matching what the spawn path records, so
+  // display-name and rules-file lookups resolve consistently.
+  for (const agent of getCustomAgents()) {
+    if (extractExecutable(agent.command) === executable) return agent.command;
   }
 
   return null;
@@ -1625,7 +1634,10 @@ export function summarizeTerminalTask(text: string): string {
 
 export function getAgentDisplayName(agentPreset: string | null | undefined): string | null {
   if (!agentPreset) return null;
-  return AGENT_DISPLAY_NAMES[agentPreset] ?? agentPreset;
+  if (AGENT_DISPLAY_NAMES[agentPreset]) return AGENT_DISPLAY_NAMES[agentPreset];
+  // User-defined agents store their full launch command as the preset key.
+  const custom = getCustomAgents().find((a) => a.command === agentPreset);
+  return custom?.name ?? agentPreset;
 }
 
 export function isAgentSession(session: TerminalSessionInfo | null | undefined): boolean {

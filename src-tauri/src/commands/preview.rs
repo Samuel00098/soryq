@@ -89,14 +89,13 @@ pub async fn preview_open_in_browser(url: String, app: tauri::AppHandle) -> Resu
         .map_err(|e| format!("Failed to open browser: {}", e))
 }
 
-/// Clear cookies and cache for the embedded preview WebView2 profile.
+/// Clear browsing data for the embedded preview webview profile.
 ///
 /// The preview renders proxied content (and external sites) inside the main
 /// webview, so stale auth cookies — e.g. a JWT minted against a skewed clock —
-/// and cached assets accumulate in the shared WebView2 profile. This clears the
-/// cookie + HTTP/cache layers (`COOKIES | DISK_CACHE | CACHE_STORAGE |
-/// SERVICE_WORKERS`) only; `LOCAL_STORAGE`/`INDEXED_DB` are deliberately left
-/// untouched so the app's own persisted state (settings, sketches) survives.
+/// and cached assets can accumulate in the platform webview profile. Tauri maps
+/// this to the native WebView2, WKWebView, or WebKitGTK clear operation for the
+/// current OS.
 #[tauri::command]
 pub async fn preview_clear_browsing_data(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
@@ -105,80 +104,17 @@ pub async fn preview_clear_browsing_data(app: tauri::AppHandle) -> Result<(), St
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
 
-    #[cfg(target_os = "windows")]
-    {
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        window
-            .with_webview(move |webview| {
-                let _ = tx.send(clear_webview2_browsing_data(webview));
-            })
-            .map_err(|e| e.to_string())?;
-
-        return rx
-            .recv()
-            .map_err(|_| "Clearing browsing data was interrupted".to_string())?;
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window;
-        Err("Clearing preview cookies and cache is only supported on Windows".to_string())
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn clear_webview2_browsing_data(
-    webview: tauri::webview::PlatformWebview,
-) -> Result<(), String> {
-    use webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2Profile2, ICoreWebView2_13, COREWEBVIEW2_BROWSING_DATA_KINDS,
-        COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE,
-        COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE,
-        COREWEBVIEW2_BROWSING_DATA_KINDS_SERVICE_WORKERS,
-    };
-    use webview2_com::ClearBrowsingDataCompletedHandler;
-    use windows::core::Interface;
-
-    let controller = webview.controller();
-    let core = unsafe { controller.CoreWebView2() }.map_err(|e| e.to_string())?;
-
-    // Profile() lives on ICoreWebView2_13; ClearBrowsingData() on ICoreWebView2Profile2.
-    let core13: ICoreWebView2_13 = core.cast().map_err(|e| e.to_string())?;
-    let profile = unsafe { core13.Profile() }.map_err(|e| e.to_string())?;
-    let profile2: ICoreWebView2Profile2 = profile.cast().map_err(|e| e.to_string())?;
-
-    let kinds = COREWEBVIEW2_BROWSING_DATA_KINDS(
-        COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES.0
-            | COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE.0
-            | COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE.0
-            | COREWEBVIEW2_BROWSING_DATA_KINDS_SERVICE_WORKERS.0,
-    );
-
-    unsafe {
-        ClearBrowsingDataCompletedHandler::wait_for_async_operation(
-            Box::new(move |handler| {
-                profile2
-                    .ClearBrowsingData(kinds, &handler)
-                    .map_err(webview2_com::Error::WindowsError)
-            }),
-            Box::new(|result| {
-                result?;
-                Ok(())
-            }),
-        )
-        .map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
+    window
+        .clear_all_browsing_data()
+        .map_err(|e| format!("Failed to clear browsing data: {e}"))
 }
 
 /// Capture the preview panel region as PNG bytes.
 /// x, y, width, height are CSS (logical) pixels relative to the webview; scale = devicePixelRatio.
 ///
-/// On Windows this uses WebView2's native CapturePreview API. GDI BitBlt can
-/// read WebView2 as a blank hardware-composited surface, so we capture the
-/// webview itself and crop to the requested DOM rectangle.
+/// Uses WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux. GDI
+/// BitBlt can read WebView2 as a blank hardware-composited surface, so we
+/// capture the webview itself and crop to the requested DOM rectangle.
 #[tauri::command]
 pub async fn preview_capture_screenshot(
     app: tauri::AppHandle,
@@ -221,8 +157,7 @@ pub async fn preview_capture_screenshot(
 
         window
             .with_webview(move |webview| {
-                let result =
-                    capture_webview2_region(webview, phys_x, phys_y, phys_w, phys_h);
+                let result = capture_webview2_region(webview, phys_x, phys_y, phys_w, phys_h);
                 let _ = tx.send(result);
             })
             .map_err(|e| e.to_string())?;
@@ -232,7 +167,67 @@ pub async fn preview_capture_screenshot(
             .map_err(|_| "Screenshot capture was interrupted".to_string())?;
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let logical_x = x.max(0) as f64;
+        let logical_y = y.max(0) as f64;
+        let logical_w = width as f64;
+        let logical_h = height as f64;
+        let snapshot_width = phys_w as f64;
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        window
+            .with_webview(move |webview| {
+                if let Err(error) = start_wkwebview_region_capture(
+                    webview,
+                    logical_x,
+                    logical_y,
+                    logical_w,
+                    logical_h,
+                    snapshot_width,
+                    tx.clone(),
+                ) {
+                    let _ = tx.send(Err(error));
+                }
+            })
+            .map_err(|e| e.to_string())?;
+
+        return rx
+            .recv()
+            .map_err(|_| "Screenshot capture was interrupted".to_string())?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let phys_x = (x.max(0) as f64 * scale).round() as i32;
+        let phys_y = (y.max(0) as f64 * scale).round() as i32;
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        window
+            .with_webview(move |webview| {
+                if let Err(error) = start_webkitgtk_region_capture(
+                    webview,
+                    phys_x,
+                    phys_y,
+                    phys_w,
+                    phys_h,
+                    tx.clone(),
+                ) {
+                    let _ = tx.send(Err(error));
+                }
+            })
+            .map_err(|e| e.to_string())?;
+
+        return rx
+            .recv()
+            .map_err(|_| "Screenshot capture was interrupted".to_string())?;
+    }
+
+    #[cfg(all(
+        not(target_os = "windows"),
+        not(target_os = "macos"),
+        not(target_os = "linux")
+    ))]
     {
         let _ = window;
         let _ = phys_w;
@@ -245,6 +240,165 @@ pub async fn preview_capture_screenshot(
 
     #[allow(unreachable_code)]
     Err("Screenshot not supported on this platform".to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn start_webkitgtk_region_capture(
+    webview: tauri::webview::PlatformWebview,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    tx: std::sync::mpsc::Sender<Result<Vec<u8>, String>>,
+) -> Result<(), String> {
+    use webkit2gtk::{prelude::WebViewExt, SnapshotOptions, SnapshotRegion};
+
+    let webview = webview.inner();
+    webview.snapshot(
+        SnapshotRegion::Visible,
+        SnapshotOptions::empty(),
+        None::<&webkit2gtk::gio::Cancellable>,
+        move |result| {
+            let result = result
+                .map_err(|e| e.to_string())
+                .and_then(|surface| crop_cairo_surface_to_png(surface, x, y, width, height));
+            let _ = tx.send(result);
+        },
+    );
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn crop_cairo_surface_to_png(
+    surface: cairo::Surface,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    use image::DynamicImage;
+    use std::io::Cursor;
+
+    let mut png = Vec::new();
+    surface
+        .write_to_png(&mut png)
+        .map_err(|e| format!("Failed to encode WebKitGTK screenshot: {e}"))?;
+
+    let image = image::load_from_memory(&png)
+        .map_err(|e| format!("Failed to decode WebKitGTK screenshot: {e}"))?
+        .to_rgba8();
+    let (image_w, image_h) = image.dimensions();
+    let crop_x = x.max(0) as u32;
+    let crop_y = y.max(0) as u32;
+    if crop_x >= image_w || crop_y >= image_h {
+        return Err("Capture region is outside the webview".to_string());
+    }
+    let crop_w = width.min(image_w - crop_x);
+    let crop_h = height.min(image_h - crop_y);
+    if crop_w == 0 || crop_h == 0 {
+        return Err("Invalid cropped capture dimensions".to_string());
+    }
+
+    let cropped = image::imageops::crop_imm(&image, crop_x, crop_y, crop_w, crop_h).to_image();
+    let dynamic = DynamicImage::ImageRgba8(cropped);
+    let mut buf = Vec::new();
+    dynamic
+        .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    Ok(buf)
+}
+
+#[cfg(target_os = "macos")]
+fn start_wkwebview_region_capture(
+    webview: tauri::webview::PlatformWebview,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    snapshot_width: f64,
+    tx: std::sync::mpsc::Sender<Result<Vec<u8>, String>>,
+) -> Result<(), String> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSImage;
+    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+    use objc2_foundation::{NSError, NSNumber};
+    use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| "WKWebView screenshot capture must start on the main thread".to_string())?;
+    let wkwebview = unsafe {
+        (webview.inner() as *mut WKWebView)
+            .as_ref()
+            .ok_or_else(|| "WKWebView handle was not available".to_string())?
+    };
+
+    let config = unsafe { WKSnapshotConfiguration::new(mtm) };
+    let rect = CGRect::new(CGPoint::new(x, y), CGSize::new(width, height));
+    let snapshot_width = NSNumber::new_f64(snapshot_width);
+
+    unsafe {
+        config.setRect(rect);
+        config.setSnapshotWidth(Some(&snapshot_width));
+        config.setAfterScreenUpdates(true);
+    }
+
+    let config_for_callback = config.clone();
+    let snapshot_width_for_callback = snapshot_width.clone();
+    let handler = block2::RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
+        let _keep_alive = (&config_for_callback, &snapshot_width_for_callback);
+        let result = unsafe { wk_snapshot_to_png(image, error) };
+        let _ = tx.send(result);
+    });
+
+    unsafe {
+        wkwebview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler);
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn wk_snapshot_to_png(
+    image: *mut objc2_app_kit::NSImage,
+    error: *mut objc2_foundation::NSError,
+) -> Result<Vec<u8>, String> {
+    use core::ffi::c_void;
+    use core::ptr::NonNull;
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
+    use objc2_foundation::NSDictionary;
+
+    if image.is_null() {
+        let message = if error.is_null() {
+            "WKWebView did not return a screenshot"
+        } else {
+            "WKWebView failed to capture the screenshot"
+        };
+        return Err(message.to_string());
+    }
+
+    let image = &*image;
+    let tiff = image
+        .TIFFRepresentation()
+        .ok_or_else(|| "WKWebView screenshot could not be converted to TIFF".to_string())?;
+    let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)
+        .ok_or_else(|| "WKWebView screenshot could not be converted to bitmap data".to_string())?;
+    let properties = NSDictionary::<objc2_app_kit::NSBitmapImageRepPropertyKey, AnyObject>::new();
+    let png = bitmap
+        .representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
+        .ok_or_else(|| "WKWebView screenshot could not be encoded as PNG".to_string())?;
+
+    let len = png.length() as usize;
+    if len == 0 {
+        return Err("WKWebView returned an empty screenshot".to_string());
+    }
+
+    let mut bytes = vec![0u8; len];
+    let buffer = NonNull::new(bytes.as_mut_ptr() as *mut c_void)
+        .ok_or_else(|| "Failed to allocate screenshot buffer".to_string())?;
+    png.getBytes_length(buffer, len);
+    Ok(bytes)
 }
 
 #[cfg(target_os = "windows")]

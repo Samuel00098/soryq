@@ -3,13 +3,11 @@
   import CommandPalette from '$lib/components/shared/CommandPalette.svelte';
   import Toasts from '$lib/components/shared/Toasts.svelte';
   import BackgroundMedia from '$lib/components/shared/BackgroundMedia.svelte';
-  import SettingsModal from '$lib/components/shared/SettingsModal.svelte';
-  import QuickCaptureModal from '$lib/components/shared/QuickCaptureModal.svelte';
-  import WorkspaceNameModal from '$lib/components/shared/WorkspaceNameModal.svelte';
-  import EnvManager from '$lib/components/shared/EnvManager.svelte';
+  // Modals/overlays below the always-visible shell are loaded on demand (see the
+  // {#await import()} blocks in the markup) so their code — SettingsModal alone
+  // is huge — stays out of the startup bundle until first opened.
   import { settingsOpen, closeSettings, quickCaptureOpen, closeQuickCapture, envManagerOpen } from '$lib/stores/layout';
   import { newWorkspacePromptOpen } from '$lib/stores/workspace';
-  import MicrophonePermissionDialog from '$lib/components/shared/MicrophonePermissionDialog.svelte';
   import { pendingPermissionRequest } from '$lib/stores/permissions';
   import { onMount } from 'svelte';
   import { loadThemes } from '$lib/stores/theme';
@@ -21,7 +19,6 @@
   import { requestNotificationPermission } from '$lib/stores/notification';
   import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted, backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur, closeBehavior } from '$lib/stores/settings';
   import { initBackground, applyBackgroundImage, applyInterfaceFrost, applyBackgroundAppearance } from '$lib/stores/background';
-  import OnboardingWalkthrough from '$lib/components/workspace/OnboardingWalkthrough.svelte';
   import { initNavigationHistory } from '$lib/stores/navigation';
   import { initApiKeyCache } from '$lib/services/ai-keychain';
   import { isTauriRuntime } from '$lib/utils/tauri';
@@ -161,25 +158,43 @@
 <Toasts />
 
 {#if $settingsOpen}
-  <SettingsModal onclose={closeSettings} />
+  {#await import('$lib/components/shared/SettingsModal.svelte') then mod}
+    {@const SettingsModal = mod.default}
+    <SettingsModal onclose={closeSettings} />
+  {/await}
 {/if}
 
 {#if $quickCaptureOpen}
-  <QuickCaptureModal onclose={closeQuickCapture} />
+  {#await import('$lib/components/shared/QuickCaptureModal.svelte') then mod}
+    {@const QuickCaptureModal = mod.default}
+    <QuickCaptureModal onclose={closeQuickCapture} />
+  {/await}
 {/if}
 
 {#if $envManagerOpen}
-  <EnvManager />
+  {#await import('$lib/components/shared/EnvManager.svelte') then mod}
+    {@const EnvManager = mod.default}
+    <EnvManager />
+  {/await}
 {/if}
 
 {#if $newWorkspacePromptOpen}
-  <WorkspaceNameModal />
+  {#await import('$lib/components/shared/WorkspaceNameModal.svelte') then mod}
+    {@const WorkspaceNameModal = mod.default}
+    <WorkspaceNameModal />
+  {/await}
 {/if}
 
 {#if !$onboardingCompleted}
-  <OnboardingWalkthrough />
+  {#await import('$lib/components/workspace/OnboardingWalkthrough.svelte') then mod}
+    {@const OnboardingWalkthrough = mod.default}
+    <OnboardingWalkthrough />
+  {/await}
 {/if}
 
 {#if $pendingPermissionRequest}
-  <MicrophonePermissionDialog />
+  {#await import('$lib/components/shared/MicrophonePermissionDialog.svelte') then mod}
+    {@const MicrophonePermissionDialog = mod.default}
+    <MicrophonePermissionDialog />
+  {/await}
 {/if}

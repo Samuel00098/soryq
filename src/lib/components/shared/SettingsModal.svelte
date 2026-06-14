@@ -10,6 +10,7 @@
     wordWrap,
     minimap,
     vimMode,
+    enableLsp,
     showHidden,
     uiZoom,
     userShortcuts,
@@ -40,6 +41,9 @@
     aiProvider,
     currentAiModel,
     setAiModel,
+    aiGhostTextEnabled,
+    aiCompletionProvider,
+    aiCompletionModelByProvider,
     type AiModelOption,
     type AiProviderId,
     type VoiceInputProviderId,
@@ -64,6 +68,12 @@
   import { showToast } from '$lib/stores/notification';
   import { clearAllApplicationState } from '$lib/stores/workspace';
   import { checkForUpdate, pendingUpdate } from '$lib/stores/updater';
+  import {
+    customAgents,
+    addCustomAgent,
+    deleteCustomAgent,
+    updateCustomAgent,
+  } from '$lib/stores/customAgents';
   import { getVersion } from '@tauri-apps/api/app';
   import Dropdown, { type DropdownOption } from '$lib/components/shared/Dropdown.svelte';
   import { clearProviderApiKey, providerApiKeyExists, saveProviderApiKey, listProviderModels } from '$lib/services/ai-keychain';
@@ -126,6 +136,36 @@
   let availableShells = $state<ShellInfo[]>([]);
   // openRouterKeyValue is for entering a new key only — we never read the stored key back to the frontend.
 
+  // ── Custom CLI agents (Terminal tab) ──
+  let newAgentName = $state('');
+  let newAgentCommand = $state('');
+  let newAgentReadsRules = $state(true);
+  let agentFormError = $state('');
+
+  function handleAddCustomAgent() {
+    const name = newAgentName.trim();
+    const command = newAgentCommand.trim();
+    if (!name || !command) {
+      agentFormError = 'Give the agent a name and a launch command.';
+      return;
+    }
+    const created = addCustomAgent({ name, command, readsRulesFile: newAgentReadsRules });
+    if (!created) {
+      agentFormError = 'An agent with that launch command already exists.';
+      return;
+    }
+    newAgentName = '';
+    newAgentCommand = '';
+    newAgentReadsRules = true;
+    agentFormError = '';
+    showToast(`Added "${created.name}" — it's now in the spawn picker.`, 'success');
+  }
+
+  function handleRemoveCustomAgent(id: string, name: string) {
+    deleteCustomAgent(id);
+    showToast(`Removed "${name}".`, 'info');
+  }
+
   // ── Models tab ──
   // Key entry box value per provider (entry only — we never read stored keys
   // back to the frontend). Status tracks whether each provider has a saved key.
@@ -149,6 +189,12 @@
   let voiceConversationProviderModels = $state<Record<string, AiModelOption[]>>({});
   let voiceConversationProviderModelsStatus = $state<Record<string, 'idle' | 'loading' | 'loaded' | 'error'>>({});
   let voiceConversationProviderModelsError = $state<Record<string, string>>({});
+
+  // AI ghost text keeps its own live catalog cache so the dedicated completion
+  // provider can use a fast model independent of the other features.
+  let completionProviderModels = $state<Record<string, AiModelOption[]>>({});
+  let completionProviderModelsStatus = $state<Record<string, 'idle' | 'loading' | 'loaded' | 'error'>>({});
+  let completionProviderModelsError = $state<Record<string, string>>({});
 
   let modelSearch = $state('');
 
@@ -271,6 +317,34 @@
     }
   }
 
+  async function loadCompletionModels(provider: AiProviderId, force = false) {
+    if (providerKeyStatus[provider] !== 'saved') return;
+    const status = completionProviderModelsStatus[provider];
+    if (!force && (status === 'loading' || status === 'loaded')) return;
+
+    completionProviderModelsStatus[provider] = 'loading';
+    completionProviderModelsError[provider] = '';
+    try {
+      const remote = await listProviderModels(provider);
+      const curated = new Map(getProviderDef(provider).models.map((m) => [m.id, m]));
+      const merged: AiModelOption[] = remote.map((r) => {
+        const c = curated.get(r.id);
+        return {
+          id: r.id,
+          label: c?.label ?? r.label ?? r.id,
+          description: c?.description ?? r.description ?? '',
+          free: c?.free ?? r.id.endsWith(':free'),
+        };
+      });
+      completionProviderModels[provider] = merged.length ? merged : getProviderDef(provider).models;
+      completionProviderModelsStatus[provider] = 'loaded';
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      completionProviderModelsError[provider] = message || 'Failed to load models';
+      completionProviderModelsStatus[provider] = 'error';
+    }
+  }
+
   function clearLiveModelCaches(provider: AiProviderId) {
     providerModels[provider] = [];
     providerModelsStatus[provider] = 'idle';
@@ -281,6 +355,9 @@
     voiceConversationProviderModels[provider] = [];
     voiceConversationProviderModelsStatus[provider] = 'idle';
     voiceConversationProviderModelsError[provider] = '';
+    completionProviderModels[provider] = [];
+    completionProviderModelsStatus[provider] = 'idle';
+    completionProviderModelsError[provider] = '';
   }
 
   // Models shown for the active provider: live list once loaded, else curated.
@@ -313,6 +390,30 @@
   });
 
   let selectedVoiceModel = $derived(voiceActiveModels.find((m) => m.id === $currentVoiceAiModel));
+
+  let activeCompletionProvider = $derived(getProviderDef($aiCompletionProvider));
+  let currentCompletionModel = $derived(
+    $aiCompletionModelByProvider[$aiCompletionProvider]?.trim() || activeCompletionProvider.defaultModel
+  );
+  let completionActiveModels = $derived(
+    (completionProviderModels[$aiCompletionProvider]?.length
+      ? completionProviderModels[$aiCompletionProvider]
+      : activeCompletionProvider.models)
+  );
+  let filteredCompletionModels = $derived.by(() => {
+    const q = completionModelSearch.trim().toLowerCase();
+    if (!q) return completionActiveModels;
+    return completionActiveModels.filter((m) =>
+      `${m.label} ${m.id} ${m.description}`.toLowerCase().includes(q)
+    );
+  });
+  let selectedCompletionModel = $derived(
+    completionActiveModels.find((m) => m.id === currentCompletionModel)
+  );
+
+  function setCompletionModel(provider: AiProviderId, id: string) {
+    aiCompletionModelByProvider.update((m) => ({ ...m, [provider]: id }));
+  }
 
   let activeVoiceConversationProvider = $derived(getProviderDef($voiceConversationAiProvider));
   let voiceConversationActiveModels = $derived(
@@ -457,10 +558,24 @@
     }
   });
 
+  $effect(() => {
+    const p = $aiCompletionProvider;
+    if (providerKeyStatus[p] === 'saved' &&
+        completionProviderModelsStatus[p] !== 'loaded' &&
+        completionProviderModelsStatus[p] !== 'loading') {
+      loadCompletionModels(p);
+    }
+  });
+
   // Reset the in-dropdown search when switching providers.
   $effect(() => {
     void $aiProvider;
     modelSearch = '';
+  });
+
+  $effect(() => {
+    void $aiCompletionProvider;
+    completionModelSearch = '';
   });
 
   async function saveProviderKey(provider: AiProviderId) {
@@ -818,6 +933,12 @@
   let voiceModelDropdownOpen = $state(false);
   let voiceModelSearch = $state('');
 
+  let completionProviderDropdownEl = $state<HTMLDivElement | null>(null);
+  let completionProviderDropdownOpen = $state(false);
+  let completionModelDropdownEl = $state<HTMLDivElement | null>(null);
+  let completionModelDropdownOpen = $state(false);
+  let completionModelSearch = $state('');
+
   let voiceConversationProviderDropdownEl = $state<HTMLDivElement | null>(null);
   let voiceConversationProviderDropdownOpen = $state(false);
 
@@ -961,6 +1082,28 @@
     function handleOutside(e: MouseEvent) {
       if (voiceModelDropdownEl && !voiceModelDropdownEl.contains(e.target as Node)) {
         voiceModelDropdownOpen = false;
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  });
+
+  $effect(() => {
+    if (!completionProviderDropdownOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (completionProviderDropdownEl && !completionProviderDropdownEl.contains(e.target as Node)) {
+        completionProviderDropdownOpen = false;
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  });
+
+  $effect(() => {
+    if (!completionModelDropdownOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (completionModelDropdownEl && !completionModelDropdownEl.contains(e.target as Node)) {
+        completionModelDropdownOpen = false;
       }
     }
     document.addEventListener('mousedown', handleOutside);
@@ -1381,6 +1524,42 @@
               <span class="toggle-thumb"></span>
             </button>
           </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-label">Smart autocomplete (LSP)</span>
+              <span class="toggle-desc">Type-aware completion, diagnostics &amp; hover from language servers (rust-analyzer, typescript-language-server, pyright, gopls). Install the server for each language you use.</span>
+            </div>
+            <button
+              class="toggle"
+              class:on={$enableLsp}
+              onclick={() => $enableLsp = !$enableLsp}
+              aria-label="Toggle smart autocomplete"
+              role="switch"
+              aria-checked={$enableLsp}
+            >
+              <span class="toggle-thumb"></span>
+            </button>
+          </div>
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-label">AI ghost text (Cursor-style)</span>
+              <span class="toggle-desc">Faded inline predictions of the next code as you type; press Tab to accept. Off by default — pick the completion provider &amp; model in the Models tab.</span>
+            </div>
+            <button
+              class="toggle"
+              class:on={$aiGhostTextEnabled}
+              onclick={() => $aiGhostTextEnabled = !$aiGhostTextEnabled}
+              aria-label="Toggle AI ghost text"
+              role="switch"
+              aria-checked={$aiGhostTextEnabled}
+            >
+              <span class="toggle-thumb"></span>
+            </button>
+          </div>
+
+          <!-- AI ghost-text provider & model selection lives in the Models tab. -->
 
           <div class="toggle-row">
             <div class="toggle-info">
@@ -1895,6 +2074,231 @@
               </div>
             </div>
 
+          </div>
+        </div>
+
+        <div class="setting-group active-provider-group">
+          <div class="group-label">AI ghost text</div>
+          <div class="provider-details-card">
+            <div class="detail-row key-section">
+              <div class="detail-row-header">
+                <div class="detail-info">
+                  <span class="detail-label">Completion provider</span>
+                  <span class="detail-desc">
+                    Powers Cursor-style inline code predictions. Pick a fast model — it fires on every typing pause. Turn the feature on under Editor settings.
+                  </span>
+                </div>
+                {#if providerKeyStatus[$aiCompletionProvider] === 'saved'}
+                  <span class="status-badge success">Ready</span>
+                {:else if providerKeyStatus[$aiCompletionProvider] === 'loading'}
+                  <span class="status-badge loading">checking</span>
+                {:else if providerKeyStatus[$aiCompletionProvider] === 'error'}
+                  <span class="status-badge error">{isLocalProvider($aiCompletionProvider) ? 'Offline' : 'Error'}</span>
+                {:else}
+                  <span class="status-badge idle">{isLocalProvider($aiCompletionProvider) ? 'No URL' : 'No key'}</span>
+                {/if}
+              </div>
+
+              <div class="model-selector-wrap" bind:this={completionProviderDropdownEl}>
+                <button
+                  type="button"
+                  class="model-trigger"
+                  onclick={() => (completionProviderDropdownOpen = !completionProviderDropdownOpen)}
+                  aria-haspopup="listbox"
+                  aria-expanded={completionProviderDropdownOpen}
+                >
+                  <div class="model-trigger-left">
+                    <span class="model-trigger-badge" data-provider={modelBadge($aiCompletionProvider, '')}>
+                      {modelBadge($aiCompletionProvider, '')}
+                    </span>
+                    <div class="model-trigger-meta">
+                      <div class="model-trigger-name">{activeCompletionProvider.label}</div>
+                    </div>
+                  </div>
+                  <div class="model-trigger-right">
+                    <svg class="model-chevron" class:open={completionProviderDropdownOpen} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </button>
+
+                {#if completionProviderDropdownOpen}
+                  <div class="model-dropdown" role="listbox">
+                    <div class="model-list">
+                      {#each aiProviders as provider}
+                        <button
+                          type="button"
+                          class="model-option"
+                          class:selected={$aiCompletionProvider === provider.id}
+                          role="option"
+                          aria-selected={$aiCompletionProvider === provider.id}
+                          onclick={() => { $aiCompletionProvider = provider.id; completionProviderDropdownOpen = false; }}
+                        >
+                          <div class="model-option-left">
+                            <span class="model-option-badge" data-provider={modelBadge(provider.id, '')}>
+                              {modelBadge(provider.id, '')}
+                            </span>
+                            <div class="model-option-body">
+                              <div class="model-option-name">{provider.label}</div>
+                            </div>
+                          </div>
+                          <div class="model-option-right">
+                            {#if $aiCompletionProvider === provider.id}
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="checkmark-icon">
+                                <polyline points="20 6 9 17 4 12"/>
+                              </svg>
+                            {/if}
+                          </div>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            </div>
+
+            <div class="detail-row model-section">
+              <div class="model-label-row">
+                <div class="detail-info">
+                  <span class="detail-label">Completion model</span>
+                  <span class="detail-desc">
+                    {#if providerKeyStatus[$aiCompletionProvider] !== 'saved'}
+                      {activeCompletionProvider.local ? 'Set a server URL for this provider above to load live models.' : 'Add a key for this provider above to load the live catalog.'}
+                    {:else if completionProviderModelsStatus[$aiCompletionProvider] === 'loading'}
+                      Loading live catalog…
+                    {:else if completionProviderModelsStatus[$aiCompletionProvider] === 'error'}
+                      Couldn't load live models. <button type="button" class="model-inline-link" onclick={() => loadCompletionModels($aiCompletionProvider, true)}>Retry</button>
+                    {:else if completionProviderModelsStatus[$aiCompletionProvider] === 'loaded'}
+                      Using live provider catalog.
+                    {:else}
+                      Using curated model fallbacks.
+                    {/if}
+                  </span>
+                </div>
+
+                <div class="model-meta-actions">
+                  {#if completionProviderModelsStatus[$aiCompletionProvider] === 'loaded'}
+                    <span class="model-status-pill live" title="Live catalog successfully fetched using your API key">
+                      <span class="pulse-dot"></span> Live
+                    </span>
+                  {:else if providerKeyStatus[$aiCompletionProvider] === 'saved' && completionProviderModelsStatus[$aiCompletionProvider] === 'loading'}
+                    <span class="model-status-pill loading">Checking…</span>
+                  {:else if completionProviderModelsStatus[$aiCompletionProvider] === 'error'}
+                    <span class="model-status-pill error" title={completionProviderModelsError[$aiCompletionProvider] || 'Failed to load live models'}>Error</span>
+                  {:else}
+                    <span class="model-status-pill curated" title="Using local curated model defaults">Curated</span>
+                  {/if}
+
+                  {#if providerKeyStatus[$aiCompletionProvider] === 'saved'}
+                    <button
+                      type="button"
+                      class="model-refresh-btn"
+                      title="Reload models from {activeCompletionProvider.label}"
+                      aria-label="Reload completion models"
+                      onclick={() => loadCompletionModels($aiCompletionProvider, true)}
+                    >
+                      <svg class:spin={completionProviderModelsStatus[$aiCompletionProvider] === 'loading'} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"/>
+                        <polyline points="1 20 1 14 7 14"/>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                      </svg>
+                    </button>
+                  {/if}
+                </div>
+              </div>
+
+              <div class="model-selector-wrap" bind:this={completionModelDropdownEl}>
+                <button
+                  type="button"
+                  class="model-trigger"
+                  onclick={() => (completionModelDropdownOpen = !completionModelDropdownOpen)}
+                  aria-haspopup="listbox"
+                  aria-expanded={completionModelDropdownOpen}
+                >
+                  <div class="model-trigger-left">
+                    <span class="model-trigger-badge" data-provider={modelBadge($aiCompletionProvider, currentCompletionModel)}>
+                      {modelBadge($aiCompletionProvider, currentCompletionModel)}
+                    </span>
+                    <div class="model-trigger-meta">
+                      <div class="model-trigger-name">{selectedCompletionModel?.label ?? currentCompletionModel}</div>
+                      <div class="model-trigger-desc">{selectedCompletionModel?.description || currentCompletionModel}</div>
+                    </div>
+                  </div>
+                  <div class="model-trigger-right">
+                    {#if selectedCompletionModel?.free || currentCompletionModel.includes(':free')}
+                      <span class="model-free-badge">Free</span>
+                    {/if}
+                    <svg class="model-chevron" class:open={completionModelDropdownOpen} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </button>
+
+                {#if completionModelDropdownOpen}
+                  <div class="model-dropdown" role="listbox">
+                    <div class="model-search-bar">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                      </svg>
+                      <input
+                        class="model-search-input"
+                        type="text"
+                        placeholder="Search {activeCompletionProvider.label} models…"
+                        bind:value={completionModelSearch}
+                        spellcheck="false"
+                        autocomplete="off"
+                      />
+                      {#if completionModelSearch}
+                        <button type="button" class="model-search-clear" onclick={() => (completionModelSearch = '')} aria-label="Clear search">×</button>
+                      {/if}
+                    </div>
+                    <div class="model-list">
+                      {#if completionProviderModelsStatus[$aiCompletionProvider] === 'loading' && completionActiveModels.length === 0}
+                        <div class="model-empty">Loading {activeCompletionProvider.label} models…</div>
+                      {:else if completionProviderModelsStatus[$aiCompletionProvider] === 'error' && completionActiveModels.length === 0}
+                        <div class="model-empty">
+                          Couldn't load live models. <button type="button" class="model-inline-link" onclick={() => loadCompletionModels($aiCompletionProvider, true)}>Retry</button>
+                        </div>
+                      {:else if filteredCompletionModels.length === 0}
+                        <div class="model-empty">No models match “{completionModelSearch}”.</div>
+                      {:else}
+                        {#each filteredCompletionModels as model (model.id)}
+                          <button
+                            type="button"
+                            class="model-option"
+                            class:selected={currentCompletionModel === model.id}
+                            role="option"
+                            aria-selected={currentCompletionModel === model.id}
+                            onclick={() => { setCompletionModel($aiCompletionProvider, model.id); completionModelDropdownOpen = false; }}
+                          >
+                            <div class="model-option-left">
+                              <span class="model-option-badge" data-provider={modelBadge($aiCompletionProvider, model.id)}>
+                                {modelBadge($aiCompletionProvider, model.id)}
+                              </span>
+                              <div class="model-option-body">
+                                <div class="model-option-name">{model.label}</div>
+                                <div class="model-option-desc">{model.description || model.id}</div>
+                              </div>
+                            </div>
+                            <div class="model-option-right">
+                              {#if model.free || model.id.endsWith(':free')}
+                                <span class="model-free-badge">Free</span>
+                              {/if}
+                              {#if currentCompletionModel === model.id}
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="checkmark-icon">
+                                  <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                              {/if}
+                            </div>
+                          </button>
+                        {/each}
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2927,6 +3331,71 @@
           <p class="shell-hint">Changes apply to new sessions. Active terminal sessions will automatically restart using the new shell.</p>
         </div>
 
+        <!-- Custom CLI agents -->
+        <div class="setting-group">
+          <div class="group-label">Coding CLI agents</div>
+          <p class="shell-hint" style="margin-top:-2px;margin-bottom:12px;">
+            Add your own agent CLI alongside the built-ins (Claude Code, Codex…). It appears in the
+            spawn picker, panes running it show its name, and typing its command in any shell is
+            recognized as that agent. Agents that read a <code>CLAUDE.md</code> / <code>AGENTS.md</code>
+            rules file are briefed automatically.
+          </p>
+
+          {#if $customAgents.length > 0}
+            <div class="agent-list">
+              {#each $customAgents as agent (agent.id)}
+                <div class="agent-row">
+                  <div class="agent-meta">
+                    <span class="agent-name">{agent.name}</span>
+                    <code class="agent-cmd">{agent.command}</code>
+                  </div>
+                  <label class="agent-rules-toggle" title="Reads a CLAUDE.md / AGENTS.md rules file at startup">
+                    <input
+                      type="checkbox"
+                      checked={agent.readsRulesFile}
+                      onchange={(e) => updateCustomAgent(agent.id, { readsRulesFile: e.currentTarget.checked })}
+                    />
+                    <span>Rules file</span>
+                  </label>
+                  <button
+                    class="agent-remove"
+                    onclick={() => handleRemoveCustomAgent(agent.id, agent.name)}
+                    aria-label={`Remove ${agent.name}`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2m-1 0v14H9V6"/></svg>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          <div class="agent-add">
+            <input
+              class="agent-input"
+              type="text"
+              placeholder="Name (e.g. Aider)"
+              bind:value={newAgentName}
+              maxlength="40"
+            />
+            <input
+              class="agent-input agent-input-cmd"
+              type="text"
+              placeholder="Launch command (e.g. aider --no-auto-commits)"
+              bind:value={newAgentCommand}
+              maxlength="200"
+              onkeydown={(e) => { if (e.key === 'Enter') handleAddCustomAgent(); }}
+            />
+            <button class="agent-add-btn" onclick={handleAddCustomAgent}>Add agent</button>
+          </div>
+          <label class="agent-rules-row">
+            <input type="checkbox" bind:checked={newAgentReadsRules} />
+            <span>This CLI reads a <code>CLAUDE.md</code> / <code>AGENTS.md</code> rules file at startup</span>
+          </label>
+          {#if agentFormError}
+            <p class="agent-error">{agentFormError}</p>
+          {/if}
+        </div>
+
         <!-- Terminal font size -->
         <div class="setting-group">
           <div class="group-label">Appearance</div>
@@ -3320,7 +3789,7 @@
           <div class="about-logo">
             {#if !iconError}
               <img
-                src="/icon.png?v=2"
+                src="/icon.png?v=4"
                 alt="Soryq"
                 class="about-app-icon"
                 onerror={() => iconError = true}
@@ -3341,7 +3810,7 @@
             ['Version', appVersion],
             ['Built with', 'Tauri 2 · Svelte 5 · Rust'],
             ['Runtime', 'WebView2 (Windows)'],
-            ['License', 'AGPL-3.0'],
+            ['License', 'Proprietary'],
           ] as [label, value]}
             <div class="about-row">
               <span class="about-label">{label}</span>
@@ -6058,6 +6527,140 @@
     color: var(--text-muted);
     margin-top: 8px;
     padding: 0 2px;
+  }
+  .shell-hint code {
+    font-size: 10.5px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
+  }
+
+  /* ── Custom CLI agents ── */
+  .agent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .agent-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    border-radius: 10px;
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+  }
+  .agent-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+  .agent-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .agent-cmd {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono, monospace);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agent-rules-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .agent-rules-toggle input {
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+  .agent-remove {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .agent-remove:hover {
+    background: var(--danger-bg, rgba(248, 113, 113, 0.12));
+    color: var(--danger, #f87171);
+  }
+  .agent-add {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .agent-input {
+    padding: 8px 10px;
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--bg-input, rgba(0, 0, 0, 0.2));
+    color: var(--text);
+    font-size: 12px;
+    font-family: inherit;
+  }
+  .agent-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .agent-input-cmd {
+    flex: 1;
+    min-width: 180px;
+    font-family: var(--font-mono, monospace);
+  }
+  .agent-add-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-contrast, #06231f);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .agent-add-btn:hover {
+    filter: brightness(1.08);
+  }
+  .agent-rules-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .agent-rules-row input {
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+  .agent-rules-row code,
+  .agent-rules-toggle code {
+    font-size: 10.5px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
+  }
+  .agent-error {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--danger, #f87171);
   }
 
   .shell-loading {

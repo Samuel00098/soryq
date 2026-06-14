@@ -24,6 +24,7 @@
     spawnAgentPreset,
   } from '$lib/stores/terminal';
   import { getPresetRuns } from '$lib/stores/runs';
+  import { customAgents } from '$lib/stores/customAgents';
   import { pickAssistantName } from '$lib/services/orchestrator/agent-names';
   import { applyOrchestratorAgentName } from '$lib/services/orchestrator/terminal-lease';
   import { layout } from '$lib/stores/layout';
@@ -118,12 +119,13 @@
           .slice(0, 160))
   );
 
-  const AI_AGENT_COMMANDS = new Set(['codex', 'claude', 'aider', 'agy', 'opencode', 'pi', 'omp', 'agent']);
-  let spawnPresets = $derived(
-    $activeProject
-      ? getPresetRuns($activeProject.id).filter((r) => AI_AGENT_COMMANDS.has(r.command))
-      : []
-  );
+  // Reading $customAgents keeps this reactive: adding/removing a custom agent in
+  // Settings re-derives the spawn list. getPresetRuns merges built-ins + custom.
+  let spawnPresets = $derived.by(() => {
+    void $customAgents;
+    if (!$activeProject) return [];
+    return getPresetRuns($activeProject.id).filter((r) => r.isAgent);
+  });
 
   // `diskPath` is set when the image already exists on disk (attached via the
   // file picker) so submitPrompt can reference it directly instead of re-saving

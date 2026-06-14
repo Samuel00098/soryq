@@ -19,6 +19,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { getCustomAgents } from '$lib/stores/customAgents';
 
 // Agents that read a standing rules file at startup, keyed by every form the
 // codebase stores a preset in: the launch command (`agy`, `agent`) AND the
@@ -37,7 +38,13 @@ const RULES_FILE_AGENTS = new Set([
 /** True when this agent reads CLAUDE.md / AGENTS.md natively at startup. */
 export function agentReadsRulesFile(presetOrCommand: string | null | undefined): boolean {
   if (!presetOrCommand) return false;
-  return RULES_FILE_AGENTS.has(presetOrCommand.trim().toLowerCase());
+  const key = presetOrCommand.trim().toLowerCase();
+  if (RULES_FILE_AGENTS.has(key)) return true;
+  // User-defined agents store their full launch command as the preset key and
+  // opt in explicitly when their CLI reads a rules file at startup.
+  return getCustomAgents().some(
+    (a) => a.readsRulesFile && a.command.trim().toLowerCase() === key
+  );
 }
 
 // The rules files we write. CLAUDE.md is Claude Code's; AGENTS.md is the shared

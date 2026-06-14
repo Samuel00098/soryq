@@ -1,5 +1,6 @@
 mod commands;
 mod error;
+mod lsp;
 mod preview;
 mod pty;
 mod state;
@@ -120,6 +121,9 @@ pub fn run() {
             commands::terminal::terminal_close,
             commands::terminal::terminal_list,
             commands::terminal::terminal_list_shells,
+            commands::lsp::lsp_check_server,
+            commands::lsp::lsp_start,
+            commands::lsp::lsp_install_server,
             commands::preview::preview_start_proxy,
             commands::preview::preview_start_local_proxy,
             commands::preview::preview_stop_proxy,

@@ -224,11 +224,11 @@
   <header class="header">
     <div class="logo-wrap">
       {#if !iconError}
-        <img src="/icon.png?v=2" alt="Soryq" class="logo-img" onerror={() => iconError = true} />
+        <img src="/icon.png?v=4" alt="Soryq" class="logo-img" onerror={() => iconError = true} />
       {:else}
         <svg width="36" height="36" viewBox="0 0 36 36" fill="none" class="logo-fallback">
-          <rect width="36" height="36" rx="8" fill="#1e1b4b"/>
-          <polyline points="6,22 10,18 6,14" fill="none" stroke="#8b5cf6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect width="36" height="36" rx="8" fill="#07080b"/>
+          <polyline points="6,22 10,18 6,14" fill="none" stroke="#2dd4bf" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
           <rect x="12" y="16.5" width="11" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)"/>
           <rect x="12" y="21" width="8" height="2" rx="1" fill="rgba(255,255,255,0.2)"/>
         </svg>

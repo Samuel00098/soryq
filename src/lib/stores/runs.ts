@@ -1,5 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import { loadJson } from '$lib/utils/storage';
+import { getCustomAgents } from '$lib/stores/customAgents';
 
 export interface QuickRun {
   id: string;
@@ -7,6 +8,10 @@ export interface QuickRun {
   command: string;
   projectId: string;
   isPreset?: boolean;
+  // True for entries that launch a coding CLI agent (built-in or user-defined),
+  // as opposed to plain run commands like "npm run dev". The spawn picker shows
+  // only these.
+  isAgent?: boolean;
 }
 
 const STORAGE_KEY = 'soryq_runs';
@@ -18,25 +23,36 @@ function load(): QuickRun[] {
 export const quickRuns = writable<QuickRun[]>(load());
 
 const AI_AGENT_PRESETS: Omit<QuickRun, 'id' | 'projectId'>[] = [
-  { name: 'Codex CLI', command: 'codex', isPreset: true },
-  { name: 'Claude Code', command: 'claude', isPreset: true },
-  { name: 'Antigravity', command: 'agy', isPreset: true },
-  { name: 'OpenCode', command: 'opencode', isPreset: true },
-  { name: 'Pi AI Agent', command: 'pi', isPreset: true },
-  { name: 'Oh My Pi', command: 'omp', isPreset: true },
-  { name: 'Cursor', command: 'agent', isPreset: true },
+  { name: 'Codex CLI', command: 'codex', isPreset: true, isAgent: true },
+  { name: 'Claude Code', command: 'claude', isPreset: true, isAgent: true },
+  { name: 'Antigravity', command: 'agy', isPreset: true, isAgent: true },
+  { name: 'OpenCode', command: 'opencode', isPreset: true, isAgent: true },
+  { name: 'Pi AI Agent', command: 'pi', isPreset: true, isAgent: true },
+  { name: 'Oh My Pi', command: 'omp', isPreset: true, isAgent: true },
+  { name: 'Cursor', command: 'agent', isPreset: true, isAgent: true },
   { name: 'Dev Server', command: 'npm run dev', isPreset: true },
 ];
 
 export function getPresetRuns(projectId: string): QuickRun[] {
   if (!projectId) return [];
-  return AI_AGENT_PRESETS.map((preset) => ({
+  const builtins: QuickRun[] = AI_AGENT_PRESETS.map((preset) => ({
     id: `preset:${projectId}:${preset.command}`,
     projectId,
     name: preset.name,
     command: preset.command,
     isPreset: true,
+    isAgent: preset.isAgent,
   }));
+  // User-defined coding CLI agents are first-class presets too.
+  const custom: QuickRun[] = getCustomAgents().map((agent) => ({
+    id: `custom:${projectId}:${agent.id}`,
+    projectId,
+    name: agent.name,
+    command: agent.command,
+    isPreset: true,
+    isAgent: true,
+  }));
+  return [...builtins, ...custom];
 }
 
 quickRuns.subscribe((val) => {

@@ -567,6 +567,44 @@ fn is_loopback_target(url: &str) -> bool {
     false
 }
 
+/// True for a host that belongs to the app itself: loopback literals or any
+/// `*.localhost` name. Tauri serves the main webview from a custom-protocol
+/// origin like `tauri.localhost` / `http://tauri.localhost`, and the embedded
+/// preview is served from `127.0.0.1:{proxy_port}`, so requests originating from
+/// either are first-party to us.
+fn is_first_party_host(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host == "127.0.0.1"
+        || host == "0.0.0.0"
+        || host == "localhost"
+        || host == "::1"
+        || host.ends_with(".localhost")
+}
+
+/// CSRF/SSRF guard for the preview proxy. The proxy listens on a loopback port
+/// with no per-request secret, so without this check any web page the user opens
+/// in their *normal* browser could script requests at `http://127.0.0.1:{port}/`
+/// and use the proxy to reach the user's dev server / other loopback services or
+/// as a request-forwarding SSRF gadget.
+///
+/// A browser always attaches an `Origin` header to cross-origin requests (and to
+/// same-origin non-GET requests). We allow a request only when it has no `Origin`
+/// (top-level navigations the embedded preview performs, and most same-origin
+/// GETs) or when the `Origin` is first-party — loopback or `*.localhost`, which
+/// covers both the Soryq main webview and the proxied page's own subresources
+/// (served from the proxy origin). A page on `https://evil.example` is rejected
+/// because its `Origin` host is not first-party. `Origin: null` (sandboxed /
+/// `data:` documents) is rejected too, since it is never something we emit.
+fn proxy_request_allowed(headers: &axum::http::HeaderMap) -> bool {
+    match headers.get("origin").and_then(|v| v.to_str().ok()) {
+        None => true,
+        Some(origin) => url::Url::parse(origin)
+            .ok()
+            .and_then(|u| u.host_str().map(is_first_party_host))
+            .unwrap_or(false),
+    }
+}
+
 fn is_restricted_port(port: u16) -> bool {
     matches!(
         port,
@@ -606,6 +644,18 @@ fn local_dev_hosts(preferred_host: Option<&str>) -> Vec<&'static str> {
 
 async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> Response<Body> {
     let (mut parts, body) = req.into_parts();
+
+    // Reject requests carrying a cross-origin `Origin` header before doing any
+    // work — stops a page in the user's normal browser from driving the loopback
+    // proxy (CSRF) or using it as an SSRF forwarder.
+    if !proxy_request_allowed(&parts.headers) {
+        return (
+            StatusCode::FORBIDDEN,
+            "Cross-origin requests to the preview proxy are not allowed",
+        )
+            .into_response();
+    }
+
     let target_port = *state.target_port.lock().unwrap_or_else(|e| e.into_inner());
     let preferred_local_host = state
         .preferred_local_host
@@ -632,14 +682,17 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
         if path.starts_with("/proxy") {
             return StatusCode::BAD_REQUEST.into_response();
         }
-        // Validate WebSocket origin
+        // Validate WebSocket origin. Browsers always attach an Origin to a WS
+        // handshake, so we require one and demand it be first-party loopback. We
+        // deliberately do NOT accept `Origin: null` — it's never something we emit,
+        // and accepting it would let a sandboxed/`data:` document open a socket
+        // through the proxy.
         let ws_origin_valid = parts
             .headers
             .get("origin")
             .and_then(|v| v.to_str().ok())
             .map(|o| {
-                o == "null"
-                    || o == "http://127.0.0.1"
+                o == "http://127.0.0.1"
                     || o.starts_with("http://127.0.0.1:")
                     || o == "http://localhost"
                     || o.starts_with("http://localhost:")
@@ -1211,5 +1264,73 @@ async fn handle_websocket(
     tokio::select! {
         _ = client_to_target => {},
         _ = target_to_client => {},
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_first_party_host, proxy_request_allowed};
+    use axum::http::HeaderMap;
+
+    fn headers_with_origin(origin: Option<&str>) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        if let Some(o) = origin {
+            headers.insert("origin", o.parse().unwrap());
+        }
+        headers
+    }
+
+    #[test]
+    fn first_party_hosts_are_recognised() {
+        assert!(is_first_party_host("127.0.0.1"));
+        assert!(is_first_party_host("0.0.0.0"));
+        assert!(is_first_party_host("localhost"));
+        assert!(is_first_party_host("::1"));
+        // Tauri custom-protocol origins (main webview, asset protocol).
+        assert!(is_first_party_host("tauri.localhost"));
+        assert!(is_first_party_host("asset.localhost"));
+        // Public hosts are not first-party.
+        assert!(!is_first_party_host("evil.example"));
+        assert!(!is_first_party_host("example.com"));
+        // A look-alike that only contains "localhost" must not pass.
+        assert!(!is_first_party_host("localhost.evil.com"));
+        assert!(!is_first_party_host("notlocalhost"));
+    }
+
+    #[test]
+    fn proxy_allows_missing_and_first_party_origins() {
+        // Top-level navigations / most same-origin GETs carry no Origin.
+        assert!(proxy_request_allowed(&headers_with_origin(None)));
+        // The embedded preview and proxied subresources are served from loopback.
+        assert!(proxy_request_allowed(&headers_with_origin(Some(
+            "http://127.0.0.1:54321"
+        ))));
+        assert!(proxy_request_allowed(&headers_with_origin(Some(
+            "http://localhost:5173"
+        ))));
+        // The Soryq main webview (Tauri custom protocol).
+        assert!(proxy_request_allowed(&headers_with_origin(Some(
+            "http://tauri.localhost"
+        ))));
+        assert!(proxy_request_allowed(&headers_with_origin(Some(
+            "https://tauri.localhost"
+        ))));
+    }
+
+    #[test]
+    fn proxy_rejects_cross_origin_and_null() {
+        // A page in the user's normal browser.
+        assert!(!proxy_request_allowed(&headers_with_origin(Some(
+            "https://evil.example"
+        ))));
+        assert!(!proxy_request_allowed(&headers_with_origin(Some(
+            "http://attacker.test:8080"
+        ))));
+        // `null` (sandboxed / data: documents) is never something we emit.
+        assert!(!proxy_request_allowed(&headers_with_origin(Some("null"))));
+        // Garbage Origin values are rejected.
+        assert!(!proxy_request_allowed(&headers_with_origin(Some(
+            "not-a-url"
+        ))));
     }
 }

@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { Terminal } from '@xterm/xterm';
+  import { CanvasAddon } from '@xterm/addon-canvas';
   import { FitAddon } from '@xterm/addon-fit';
   import { WebLinksAddon } from '@xterm/addon-web-links';
   import '@xterm/xterm/css/xterm.css';
@@ -36,6 +37,7 @@
     terminalScrollback,
     resolvedFontFamily,
     terminalShell,
+    terminalRenderer,
   } from '$lib/stores/settings';
   import { activeTheme } from '$lib/stores/theme';
   import { layout, setActiveView, showTerminal } from '$lib/stores/layout';
@@ -87,6 +89,7 @@
   let paneEl: HTMLDivElement;
   let term = $state<any>(null);
   let fitAddon = $state<any>(null);
+  let canvasAddon = $state<CanvasAddon | null>(null);
   let resizeObserver: ResizeObserver | null = null;
   let hoveredTerminalLink: string | null = null;
   let currentShellCwd = $state<string | null>(null);
@@ -212,8 +215,34 @@
     if (!term) return;
     try {
       term.clearTextureAtlas?.();
+      canvasAddon?.clearTextureAtlas();
       term.refresh(0, term.rows - 1);
     } catch {}
+  }
+
+  function applyTerminalRenderer() {
+    if (!term) return;
+
+    if ($terminalRenderer === 'canvas') {
+      if (canvasAddon) return;
+      try {
+        canvasAddon = new CanvasAddon();
+        term.loadAddon(canvasAddon);
+      } catch (error) {
+        console.error('Failed to enable canvas terminal renderer', error);
+        canvasAddon?.dispose();
+        canvasAddon = null;
+        terminalRenderer.set('dom');
+        showToast('Canvas renderer unavailable; using DOM renderer.', 'warning');
+        return;
+      }
+    } else if (canvasAddon) {
+      canvasAddon.dispose();
+      canvasAddon = null;
+    }
+
+    scheduleFit();
+    requestAnimationFrame(() => forceRedraw());
   }
 
   function waitForOpenDimensions(target: HTMLDivElement) {
@@ -588,6 +617,7 @@
       hover: (_event: any, uri: string) => { hoveredTerminalLink = uri; },
       leave: () => { hoveredTerminalLink = null; },
     }));
+    applyTerminalRenderer();
 
     let disposed = false;
     let executingTimeout: any = null;
@@ -614,8 +644,18 @@
       if (existingBuffer) {
         // Gate outbound data until this historical write finishes parsing, so the
         // re-answered color/DA queries it contains don't leak into the live PTY.
+        // The gate MUST never stay stuck `true` — while it is, every keystroke for
+        // this session is silently dropped. xterm normally clears it via the write
+        // callback once replay finishes parsing, but that callback can be deferred
+        // indefinitely when the pane isn't visible/attached yet (a background tab,
+        // or reattaching on app open), so a timeout guarantees input is re-enabled.
         suppressReplayInput = true;
-        term.write(existingBuffer, () => { suppressReplayInput = false; });
+        const clearReplayGate = () => { suppressReplayInput = false; };
+        const replayGateTimer = setTimeout(clearReplayGate, 1500);
+        term.write(existingBuffer, () => {
+          clearTimeout(replayGateTimer);
+          clearReplayGate();
+        });
       }
 
       // Double rAF lets the flex mosaic settle (a sibling pane may still be tiling
@@ -734,6 +774,12 @@
       term.options.scrollback = $terminalScrollback;
       term.options.windowsPty = windowsPty;
       scheduleFit();
+    }
+  });
+
+  $effect(() => {
+    if (term) {
+      applyTerminalRenderer();
     }
   });
 

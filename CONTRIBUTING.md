@@ -52,4 +52,4 @@ src/lib/services/     # Frontend services (voice, keychain, etc.)
 
 ## Licence
 
-By contributing you agree that your contributions will be licenced under the [MIT Licence](LICENSE).
+Soryq is proprietary software (see [LICENSE](LICENSE)). By contributing, you assign all right, title, and interest in your contributions to the copyright owner, Samuel Solesi, and agree they may be used under the project's proprietary terms.
