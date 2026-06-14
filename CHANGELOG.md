@@ -3,6 +3,18 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.1] - 2026-06-14
+
+### Changed
+
+- **Faster release-site experience** - optimized the landing page load path and runtime responsiveness.
+
+- **Version bumped to 0.4.1** - app metadata, native package metadata, and release-site version references now point at v0.4.1.
+
+### Fixed
+
+- **Linux release build** - corrected the WebKitGTK `WebViewExt` import so the Linux AppImage build can compile preview screenshots successfully.
+
 ## [v0.4.0] - 2026-06-14
 
 ### Added
