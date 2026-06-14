@@ -251,7 +251,7 @@ fn start_webkitgtk_region_capture(
     height: u32,
     tx: std::sync::mpsc::Sender<Result<Vec<u8>, String>>,
 ) -> Result<(), String> {
-    use webkit2gtk::{prelude::WebViewExt, SnapshotOptions, SnapshotRegion};
+    use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
 
     let webview = webview.inner();
     webview.snapshot(
