@@ -32,7 +32,7 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
     />
 
     <title>{fullTitle}</title>
@@ -134,6 +134,11 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
       const canvas = document.querySelector<HTMLCanvasElement>('.fx-net');
       const ctx = canvas?.getContext('2d');
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      // Touch / small screens get a single static frame instead of the looping
+      // constellation: the rAF loop is the heaviest main-thread cost and matters
+      // least on phones, where smoothness and battery win over the effect.
+      const lowPower =
+        window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 760;
       if (canvas && ctx) {
         const LINK = 132; // px distance under which two nodes connect
         const CURSOR = 168; // px radius the cursor links to nearby nodes
@@ -248,7 +253,7 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
         resize();
         window.addEventListener('resize', () => {
           resize();
-          if (reduceMotion) draw(false);
+          if (reduceMotion || lowPower) draw(false);
         });
         window.addEventListener(
           'pointermove',
@@ -264,11 +269,18 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
         });
         document.addEventListener('visibilitychange', () => {
           if (document.hidden) stop();
-          else if (!reduceMotion) start();
+          else if (!reduceMotion && !lowPower) start();
         });
 
-        if (reduceMotion) draw(false);
-        else start();
+        if (reduceMotion || lowPower) {
+          draw(false); // one static frame, no rAF loop
+        } else if ('requestIdleCallback' in window) {
+          // Defer the animation until the main thread is idle so it never
+          // competes with first paint / hydration during initial load.
+          requestIdleCallback(start, { timeout: 1200 });
+        } else {
+          start();
+        }
       }
     </script>
   </body>

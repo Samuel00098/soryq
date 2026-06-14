@@ -372,6 +372,27 @@ section {
   }
 }
 
+/* On small / touch screens, lighten the decorative background. The large
+   blur(72px) blobs and the looping film-grain/beam are the most expensive
+   layers to composite and matter least on phones, where battery life and
+   scroll smoothness win over ambiance. The constellation canvas is also
+   skipped here (it's hidden, and the script renders no animation on coarse
+   pointers). */
+@media (max-width: 760px) {
+  .orb-3,
+  .orb-4,
+  .fx-net {
+    display: none;
+  }
+  .orb {
+    filter: blur(48px);
+  }
+  .grain,
+  .beam {
+    animation: none;
+  }
+}
+
 /* ── Legal / long-form prose (terms, privacy) ─────────────────────────────── */
 .legal {
   padding-top: clamp(40px, 6vw, 72px);

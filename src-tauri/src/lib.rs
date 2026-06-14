@@ -25,6 +25,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            #[cfg_attr(
+                not(any(target_os = "macos", target_os = "windows")),
+                allow(unused_variables)
+            )]
             let Some(window) = app.get_webview_window("main") else {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
