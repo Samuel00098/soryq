@@ -594,7 +594,10 @@
         blue: initialColors['accent'] || (isLight ? '#0969da' : '#7c6af7'),
         magenta: initialSyntax['function'] || (isLight ? '#8250df' : '#d2a8ff'),
         cyan: initialSyntax['constant'] || (isLight ? '#0598bc' : '#39d2c0'),
-        white: isLight ? '#eaeef2' : (initialColors['text-primary'] || '#e6edf3'),
+        // In light mode ANSI white/brightWhite must stay dark, or shell output
+        // drawn in those colors (e.g. command tokens) is invisible on the light
+        // background. Map them to readable dark tones instead of near-white.
+        white: isLight ? '#586069' : (initialColors['text-primary'] || '#e6edf3'),
         brightBlack: initialColors['text-muted'] || (isLight ? '#656d76' : '#6e7681'),
         brightRed: initialSyntax['keyword'] || (isLight ? '#cf222e' : '#ff7b72'),
         brightGreen: initialColors['success'] || (isLight ? '#1a7f37' : '#4ade80'),
@@ -602,7 +605,7 @@
         brightBlue: initialColors['accent-hover'] || (isLight ? '#218bff' : '#9585ff'),
         brightMagenta: initialSyntax['function'] || (isLight ? '#8250df' : '#d2a8ff'),
         brightCyan: initialSyntax['constant'] || (isLight ? '#0598bc' : '#39d2c0'),
-        brightWhite: isLight ? '#ffffff' : (initialColors['text-primary'] || '#ffffff'),
+        brightWhite: isLight ? '#24292f' : (initialColors['text-primary'] || '#ffffff'),
       },
     });
 
@@ -801,7 +804,7 @@
         blue: colors['accent'] || (isLight ? '#0969da' : '#7c6af7'),
         magenta: syntax['function'] || (isLight ? '#8250df' : '#d2a8ff'),
         cyan: syntax['constant'] || (isLight ? '#0598bc' : '#39d2c0'),
-        white: isLight ? '#eaeef2' : (colors['text-primary'] || '#e6edf3'),
+        white: isLight ? '#586069' : (colors['text-primary'] || '#e6edf3'),
         brightBlack: isLight ? '#656d76' : (colors['text-muted'] || '#6e7681'),
         brightRed: syntax['keyword'] || (isLight ? '#cf222e' : '#ff7b72'),
         brightGreen: colors['success'] || (isLight ? '#1a7f37' : '#4ade80'),
@@ -809,7 +812,7 @@
         brightBlue: colors['accent-hover'] || (isLight ? '#218bff' : '#9585ff'),
         brightMagenta: syntax['function'] || (isLight ? '#8250df' : '#d2a8ff'),
         brightCyan: syntax['constant'] || (isLight ? '#0598bc' : '#39d2c0'),
-        brightWhite: isLight ? '#ffffff' : (colors['text-primary'] || '#ffffff'),
+        brightWhite: isLight ? '#24292f' : (colors['text-primary'] || '#ffffff'),
       };
     }
   });

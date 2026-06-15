@@ -33,6 +33,8 @@ All notable changes to Soryq will be documented here.
 
 - **Preview console panel captures local-dev logs from the first call** — the injected console hook no longer waits for a parent handshake before forwarding messages, so logs emitted during page load are captured instead of being dropped (which made the panel look empty). Console capture remains scoped to local-dev pages.
 
+- **Terminal text stays readable in light mode** — in light themes the ANSI `white` and `bright-white` colors were mapped to near-white, so shell output drawn in those colors (e.g. command tokens like `cd`) rendered white-on-light and was invisible. They now map to dark, readable tones in light mode (dark themes are unchanged).
+
 ## [v0.4.1] - 2026-06-14
 
 ### Changed
