@@ -307,27 +307,53 @@ export function roughRect(
 
   ctx.save();
   applyStroke(ctx, o);
-  if (o.roughness <= 0 || r > 0.5) {
-    // Rounded rects (and clean mode) use the smooth geometric path; pure
-    // hand-drawn corners on rounded rects look noisy.
+  if (o.roughness <= 0) {
+    // Clean mode: smooth geometric path.
     ctx.beginPath();
     roundRectPath(ctx, x, y, w, h, r);
-    if (o.roughness > 0) jitterCurrentStroke(ctx);
     ctx.stroke();
   } else {
-    polygonPath(
-      ctx,
-      [
-        [x, y],
-        [x + w, y],
-        [x + w, y + h],
-        [x, y + h]
-      ],
-      c
-    );
+    // Hand-drawn: sketchy edges with smooth (optionally rounded) corners, so
+    // the Pencil/Loose roughness is actually visible on rectangles instead of
+    // rendering CAD-clean.
+    ctx.beginPath();
+    roughRoundedRectPath(ctx, x, y, w, h, r, c);
     ctx.stroke();
   }
   ctx.restore();
+}
+
+/**
+ * Append a hand-drawn rounded-rectangle outline to the current path (does not
+ * stroke). Each straight edge is a perturbed double-stroke; corners are short
+ * smooth quadratics so the sketchiness reads as a deliberate rounded rect
+ * rather than noise. Caller must beginPath() before and stroke() after.
+ */
+function roughRoundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  c: Ctx2D
+) {
+  const x2 = x + w;
+  const y2 = y + h;
+  const corner = (cpx: number, cpy: number, nx: number, ny: number) => {
+    if (r > 0) ctx.quadraticCurveTo(cpx, cpy, nx, ny);
+  };
+  for (let pass = 0; pass < 2; pass++) {
+    const overlay = pass === 1;
+    lineSegment(ctx, x + r, y, x2 - r, y, c, true, overlay); // top
+    corner(x2, y, x2, y + r);
+    lineSegment(ctx, x2, y + r, x2, y2 - r, c, false, overlay); // right
+    corner(x2, y2, x2 - r, y2);
+    lineSegment(ctx, x2 - r, y2, x + r, y2, c, false, overlay); // bottom
+    corner(x, y2, x, y2 - r);
+    lineSegment(ctx, x, y2 - r, x, y + r, c, false, overlay); // left
+    corner(x, y, x + r, y);
+  }
 }
 
 export function roughDiamond(
@@ -439,12 +465,6 @@ function roundRectPath(
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
-}
-
-// Rounded rects keep their geometric path; we only nudge the stroke a touch so
-// they don't look perfectly CAD-clean next to the hand-drawn shapes.
-function jitterCurrentStroke(_ctx: CanvasRenderingContext2D) {
-  /* intentionally a no-op hook: rounded-rect jitter is handled by the path. */
 }
 
 /** A stable-ish integer seed. */

@@ -37,6 +37,8 @@ All notable changes to Soryq will be documented here.
 
 - **Settings no longer rubber-bands when scrolling** — taller Settings tabs used to overscroll past the top/bottom with an elastic "over-pull" bounce (and could chain the scroll to the page behind). The Settings body now contains its own scroll, so it stops cleanly at each edge.
 
+- **Sketch Canvas rectangles honor the hand-drawn roughness** — rounded rectangles ignored the Pencil/Loose roughness and always rendered CAD-clean (the rounded-rect path used a no-op jitter hook), while circles, diamonds, and arrows were correctly sketchy. Rectangles now draw with the same perturbed double-stroke edges (keeping smooth rounded corners), so the Pencil style is consistent across every shape.
+
 ## [v0.4.1] - 2026-06-14
 
 ### Changed
