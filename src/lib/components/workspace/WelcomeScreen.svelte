@@ -15,6 +15,10 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { isTauriRuntime } from '$lib/utils/tauri';
+  import packageJson from '../../../../package.json';
+
+  // Cache-bust by app version so the logo refreshes on every update.
+  const iconSrc = `/icon.png?v=${packageJson.version}`;
 
   let isLight = $derived($activeTheme?.type === 'light');
 
@@ -224,11 +228,11 @@
   <header class="header">
     <div class="logo-wrap">
       {#if !iconError}
-        <img src="/icon.png?v=4" alt="Soryq" class="logo-img" onerror={() => iconError = true} />
+        <img src={iconSrc} alt="Soryq" class="logo-img" onerror={() => iconError = true} />
       {:else}
         <svg width="36" height="36" viewBox="0 0 36 36" fill="none" class="logo-fallback">
-          <rect width="36" height="36" rx="8" fill="#07080b"/>
-          <polyline points="6,22 10,18 6,14" fill="none" stroke="#2dd4bf" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect width="36" height="36" rx="8" fill="#2f343b"/>
+          <polyline points="6,22 10,18 6,14" fill="none" stroke="#aeb6c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
           <rect x="12" y="16.5" width="11" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)"/>
           <rect x="12" y="21" width="8" height="2" rx="1" fill="rgba(255,255,255,0.2)"/>
         </svg>
@@ -571,9 +575,9 @@
 
   .logo-wrap {
     position: relative;
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
     background: linear-gradient(155deg, color-mix(in srgb, var(--accent) 16%, var(--bg-secondary)), color-mix(in srgb, var(--bg-secondary) 88%, transparent));
     border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
     backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
@@ -590,9 +594,9 @@
   }
 
   .logo-img {
-    width: 44px;
-    height: 44px;
-    border-radius: 8px;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
   }
 
   .logo-fallback { opacity: 0.8; }
@@ -612,9 +616,9 @@
   }
 
   .app-tagline {
-    font-size: 11.5px;
+    font-size: 14px;
     color: var(--text-muted);
-    margin-top: 3px;
+    margin-top: 4px;
   }
 
   /* ── Content grid ── */
@@ -1288,8 +1292,8 @@
       align-items: flex-start;
     }
     .logo-wrap {
-      width: 44px;
-      height: 44px;
+      width: 56px;
+      height: 56px;
     }
     .action-btn kbd,
     .shortcut-item kbd {

@@ -14,18 +14,18 @@
   --bg-1: #0e1014;
   --indigo: #14171c; /* legacy name — now a neutral elevated surface */
 
-  /* Primary accent family */
-  --teal: #2dd4bf;
-  --teal-bright: #5eead4;
-  --sky: #38bdf8;
-  --sky-bright: #7dd3fc;
-  --violet-glow: #6366f1; /* ambient bloom only — never a fill */
-  --green: #34d399; /* terminal green — complements the teal accent */
+  /* Primary accent family — graphite grey */
+  --teal: #aeb6c2;
+  --teal-bright: #c7cdd6;
+  --sky: #9aa3b0;
+  --sky-bright: #c7cdd6;
+  --violet-glow: #8b94a3; /* ambient bloom only — never a fill */
+  --green: #34d399; /* terminal green — semantic, kept distinct */
 
   /* RGB tuples for translucent use inside components */
-  --teal-rgb: 45, 212, 191;
-  --sky-rgb: 56, 189, 248;
-  --violet-rgb: 99, 102, 241;
+  --teal-rgb: 174, 182, 194;
+  --sky-rgb: 154, 163, 176;
+  --violet-rgb: 139, 148, 163;
 
   /* Legacy aliases → all fold into the cool family */
   --amber: var(--teal);
@@ -49,7 +49,7 @@
   --maxw: 1120px;
 
   --shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.75);
-  --glow: 0 0 80px -10px rgba(45, 212, 191, 0.38);
+  --glow: 0 0 80px -10px rgba(174, 182, 194, 0.38);
 
   color-scheme: dark;
 }
@@ -93,8 +93,8 @@ body::before {
   inset: -15%;
   z-index: -4;
   background:
-    radial-gradient(46% 40% at 50% -6%, rgba(45, 212, 191, 0.16), transparent 70%),
-    radial-gradient(40% 38% at 86% 4%, rgba(56, 189, 248, 0.1), transparent 70%),
+    radial-gradient(46% 40% at 50% -6%, rgba(174, 182, 194, 0.16), transparent 70%),
+    radial-gradient(40% 38% at 86% 4%, rgba(154, 163, 176, 0.1), transparent 70%),
     linear-gradient(180deg, #0b0e13 0%, var(--bg-0) 46%);
 }
 
@@ -126,7 +126,11 @@ body::after {
   position: absolute;
   filter: blur(72px);
   opacity: 0.6;
-  will-change: transform, border-radius;
+  /* Only transform is animated (see morph keyframes). Animating border-radius
+     too would force the browser to re-rasterize the 72px blur every frame across
+     a huge area — the main cause of scroll jank — whereas a transform-only
+     animation stays on the GPU compositor and reuses the cached blurred layer. */
+  will-change: transform;
   mix-blend-mode: screen;
 }
 .orb-1 {
@@ -134,7 +138,7 @@ body::after {
   height: 48vw;
   top: -14vw;
   left: -8vw;
-  background: radial-gradient(circle at 50% 50%, rgba(45, 212, 191, 0.6), transparent 70%);
+  background: radial-gradient(circle at 50% 50%, rgba(174, 182, 194, 0.6), transparent 70%);
   border-radius: 60% 40% 55% 45% / 50% 55% 45% 50%;
   animation: morph-1 34s ease-in-out infinite alternate;
 }
@@ -143,7 +147,7 @@ body::after {
   height: 42vw;
   top: -10vw;
   right: -10vw;
-  background: radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.55), transparent 70%);
+  background: radial-gradient(circle at 50% 50%, rgba(154, 163, 176, 0.55), transparent 70%);
   border-radius: 45% 55% 50% 50% / 55% 45% 55% 45%;
   animation: morph-2 40s ease-in-out infinite alternate;
 }
@@ -161,7 +165,7 @@ body::after {
   height: 34vw;
   bottom: -10vw;
   right: 14vw;
-  background: radial-gradient(circle at 50% 50%, rgba(94, 234, 212, 0.4), transparent 72%);
+  background: radial-gradient(circle at 50% 50%, rgba(199, 205, 214, 0.4), transparent 72%);
   border-radius: 55% 45% 50% 50% / 50% 50% 55% 45%;
   animation: morph-4 38s ease-in-out infinite alternate;
 }
@@ -175,8 +179,8 @@ body::after {
   background: linear-gradient(
     100deg,
     transparent 30%,
-    rgba(94, 234, 212, 0.06) 48%,
-    rgba(125, 211, 252, 0.05) 54%,
+    rgba(199, 205, 214, 0.06) 48%,
+    rgba(199, 205, 214, 0.05) 54%,
     transparent 70%
   );
   transform: rotate(8deg);
@@ -192,27 +196,28 @@ body::after {
   animation: grain 6s steps(4) infinite;
 }
 
-/* Morph keyframes: drift position + scale + reshape the blob's border-radius so
-   the silhouette is never static. Three stops give an organic, non-linear feel. */
+/* Morph keyframes: drift position + scale only. Each orb keeps the static,
+   organic border-radius set on its class; animating transform alone keeps the
+   motion entirely on the GPU compositor (no per-frame blur re-rasterization). */
 @keyframes morph-1 {
-  0% { transform: translate3d(0, 0, 0) scale(1); border-radius: 60% 40% 55% 45% / 50% 55% 45% 50%; }
-  50% { transform: translate3d(6vw, 5vw, 0) scale(1.1); border-radius: 40% 60% 45% 55% / 55% 45% 60% 40%; }
-  100% { transform: translate3d(9vw, 8vw, 0) scale(1.14); border-radius: 55% 45% 60% 40% / 45% 60% 40% 55%; }
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(6vw, 5vw, 0) scale(1.1); }
+  100% { transform: translate3d(9vw, 8vw, 0) scale(1.14); }
 }
 @keyframes morph-2 {
-  0% { transform: translate3d(0, 0, 0) scale(1.05); border-radius: 45% 55% 50% 50% / 55% 45% 55% 45%; }
-  50% { transform: translate3d(-5vw, 6vw, 0) scale(0.98); border-radius: 55% 45% 45% 55% / 45% 55% 45% 55%; }
-  100% { transform: translate3d(-8vw, 10vw, 0) scale(1.02); border-radius: 50% 50% 55% 45% / 55% 45% 50% 50%; }
+  0% { transform: translate3d(0, 0, 0) scale(1.05); }
+  50% { transform: translate3d(-5vw, 6vw, 0) scale(0.98); }
+  100% { transform: translate3d(-8vw, 10vw, 0) scale(1.02); }
 }
 @keyframes morph-3 {
-  0% { transform: translate3d(0, 0, 0) scale(1); border-radius: 50% 50% 45% 55% / 45% 55% 50% 50%; }
-  50% { transform: translate3d(-6vw, -4vw, 0) scale(1.12); border-radius: 60% 40% 55% 45% / 55% 45% 40% 60%; }
-  100% { transform: translate3d(-10vw, -8vw, 0) scale(1.16); border-radius: 45% 55% 50% 50% / 50% 50% 55% 45%; }
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-6vw, -4vw, 0) scale(1.12); }
+  100% { transform: translate3d(-10vw, -8vw, 0) scale(1.16); }
 }
 @keyframes morph-4 {
-  0% { transform: translate3d(0, 0, 0) scale(1); border-radius: 55% 45% 50% 50% / 50% 50% 55% 45%; }
-  50% { transform: translate3d(5vw, -5vw, 0) scale(1.08); border-radius: 45% 55% 60% 40% / 60% 40% 45% 55%; }
-  100% { transform: translate3d(8vw, -8vw, 0) scale(1.12); border-radius: 50% 50% 45% 55% / 45% 55% 50% 50%; }
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(5vw, -5vw, 0) scale(1.08); }
+  100% { transform: translate3d(8vw, -8vw, 0) scale(1.12); }
 }
 @keyframes sweep {
   from { transform: translate3d(-10%, 0, 0) rotate(8deg); opacity: 0.6; }
@@ -282,11 +287,11 @@ svg {
 .btn-primary {
   background: linear-gradient(135deg, var(--teal-bright) 0%, var(--sky) 100%);
   color: #04201d;
-  box-shadow: 0 10px 30px -10px rgba(45, 212, 191, 0.6);
+  box-shadow: 0 10px 30px -10px rgba(174, 182, 194, 0.6);
 }
 
 .btn-primary:hover {
-  box-shadow: 0 16px 40px -10px rgba(56, 189, 248, 0.8);
+  box-shadow: 0 16px 40px -10px rgba(154, 163, 176, 0.8);
 }
 
 .btn-ghost {
@@ -470,8 +475,8 @@ section {
   opacity: 0.6;
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(125, 211, 252, 0.022) 0px,
-    rgba(125, 211, 252, 0.022) 1px,
+    rgba(199, 205, 214, 0.022) 0px,
+    rgba(199, 205, 214, 0.022) 1px,
     transparent 1px,
     transparent 4px
   );
@@ -485,7 +490,7 @@ section {
   right: 0;
   top: -160px;
   height: 160px;
-  background: linear-gradient(180deg, transparent, rgba(94, 234, 212, 0.05), transparent);
+  background: linear-gradient(180deg, transparent, rgba(199, 205, 214, 0.05), transparent);
   animation: fx-scan-move 8s linear infinite;
 }
 @keyframes fx-scan-move {

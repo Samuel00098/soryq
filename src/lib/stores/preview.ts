@@ -11,7 +11,18 @@ export const localDevProxyPorts = writable<Record<string, number>>({});
 export type PreviewTab = {
   id: string;
   title: string;
+  /** Currently displayed page — drives the address bar, title and history. */
   url: string;
+  /**
+   * URL committed to the iframe's `src`. Decoupled from `url` on purpose: it only
+   * changes when we deliberately (re)load the iframe (typed nav, Back/Forward,
+   * refresh). In-iframe navigations (a link click, a site's own search box, a
+   * local-dev route change) update `url`/history via commitInternalNavigation but
+   * leave `loadUrl` untouched, so the page the user already moved to isn't
+   * reloaded — and Back returns to it instead of skipping to the last typed URL.
+   * Optional for back-compat with persisted tabs; callers fall back to `url`.
+   */
+  loadUrl?: string;
   history: string[];
   historyIndex: number;
 };
@@ -55,6 +66,7 @@ function createPreviewTab(url = '/'): PreviewTab {
     id: createTabId(),
     title: derivePreviewTabTitle(url),
     url,
+    loadUrl: url,
     history: [url],
     historyIndex: 0,
   };
@@ -89,6 +101,7 @@ export const currentUrl = {
     replaceActiveTab((tab) => ({
       ...tab,
       url,
+      loadUrl: url,
       title: derivePreviewTabTitle(url),
     }));
   },
@@ -97,13 +110,20 @@ export const currentUrl = {
   }
 };
 
-export function navigatePreviewTab(url: string) {
+/**
+ * Push a navigation onto the active tab's history. When `load` is true the
+ * iframe is (re)loaded by also advancing `loadUrl`; when false the entry is
+ * recorded but the iframe is left alone (the page already navigated itself).
+ */
+function commitNavigation(url: string, load: boolean) {
   setCurrentUrlStore(url);
   replaceActiveTab((tab) => {
+    const loadPatch = load ? { loadUrl: url } : {};
     if (tab.history[tab.historyIndex] === url) {
       return {
         ...tab,
         url,
+        ...loadPatch,
         title: derivePreviewTabTitle(url),
       };
     }
@@ -112,11 +132,27 @@ export function navigatePreviewTab(url: string) {
     return {
       ...tab,
       url,
+      ...loadPatch,
       title: derivePreviewTabTitle(url),
       history,
       historyIndex: history.length - 1,
     };
   });
+}
+
+/** Explicit navigation (typed URL, link we drive) — records history and loads. */
+export function navigatePreviewTab(url: string) {
+  commitNavigation(url, true);
+}
+
+/**
+ * Record a navigation the iframe performed itself (link click, a site's own
+ * search box, a local-dev route change) without reloading it. This is what lets
+ * Back return to the page the user was actually on rather than skipping to the
+ * last URL we explicitly loaded.
+ */
+export function commitInternalNavigation(url: string) {
+  commitNavigation(url, false);
 }
 
 export function goBackPreviewTab() {
@@ -128,6 +164,7 @@ export function goBackPreviewTab() {
     return {
       ...tab,
       url: nextUrl,
+      loadUrl: nextUrl,
       title: derivePreviewTabTitle(nextUrl),
       historyIndex: nextHistoryIndex,
     };
@@ -146,6 +183,7 @@ export function goForwardPreviewTab() {
     return {
       ...tab,
       url: nextUrl,
+      loadUrl: nextUrl,
       title: derivePreviewTabTitle(nextUrl),
       historyIndex: nextHistoryIndex,
     };
@@ -231,6 +269,8 @@ export function restorePreviewTabsState(tabs: PreviewTab[] | null | undefined, a
     safeTabs.map((tab) => ({
       ...tab,
       title: derivePreviewTabTitle(tab.url),
+      // Load the displayed page fresh on restore (ignore any stale loadUrl).
+      loadUrl: tab.url,
       history: tab.history?.length ? tab.history : [tab.url],
       historyIndex: Math.min(
         Math.max(tab.historyIndex ?? 0, 0),

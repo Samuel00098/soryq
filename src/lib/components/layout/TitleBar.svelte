@@ -12,8 +12,15 @@
   import WorkspaceSwitcher from '$lib/components/workspace/WorkspaceSwitcher.svelte';
   import ProjectSwitcher from '$lib/components/workspace/ProjectSwitcher.svelte';
   import { isTauriRuntime } from '$lib/utils/tauri';
+  import packageJson from '../../../../package.json';
 
   const win = isTauriRuntime() ? getCurrentWindow() : null;
+
+  // Cache-bust the titlebar icon by app version so an update always paints the
+  // new icon. The webview caches `/icon.png` by URL; without a version-tied
+  // query the old icon would persist across updates until the string changed by
+  // hand. Bumping the app version (which every release does) yields a fresh URL.
+  const iconSrc = `/icon.png?v=${packageJson.version}`;
 
   let iconError = $state(false);
   // On macOS, the native traffic-light buttons handle minimize/maximize/close.
@@ -161,15 +168,15 @@
     <div class="titlebar-icon">
       {#if !iconError}
         <img
-          src="/icon.png?v=4"
+          src={iconSrc}
           alt="Soryq"
           class="titlebar-app-icon"
           onerror={() => iconError = true}
         />
       {:else}
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="titlebar-app-icon" aria-hidden="true">
-          <rect width="16" height="16" rx="3.5" fill="#07080b"/>
-          <polyline points="2.5,10 4.5,8 2.5,6" fill="none" stroke="#2dd4bf" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect width="16" height="16" rx="3.5" fill="#2f343b"/>
+          <polyline points="2.5,10 4.5,8 2.5,6" fill="none" stroke="#aeb6c2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
           <rect x="5.5" y="7.3" width="5" height="1.2" rx="0.6" fill="rgba(255,255,255,0.5)"/>
         </svg>
       {/if}

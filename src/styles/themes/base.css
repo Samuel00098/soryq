@@ -7,8 +7,8 @@
   --text-primary: #f3f3f6;
   --text-secondary: #9494a6;
   --text-muted: #555566;
-  --accent: #0f766e;
-  --accent-hover: #0d9488;
+  --accent: #aeb6c2;
+  --accent-hover: #c7cdd6;
   --border: rgba(255,255,255,0.05);
   --border-focus: var(--accent);
   --error: #f87171;
@@ -16,7 +16,7 @@
   --success: #4ade80;
   --scrollbar-thumb: rgba(255,255,255,0.08);
   --scrollbar-track: transparent;
-  --selection-bg: rgba(15, 118, 110, 0.2);
+  --selection-bg: rgba(174, 182, 194, 0.2);
   --titlebar-bg: #0a0a0a;
   --titlebar-text: #e2e2eb;
   --activitybar-bg: #0a0a0a;
@@ -36,8 +36,8 @@
   --input-bg: #141414;
   --input-border: rgba(255,255,255,0.08);
   --input-focus-border: var(--accent);
-  --button-bg: #115e59;
-  --button-hover-bg: #0f766e;
+  --button-bg: #3f4650;
+  --button-hover-bg: #4b525d;
   --button-text: #ffffff;
   --syntax-keyword: #ff7b72;
   --syntax-string: #a5d6ff;

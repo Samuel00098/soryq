@@ -23,6 +23,7 @@
     clearPreviewData,
     localDevProxyKey,
     navigatePreviewTab,
+    commitInternalNavigation,
     goBackPreviewTab,
     goForwardPreviewTab,
     createBlankPreviewBrowserTab,
@@ -30,6 +31,14 @@
     closePreviewBrowserTab
   } from '$lib/stores/preview';
   import { showToast } from '$lib/stores/notification';
+  import {
+    browsingHistory,
+    recordHistoryVisit,
+    removeHistoryEntry,
+    clearBrowsingHistory,
+    saveScrollPosition,
+    getScrollPosition,
+  } from '$lib/stores/previewHistory';
   import { promptBarInput, promptBarImage, focusPromptBar } from '$lib/stores/terminal';
   import { activeProject } from '$lib/stores/workspace';
 
@@ -43,12 +52,13 @@
   let tempPort = $state($targetPort);
   let inputUrl = $state($currentUrl);
   let inspectMode = $state(false);
+  let showHistory = $state(false);
   let activeTab = $derived(($previewTabs || []).find((tab) => tab.id === $activePreviewTabId) ?? null);
   let canGoBack = $derived((activeTab?.historyIndex ?? 0) > 0);
   let canGoForward = $derived(
     activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false
   );
-  let activeIframeSrc = $derived(activeTab ? buildIframeSrc(activeTab.url) : '');
+  let activeIframeSrc = $derived(activeTab ? buildIframeSrc(activeTab.loadUrl ?? activeTab.url) : '');
   type ViewportMode = 'responsive' | 'tablet' | 'mobile';
   let viewportMode = $state<ViewportMode>('responsive');
   const VIEWPORT_WIDTHS: Record<ViewportMode, number | null> = {
@@ -214,6 +224,16 @@
     }
   });
 
+  // Log every real navigation into the persistent browsing history so the
+  // history dropdown can recall any prior page (beyond a single tab's linear
+  // back/forward stack). recordHistoryVisit ignores about:blank / "/" and
+  // collapses immediately repeated URLs.
+  $effect(() => {
+    const url = $currentUrl;
+    const title = activeTab?.title ?? '';
+    recordHistoryVisit(url, title);
+  });
+
   function handlePortChange() {
     if (tempPort >= 1 && tempPort <= 65535) {
       setTargetPort(tempPort);
@@ -351,10 +371,13 @@
       return 'https://' + trimmed;
     }
 
-    // Search if it doesn't look like a URL. Use DuckDuckGo, not Google: Google
-    // CAPTCHAs requests coming through the local preview proxy, so it's unusable
-    // in the built-in browser. DuckDuckGo renders fine proxied.
-    return 'https://duckduckgo.com/?q=' + encodeURIComponent(trimmed);
+    // Search if it doesn't look like a URL. Use DuckDuckGo's server-rendered HTML
+    // endpoint (html.duckduckgo.com/html), NOT the main duckduckgo.com SPA: the
+    // SPA fetches results via cross-origin XHR to links.duckduckgo.com, which the
+    // path-rewriting preview proxy can't serve, so the results page stays blank.
+    // The HTML endpoint returns plain <a> links that navigate fine through the
+    // proxy. (Google CAPTCHAs proxied requests, so it's unusable here.)
+    return 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(trimmed);
   }
 
   function isAbsoluteUrl(url: string): boolean {
@@ -419,9 +442,8 @@
     return /youtube\.com|youtu\.be|youtube-nocookie\.com/i.test(url);
   }
 
-  async function handleNavigate(e: Event) {
-    e.preventDefault();
-    const normalized = normalizeUrl(inputUrl);
+  async function navigateTo(rawUrl: string) {
+    const normalized = normalizeUrl(rawUrl);
     const localDev = parseLocalDevUrl(normalized);
     if (localDev) {
       await clearProxyTarget();
@@ -439,6 +461,32 @@
     navigatePreviewTab(normalized);
     inputUrl = normalized;
     startLoadFeedback();
+  }
+
+  async function handleNavigate(e: Event) {
+    e.preventDefault();
+    await navigateTo(inputUrl);
+  }
+
+  function openHistoryEntry(url: string) {
+    showHistory = false;
+    void navigateTo(url);
+  }
+
+  function handleWindowClickForHistory(e: MouseEvent) {
+    if (!showHistory) return;
+    const target = e.target as HTMLElement;
+    if (!target.closest('.history-wrap')) showHistory = false;
+  }
+
+  function relativeTime(ts: number): string {
+    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (s < 60) return 'just now';
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
   }
 
   function goBack() {
@@ -661,12 +709,17 @@
 
   function buildIframeSandbox(url: string) {
     const norm = normalizeUrl(url);
-    const isRelativeDevPath = !isAbsoluteUrl(norm) && norm !== 'about:blank';
-    const isLocal =
-      isRelativeDevPath || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(norm);
-    const base = isLocal
-      ? 'allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin'
-      : 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
+    // `allow-same-origin` is required for *all* preview content, not just local
+    // dev. Everything (external sites included) is served through the loopback
+    // proxy at http://127.0.0.1:{port}. Without `allow-same-origin` the iframe
+    // document gets an opaque origin, so its navigation/subresource requests
+    // carry `Origin: null` — which the proxy's CSRF/SSRF guard
+    // (proxy_request_allowed) rejects with 403, leaving the page blank. Granting
+    // it makes the document's origin the proxy origin (first-party to the guard)
+    // while the parent app stays isolated by being a different origin
+    // (tauri.localhost), so this does not expose the app to proxied pages.
+    const base =
+      'allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-same-origin';
     if (isYouTubeUrl(norm)) {
       return `${base} allow-presentation`;
     }
@@ -707,26 +760,25 @@
               if (activeTab.url === absoluteLocalUrl) {
                 inputUrl = activeTab.url;
               } else {
-                navigatePreviewTab(absoluteLocalUrl);
+                commitInternalNavigation(absoluteLocalUrl);
                 inputUrl = absoluteLocalUrl;
               }
             } else {
-              navigatePreviewTab(newUrl);
+              commitInternalNavigation(newUrl);
               inputUrl = newUrl;
             }
           }
           return;
         }
 
-        // External URL proxied through the background server.
-        // The iframe's src is the proxy URL — we DON'T call
-        // navigatePreviewTab here because that would trigger an
-        // iframe reload (the store change flows back through
-        // buildIframeSrc → iframe src binding).
-        // Instead, just update the address bar so it reflects
-        // the real URL the user is looking at.
+        // External URL proxied through the background server. The iframe already
+        // navigated itself, so record it into history with commitInternalNavigation
+        // (NOT navigatePreviewTab) — that updates url/history without re-driving
+        // loadUrl, so we don't reload the page the user is already viewing, while
+        // still making Back return to it instead of the last typed URL.
         const externalUrl = extractExternalUrlFromProxyUrl(href);
         if (externalUrl && activeTab?.id === tabId) {
+          commitInternalNavigation(externalUrl);
           inputUrl = externalUrl;
         }
       }
@@ -826,6 +878,37 @@
 
     // Identify which iframe sent the message
     const sourceTabId = Object.entries(iframeElements).find(([, iframe]) => iframe?.contentWindow === event.source)?.[0];
+
+    // Scroll-position bridge: the iframe is cross-origin, so the page itself
+    // reports its scroll offset (and asks to have it restored on load) via the
+    // proxy origin, which we validate the same way as console/inspector traffic.
+    if (event.data.type === 'forge-preview:scroll' || event.data.type === 'forge-preview:scroll-ready') {
+      if (!sourceTabId) return;
+      const sourceTab = ($previewTabs || []).find((t) => t.id === sourceTabId);
+      if (!sourceTab) return;
+      const sourceLocalDev = parseLocalDevUrl(normalizeUrl(sourceTab.url));
+      const expectedOrigin = sourceLocalDev
+        ? getLocalDevProxyOrigin(sourceLocalDev)
+        : ($proxyPort ? `http://127.0.0.1:${$proxyPort}` : null);
+      if (!expectedOrigin || event.origin !== expectedOrigin) return;
+
+      if (event.data.type === 'forge-preview:scroll') {
+        saveScrollPosition(sourceTab.url, {
+          x: Number(event.data.x) || 0,
+          y: Number(event.data.y) || 0,
+        });
+      } else {
+        // Page is ready — restore its last known scroll position, if any.
+        const saved = getScrollPosition(sourceTab.url);
+        if (saved && (saved.x !== 0 || saved.y !== 0)) {
+          iframeElements[sourceTabId]?.contentWindow?.postMessage(
+            { type: 'forge-preview:scroll-restore', x: saved.x, y: saved.y },
+            expectedOrigin
+          );
+        }
+      }
+      return;
+    }
 
     // Console log events: only accept from our proxy origin
     if (event.data.type === 'forge-preview:console') {
@@ -960,6 +1043,8 @@
   }
 </script>
 
+<svelte:window onclick={handleWindowClickForHistory} />
+
 <div class="preview-panel">
   <div class="preview-tabs">
     <div class="preview-tab-list" use:clampHorizontalScroll>
@@ -1016,6 +1101,47 @@
     </div>
 
     <div class="nav-group utility-nav">
+      <div class="history-wrap">
+        <button
+          class="nav-btn history-btn"
+          class:active={showHistory}
+          onclick={() => (showHistory = !showHistory)}
+          title="Browsing history"
+          aria-label="Browsing history"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7"/>
+            <polyline points="3 3 3 9 9 9"/>
+            <path d="M12 7v5l3 2"/>
+          </svg>
+        </button>
+        {#if showHistory}
+          <div class="history-dropdown">
+            <div class="history-header">
+              <span>History</span>
+              {#if $browsingHistory.length}
+                <button class="history-clear" onclick={clearBrowsingHistory}>Clear all</button>
+              {/if}
+            </div>
+            <div class="history-list">
+              {#if $browsingHistory.length === 0}
+                <div class="history-empty">No history yet.</div>
+              {:else}
+                {#each $browsingHistory as entry (entry.url + entry.ts)}
+                  <div class="history-row">
+                    <button class="history-entry" onclick={() => openHistoryEntry(entry.url)} title={entry.url}>
+                      <span class="history-title">{entry.title}</span>
+                      <span class="history-url">{entry.url}</span>
+                    </button>
+                    <span class="history-time">{relativeTime(entry.ts)}</span>
+                    <button class="history-remove" onclick={() => removeHistoryEntry(entry.url)} aria-label="Remove from history">×</button>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
       <button
         class="nav-btn inspect-btn"
         class:active={inspectMode}
@@ -1301,7 +1427,7 @@
           <div class="device-screen">
             <div class="preview-frame-stack">
               {#each $previewTabs as tab (tab.id)}
-                {@const tabSrc = buildIframeSrc(tab.url)}
+                {@const tabSrc = buildIframeSrc(tab.loadUrl ?? tab.url)}
                 {#if tabSrc}
                   <iframe
                     use:registerIframe={tab.id}
@@ -1327,7 +1453,7 @@
       {:else}
         <div class="preview-frame-stack">
           {#each $previewTabs as tab (tab.id)}
-            {@const tabSrc = buildIframeSrc(tab.url)}
+            {@const tabSrc = buildIframeSrc(tab.loadUrl ?? tab.url)}
             {#if tabSrc}
             <iframe
               use:registerIframe={tab.id}
@@ -1354,9 +1480,9 @@
           </svg>
         </div>
         <h3>Web Preview</h3>
-        <p>Type any URL in the address bar to browse the web, or click <strong>Dev: Off</strong> to preview your local dev server running on port {$targetPort}.</p>
+        <p>Built for previewing your <strong>local dev server</strong> (port {$targetPort}). You can also open external pages, but many full websites block embedding and won't load here — this isn't a full web browser.</p>
         <div class="placeholder-actions">
-          <button class="action-btn web-btn" onclick={() => { navigatePreviewTab('https://duckduckgo.com/'); inputUrl = 'https://duckduckgo.com/'; }}
+          <button class="action-btn web-btn" onclick={() => { navigatePreviewTab('https://html.duckduckgo.com/html/'); inputUrl = 'https://html.duckduckgo.com/html/'; }}
             title="Open browser">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
@@ -1372,6 +1498,13 @@
             Local Dev ({$targetPort})
           </button>
         </div>
+        <p class="placeholder-note">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4M12 8h.01"/>
+          </svg>
+          Local &amp; development previews work best
+        </p>
       </div>
     {/if}
 
@@ -2049,6 +2182,18 @@
     justify-content: center;
   }
 
+  .placeholder-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    opacity: 0.85;
+  }
+
+  .placeholder-note svg { flex-shrink: 0; opacity: 0.7; }
+
   .action-btn {
     display: flex;
     align-items: center;
@@ -2496,4 +2641,138 @@
       display: none;
     }
   }
+
+  /* ── Browsing history dropdown ── */
+  .history-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .history-btn.active {
+    background: var(--accent-light);
+    color: var(--accent);
+  }
+
+  .history-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 60;
+    width: 340px;
+    max-width: 80vw;
+    max-height: 380px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 32px;
+    padding: 0 10px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+
+  .history-clear {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: none;
+    cursor: pointer;
+    padding: 3px 6px;
+    border-radius: 5px;
+  }
+  .history-clear:hover { background: var(--bg-hover); color: var(--error); }
+
+  .history-list {
+    overflow-y: auto;
+    padding: 4px;
+  }
+
+  .history-empty {
+    padding: 18px 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11.5px;
+  }
+
+  .history-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 6px;
+    padding-right: 4px;
+  }
+  .history-row:hover { background: var(--bg-hover); }
+
+  .history-entry {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 7px 8px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+  }
+
+  .history-title {
+    font-size: 12px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .history-url {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .history-time {
+    flex-shrink: 0;
+    font-size: 9.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .history-remove {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0;
+  }
+  .history-row:hover .history-remove { opacity: 1; }
+  .history-remove:hover { background: rgba(248, 113, 113, 0.14); color: var(--error); }
 </style>

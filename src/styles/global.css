@@ -126,11 +126,11 @@
   --text-muted:      #555566;
   --text-placeholder:#3a3a46;
 
-  /* ── Accent (teal/sky) ──────────────────── */
-  --accent:          #2dd4bf;
-  --accent-hover:    #14b8a6;
-  --accent-light:    rgba(45, 212, 191, 0.15);
-  --accent-glow:     rgba(45, 212, 191, 0.08);
+  /* ── Accent (graphite grey) ─────────────── */
+  --accent:          #aeb6c2;
+  --accent-hover:    #c7cdd6;
+  --accent-light:    rgba(174, 182, 194, 0.15);
+  --accent-glow:     rgba(174, 182, 194, 0.08);
 
   /* ── Semantic ───────────────────────────── */
   --error:           #f87171;

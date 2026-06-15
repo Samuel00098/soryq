@@ -743,4 +743,35 @@ export const presetThemes: Theme[] = [
       'punctuation': '#575279', 'constant': '#ea9d34', 'tag': '#b4637a', 'attribute': '#286983',
     }
   ),
+
+  // Warm cream light theme — a softer alternative to white-background light
+  // modes, where dark text on a paper-like cream reads with less glare and
+  // better contrast.
+  createPresetTheme('cream', 'Cream', 'light',
+    {
+      'bg-primary': '#f7f0df', 'bg-secondary': '#f1e9d6', 'bg-tertiary': '#eae1cb',
+      'bg-hover': 'rgba(74,64,40,0.05)', 'bg-active': 'rgba(74,64,40,0.09)',
+      'text-primary': '#3a3424', 'text-secondary': '#5b5440', 'text-muted': '#837a60',
+      'accent': '#b07d4b', 'accent-hover': '#996a3c',
+      'error': '#c0392b', 'warning': '#9a6700', 'success': '#5a7d2a', 'info': '#3d7a8c',
+      'border': 'rgba(74,64,40,0.14)', 'border-focus': '#b07d4b',
+      'selection-bg': 'rgba(176,125,75,0.18)',
+      'titlebar-bg': '#f1e9d6', 'titlebar-text': '#3a3424', 'titlebar-border': 'rgba(74,64,40,0.12)',
+      'activitybar-bg': '#f1e9d6', 'activitybar-border': 'rgba(74,64,40,0.1)',
+      'sidebar-bg': '#f1e9d6', 'sidebar-border': 'rgba(74,64,40,0.1)',
+      'editor-bg': '#f7f0df', 'editor-gutter': '#f1e9d6', 'editor-lineHighlight': 'rgba(176,125,75,0.07)',
+      'tab-active-bg': '#f7f0df', 'tab-inactive-bg': '#ece3ce', 'tab-border': 'rgba(74,64,40,0.1)',
+      'panel-bg': '#f1e9d6', 'panel-border': 'rgba(74,64,40,0.1)',
+      'terminal-bg': '#f7f0df',
+      'input-bg': '#fdf8ec', 'input-border': 'rgba(74,64,40,0.18)', 'input-focus-border': '#b07d4b',
+      'button-bg': '#b07d4b', 'button-hover-bg': '#996a3c', 'button-text': '#fdf8ec',
+      'statusbar-bg': '#f1e9d6', 'statusbar-border': 'rgba(74,64,40,0.1)', 'statusbar-text': '#5b5440',
+      'scrollbar-thumb': 'rgba(74,64,40,0.18)', 'scrollbar-track': 'transparent',
+    },
+    {
+      'keyword': '#a02f6f', 'string': '#5a7d2a', 'number': '#b5651d', 'comment': '#8a8062',
+      'function': '#2d6e8c', 'variable': '#3a3424', 'type': '#b07d4b', 'operator': '#a02f6f',
+      'punctuation': '#5b5440', 'constant': '#b5651d', 'tag': '#c0392b', 'attribute': '#2d6e8c',
+    }
+  ),
 ];

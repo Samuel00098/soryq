@@ -11,6 +11,7 @@ import {
   BLANK_PREVIEW_URL,
   createBlankPreviewBrowserTab,
   navigatePreviewTab,
+  commitInternalNavigation,
   goBackPreviewTab,
   goForwardPreviewTab,
   previewTabs,
@@ -106,6 +107,44 @@ describe('preview navigation', () => {
 
       // Forward should not be available
       expect(tab.historyIndex >= tab.history.length - 1).toBe(true);
+    });
+  });
+
+  describe('commitInternalNavigation (in-iframe navigations)', () => {
+    it('records history like a normal navigation', () => {
+      commitInternalNavigation('/page-a');
+      const tab = getActiveTab();
+      expect(tab.url).toBe('/page-a');
+      expect(tab.history).toEqual(['/', '/page-a']);
+      expect(tab.historyIndex).toBe(1);
+    });
+
+    it('does NOT change loadUrl, so the iframe is not reloaded', () => {
+      navigatePreviewTab('https://html.duckduckgo.com/html/?q=cats'); // explicit load
+      expect(getActiveTab().loadUrl).toBe('https://html.duckduckgo.com/html/?q=cats');
+
+      // User searches again from DuckDuckGo's own box — the iframe navigates
+      // itself and we only record it.
+      commitInternalNavigation('https://html.duckduckgo.com/html/?q=dogs');
+      const tab = getActiveTab();
+      expect(tab.url).toBe('https://html.duckduckgo.com/html/?q=dogs');
+      // loadUrl stays on the previously-loaded page (no reload).
+      expect(tab.loadUrl).toBe('https://html.duckduckgo.com/html/?q=cats');
+    });
+
+    it('Back returns to the in-iframe page, not the "/" main menu', () => {
+      // 1. From the "/" placeholder the user opens a search (explicit load).
+      navigatePreviewTab('https://html.duckduckgo.com/html/?q=cats');
+      // 2. Searches again from the page's own box (iframe-driven).
+      commitInternalNavigation('https://html.duckduckgo.com/html/?q=dogs');
+
+      // 3. Back → the first search, NOT "/".
+      goBackPreviewTab();
+      const tab = getActiveTab();
+      expect(tab.url).toBe('https://html.duckduckgo.com/html/?q=cats');
+      // Back re-drives loadUrl so the iframe actually loads the page.
+      expect(tab.loadUrl).toBe('https://html.duckduckgo.com/html/?q=cats');
+      expect(tab.historyIndex).toBe(1);
     });
   });
 
@@ -222,7 +261,8 @@ describe('preview navigation', () => {
       if (currentLocalDev && currentLocalDev.path === loadedPath) {
         return; // guard: page already current, skip push
       }
-      navigatePreviewTab(loadedPath);
+      // The component records iframe-driven navigations without reloading.
+      commitInternalNavigation(loadedPath);
     }
 
     it('preserves forward history when going back to a typed-in localhost URL', () => {

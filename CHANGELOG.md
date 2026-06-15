@@ -3,6 +3,36 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.2] - 2026-06-15
+
+### Added
+
+- **New "Cream" light theme** — a warm, paper-like light theme that swaps the stark white background for a soft cream, so dark text reads with less glare and better contrast than on pure white. Available in Settings → Themes.
+
+- **Preview remembers where you were** — the web preview now restores your per-page scroll position when you return to a page, and a new history dropdown (clock icon in the preview toolbar) lets you jump back to pages you've visited. Scroll positions and browsing history persist across sessions.
+
+- **"Local & development previews work best" indicator** — the Web Preview empty state now makes clear it's built primarily for previewing your local dev server. External pages still open, but the copy sets expectations up front (many full websites block embedding and won't load in an embedded view), so trying to browse a normal site isn't a surprise.
+
+### Changed
+
+- **Graphite-grey brand refresh** — the accent palette moved from teal/sky to a calmer light graphite grey across the app's default light/dark themes, logo and icons, and the marketing site. On-disk custom themes built on the previous defaults are migrated once to the new palette (key-aware, so any colour you customised and the semantic `warning` colour are left untouched).
+
+- **Voice refinement is now off by default** — the AI voice-refinement step starts disabled on fresh installs and after "Reset to default"; enable it in Settings if you want it.
+
+- **App window icon follows the installed version** — the in-app logo's cache-buster is now tied to the app version, so the window/About icon refreshes correctly after an update instead of showing a stale image.
+
+- **Faster marketing site** — removed per-frame shape re-rasterisation on the landing page's blurred background orbs (transform-only animation stays on the GPU) and batched the scroll-progress handler into a single rAF, smoothing out scroll lag.
+
+### Fixed
+
+- **Onboarding no longer re-appears after an abrupt shutdown** — the "onboarding completed" flag is now mirrored to a durable backend file (`app_flags.json`), because WebView2 flushes `localStorage` to disk lazily and could lose the write when the machine was switched off. On startup the flag is reconciled from the durable store, so the walkthrough stays dismissed once you've finished it.
+
+- **Preview Back/Forward returns to the previous page, not the main menu** — in-page navigations (a site's own search box, pagination, local-dev route changes) are now recorded without reloading the iframe, so Back returns to the page you were actually on instead of jumping to the last typed URL or the blank placeholder. `PreviewTab` tracks the displayed `url` and the committed `loadUrl` separately.
+
+- **DuckDuckGo search returns results again** — the preview's search and "Browse Web" button now use the server-rendered `html.duckduckgo.com/html/` endpoint. The main DuckDuckGo SPA fetches results over a cross-origin request the preview proxy can't serve, which left the results page blank.
+
+- **Preview console panel captures local-dev logs from the first call** — the injected console hook no longer waits for a parent handshake before forwarding messages, so logs emitted during page load are captured instead of being dropped (which made the panel look empty). Console capture remains scoped to local-dev pages.
+
 ## [v0.4.1] - 2026-06-14
 
 ### Changed

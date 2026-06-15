@@ -46,7 +46,11 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
     };
 
     const postConsole = (level, args) => {
-        if (parentOrigin === '*') return;
+        // Post to '*' (not the handshake-captured parentOrigin): console output
+        // starts during page load, before the parent's forge-inspector:set
+        // handshake arrives, so gating on parentOrigin dropped all early logs and
+        // left the console panel looking empty. The parent validates the message's
+        // real event.origin against the proxy origin, so '*' is safe here.
         try {
             const safeUrl = (() => { try { const u = new URL(location.href); return u.origin + u.pathname; } catch { return ''; } })();
             parent.postMessage({
@@ -57,7 +61,7 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
                     url: safeUrl,
                     timestamp: new Date().toISOString()
                 }
-            }, parentOrigin);
+            }, '*');
         } catch {}
     };
 
@@ -238,6 +242,47 @@ const INSPECTOR_SNIPPET: &str = r#"<script>
 
     window.addEventListener('hashchange', () => setEnabled(active()));
     setEnabled(active());
+})();
+</script>"#;
+
+const SCROLL_FLAG: &str = "soryq-scroll-sync";
+// Tiny, self-contained scroll-position bridge injected into *every* proxied HTML
+// page (local dev and external alike). The preview iframe is cross-origin to the
+// app, so the parent cannot read or set the document's scroll directly — this
+// reports the offset to the parent (which persists it per-URL) and restores it
+// on request after the page loads. Posts to the parent with '*' since the value
+// is non-sensitive; the parent validates the message's real origin.
+const SCROLL_SNIPPET: &str = r#"<script data-soryq-scroll-sync>
+(() => {
+    if (window.__soryqScrollSync) return;
+    window.__soryqScrollSync = true;
+    let raf = 0;
+    const report = () => {
+        raf = 0;
+        try { parent.postMessage({ type: 'forge-preview:scroll', x: window.scrollX, y: window.scrollY }, '*'); } catch {}
+    };
+    window.addEventListener('scroll', () => {
+        if (raf) return;
+        raf = requestAnimationFrame(report);
+    }, { passive: true });
+    window.addEventListener('message', (event) => {
+        if (event.source !== window.parent) return;
+        const data = event.data || {};
+        if (data.type !== 'forge-preview:scroll-restore') return;
+        const x = Number(data.x) || 0;
+        const y = Number(data.y) || 0;
+        // Content can reflow for a moment after load, so re-apply a few times
+        // until the target sticks (or we give up).
+        let tries = 0;
+        const attempt = () => {
+            window.scrollTo(x, y);
+            if (++tries < 10 && Math.abs(window.scrollY - y) > 2) setTimeout(attempt, 100);
+        };
+        attempt();
+    });
+    const ready = () => { try { parent.postMessage({ type: 'forge-preview:scroll-ready' }, '*'); } catch {} };
+    if (document.readyState === 'complete') ready();
+    else window.addEventListener('load', ready);
 })();
 </script>"#;
 
@@ -448,8 +493,13 @@ fn preview_http_client() -> Client {
         ))
         .gzip(true)
         .brotli(true)
-        .connect_timeout(Duration::from_millis(800))
-        .timeout(Duration::from_secs(20))
+        // Cold DNS + TCP + TLS to an external host routinely takes longer than a
+        // second, so a sub-second connect budget makes real sites fail with
+        // "error sending request". Loopback connect failures (dev server not
+        // listening) return ECONNREFUSED instantly regardless of this value, so a
+        // generous timeout doesn't slow local-dev host failover.
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .danger_accept_invalid_certs(false)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             let url = attempt.url();
@@ -466,6 +516,23 @@ fn preview_http_client() -> Client {
         }))
         .build()
         .unwrap_or_default()
+}
+
+/// Format a reqwest error including its underlying source chain. reqwest's own
+/// `Display` collapses transport failures to a generic "error sending request
+/// for url (...)" and drops the cause (timeout vs DNS vs TLS vs refused), which
+/// makes proxy failures undiagnosable. Walk the `source()` chain so the real
+/// reason reaches the preview's error surface.
+fn describe_request_error(err: &reqwest::Error) -> String {
+    use std::error::Error;
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }
 
 fn get_free_port() -> Option<u16> {
@@ -840,7 +907,11 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     .await
     {
         Ok(res) => build_preview_response(res, false).await,
-        Err(err) => (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            format!("Proxy error: {}", describe_request_error(&err)),
+        )
+            .into_response(),
     }
 }
 
@@ -1024,7 +1095,11 @@ async fn proxy_external_url(
 
             build_preview_response(res, true).await
         }
-        Err(err) => (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", err)).into_response(),
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            format!("Proxy error: {}", describe_request_error(&err)),
+        )
+            .into_response(),
     }
 }
 
@@ -1082,6 +1157,9 @@ async fn build_preview_response(
         } else {
             html.into_owned()
         };
+        // The scroll-position bridge is harmless and useful everywhere, so inject
+        // it into both local dev and external pages.
+        let injected = inject_scroll_script(&injected);
 
         let mut builder = Response::builder().status(status);
         for (key, value) in headers.iter() {
@@ -1150,6 +1228,30 @@ fn inject_inspector_script(html: &str) -> String {
     }
 
     format!("{}{}", injection, html)
+}
+
+fn inject_scroll_script(html: &str) -> String {
+    if html.contains(SCROLL_FLAG) {
+        return html.to_string();
+    }
+
+    if let Some(index) = html.rfind("</body>") {
+        let mut output = String::with_capacity(html.len() + SCROLL_SNIPPET.len() + 8);
+        output.push_str(&html[..index]);
+        output.push_str(SCROLL_SNIPPET);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    if let Some(index) = html.rfind("</head>") {
+        let mut output = String::with_capacity(html.len() + SCROLL_SNIPPET.len() + 8);
+        output.push_str(&html[..index]);
+        output.push_str(SCROLL_SNIPPET);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    format!("{}{}", html, SCROLL_SNIPPET)
 }
 
 async fn handle_websocket(

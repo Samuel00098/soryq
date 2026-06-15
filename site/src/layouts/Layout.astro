@@ -117,14 +117,23 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
       // Top scroll-progress rail
       const progress = document.querySelector<HTMLElement>('.fx-progress > span');
       if (progress) {
-        const onScroll = () => {
+        // Batch the layout read + style write into a single rAF per frame so
+        // rapid scroll events don't trigger forced synchronous reflows.
+        let progressTicking = false;
+        const updateProgress = () => {
+          progressTicking = false;
           const doc = document.documentElement;
           const max = doc.scrollHeight - doc.clientHeight;
           progress.style.width = `${max > 0 ? Math.min(100, (doc.scrollTop / max) * 100) : 0}%`;
         };
+        const onScroll = () => {
+          if (progressTicking) return;
+          progressTicking = true;
+          requestAnimationFrame(updateProgress);
+        };
         window.addEventListener('scroll', onScroll, { passive: true });
         window.addEventListener('resize', onScroll);
-        onScroll();
+        updateProgress();
       }
 
       // Constellation network — drifting nodes linked by faint lines, with a
@@ -198,7 +207,7 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
               const d2 = dx * dx + dy * dy;
               if (d2 < LINK * LINK) {
                 const a = (1 - Math.sqrt(d2) / LINK) * 0.5;
-                ctx.strokeStyle = `rgba(45, 212, 191, ${a})`;
+                ctx.strokeStyle = `rgba(174, 182, 194, ${a})`;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.moveTo(pts[i].x, pts[i].y);
@@ -218,7 +227,7 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
               const d2 = dx * dx + dy * dy;
               if (d2 < CURSOR * CURSOR) {
                 const a = (1 - Math.sqrt(d2) / CURSOR) * 0.5;
-                ctx.strokeStyle = `rgba(56, 189, 248, ${a})`;
+                ctx.strokeStyle = `rgba(154, 163, 176, ${a})`;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.moveTo(mx, my);
@@ -229,7 +238,7 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://site-flame-phi.vercel.
           }
 
           // nodes
-          ctx.fillStyle = 'rgba(125, 211, 252, 0.7)';
+          ctx.fillStyle = 'rgba(199, 205, 214, 0.7)';
           for (const p of pts) {
             ctx.beginPath();
             ctx.arc(p.x, p.y, 1.3, 0, Math.PI * 2);

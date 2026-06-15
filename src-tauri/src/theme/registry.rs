@@ -6,8 +6,9 @@ use std::path::Path;
 use std::sync::RwLock;
 
 /// Bumped whenever the bundled brand defaults change and on-disk custom themes
-/// derived from an older default should be migrated forward. v1 = amber → teal/sky.
-const BRAND_MIGRATION_VERSION: u32 = 1;
+/// derived from an older default should be migrated forward.
+/// v1 = amber → teal/sky. v2 = teal/sky → graphite grey.
+const BRAND_MIGRATION_VERSION: u32 = 2;
 
 fn is_valid_css_color(value: &str) -> bool {
     let v = value.trim();
@@ -71,8 +72,50 @@ fn legacy_amber_map(theme_type: &ThemeType) -> &'static [(&'static str, &'static
 /// Rewrite legacy amber defaults to the teal/sky brand in-place. Returns whether
 /// anything changed.
 fn migrate_theme_amber(theme: &mut Theme) -> bool {
+    apply_color_map(theme, legacy_amber_map(&theme.theme_type))
+}
+
+/// Per-theme-type `(key, old_default, new_default)` map for the teal/sky → graphite
+/// grey brand migration. Same key-aware contract as `legacy_amber_map`. `warning`
+/// stays amber and code syntax colors are untouched (semantic, not brand accent).
+fn legacy_teal_map(theme_type: &ThemeType) -> &'static [(&'static str, &'static str, &'static str)] {
+    match theme_type {
+        ThemeType::Dark => &[
+            ("accent", "#2dd4bf", "#aeb6c2"),
+            ("accent-hover", "#14b8a6", "#c7cdd6"),
+            ("border-focus", "#2dd4bf", "#aeb6c2"),
+            ("input-focus-border", "#2dd4bf", "#aeb6c2"),
+            ("button-bg", "#0f766e", "#3f4650"),
+            ("button-hover-bg", "#0d9488", "#4b525d"),
+            ("selection-bg", "rgba(45,212,191,0.2)", "rgba(174, 182, 194, 0.2)"),
+        ],
+        ThemeType::Light => &[
+            ("accent", "#0d9488", "#5b6470"),
+            ("accent-hover", "#0f766e", "#474e58"),
+            ("border-focus", "#0d9488", "#5b6470"),
+            ("input-focus-border", "#0d9488", "#5b6470"),
+            ("button-bg", "#0f766e", "#3f4650"),
+            ("button-hover-bg", "#115e59", "#2f343b"),
+            ("selection-bg", "rgba(13,148,136,0.22)", "rgba(91, 100, 112, 0.22)"),
+        ],
+    }
+}
+
+/// Rewrite legacy teal/sky defaults to the graphite grey brand in-place. Returns
+/// whether anything changed.
+fn migrate_theme_teal(theme: &mut Theme) -> bool {
+    apply_color_map(theme, legacy_teal_map(&theme.theme_type))
+}
+
+/// Apply a key-aware `(key, old, new)` color map to a theme, rewriting only values
+/// that still exactly match the previous bundled default. Returns whether anything
+/// changed.
+fn apply_color_map(
+    theme: &mut Theme,
+    map: &[(&str, &str, &str)],
+) -> bool {
     let mut changed = false;
-    for (key, old, new) in legacy_amber_map(&theme.theme_type) {
+    for (key, old, new) in map {
         if let Some(value) = theme.colors.get_mut(*key) {
             if norm_color(value) == norm_color(old) {
                 *value = (*new).to_string();
@@ -103,7 +146,11 @@ fn run_brand_migration(config_dir: &Path) {
                 let path = entry.path();
                 if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
                     if let Ok(mut theme) = load_theme_from_file(&path) {
-                        if migrate_theme_amber(&mut theme) {
+                        // Chain migrations so a theme still on the original amber
+                        // brand is carried amber → teal → grey in one pass.
+                        let amber_changed = migrate_theme_amber(&mut theme);
+                        let teal_changed = migrate_theme_teal(&mut theme);
+                        if amber_changed || teal_changed {
                             let _ = save_theme_to_file(&theme, &path);
                         }
                     }
@@ -319,6 +366,50 @@ mod tests {
         // A deliberately-customized accent (not the old default) must not change.
         let mut t = theme_with(ThemeType::Dark, &[("accent", "#ff0066")]);
         assert!(!migrate_theme_amber(&mut t));
+        assert!(!migrate_theme_teal(&mut t));
         assert_eq!(t.colors["accent"], "#ff0066");
+    }
+
+    #[test]
+    fn migrates_dark_teal_defaults_to_grey() {
+        let mut t = theme_with(
+            ThemeType::Dark,
+            &[
+                ("accent", "#2dd4bf"),
+                ("border-focus", "#2dd4bf"),
+                ("button-bg", "#0f766e"),
+                ("selection-bg", "rgba(45, 212, 191, 0.2)"),
+                ("warning", "#fbbf24"),
+            ],
+        );
+        assert!(migrate_theme_teal(&mut t));
+        assert_eq!(t.colors["accent"], "#aeb6c2");
+        assert_eq!(t.colors["border-focus"], "#aeb6c2");
+        assert_eq!(t.colors["button-bg"], "#3f4650");
+        assert_eq!(t.colors["selection-bg"], "rgba(174, 182, 194, 0.2)");
+        // warning is semantic — must stay amber.
+        assert_eq!(t.colors["warning"], "#fbbf24");
+    }
+
+    #[test]
+    fn migrates_light_teal_defaults_to_grey() {
+        // In the old light theme #0f766e was BOTH accent-hover and button-bg, but
+        // they migrate to different greys — the map must key off the field.
+        let mut t = theme_with(
+            ThemeType::Light,
+            &[("accent-hover", "#0f766e"), ("button-bg", "#0f766e")],
+        );
+        assert!(migrate_theme_teal(&mut t));
+        assert_eq!(t.colors["accent-hover"], "#474e58");
+        assert_eq!(t.colors["button-bg"], "#3f4650");
+    }
+
+    #[test]
+    fn chains_amber_through_teal_to_grey() {
+        // An untouched original amber theme should end up grey after both passes.
+        let mut t = theme_with(ThemeType::Dark, &[("accent", "#f59e0b")]);
+        assert!(migrate_theme_amber(&mut t)); // amber → teal
+        assert!(migrate_theme_teal(&mut t)); // teal → grey
+        assert_eq!(t.colors["accent"], "#aeb6c2");
     }
 }

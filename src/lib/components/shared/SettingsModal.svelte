@@ -60,7 +60,7 @@
     interfaceTransparency,
     backgroundImageOpacity,
     backgroundImageBlur,
-    onboardingCompleted,
+    markOnboardingIncomplete,
   } from '$lib/stores/settings';
   import { chooseBackgroundImage, removeBackgroundImage, backgroundImagePresent } from '$lib/stores/background';
   import { requestNotificationPermission } from '$lib/stores/notification';
@@ -3799,7 +3799,7 @@
           <div class="about-logo">
             {#if !iconError}
               <img
-                src="/icon.png?v=4"
+                src={`/icon.png?v=${PACKAGE_VERSION}`}
                 alt="Soryq"
                 class="about-app-icon"
                 onerror={() => iconError = true}
@@ -3860,7 +3860,7 @@
           </button>
           <button
             class="tour-btn"
-            onclick={() => { onboardingCompleted.set(false); onclose(); }}
+            onclick={() => { markOnboardingIncomplete(); onclose(); }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>

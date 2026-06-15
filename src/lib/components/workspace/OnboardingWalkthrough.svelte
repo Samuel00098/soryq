@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { onboardingCompleted } from '$lib/stores/settings';
+  import { markOnboardingCompleted } from '$lib/stores/settings';
   import { switchPresetTheme, activeTheme } from '$lib/stores/theme';
   import { onMount } from 'svelte';
   import { fly, fade } from 'svelte/transition';
+  import packageJson from '../../../../package.json';
+
+  // Cache-bust by app version so the logo refreshes on every update.
+  const iconSrc = `/icon.png?v=${packageJson.version}`;
 
   let { onclose = () => {} } = $props();
 
@@ -40,7 +44,7 @@
   }
 
   function finish() {
-    onboardingCompleted.set(true);
+    markOnboardingCompleted();
     onclose();
   }
 
@@ -93,7 +97,7 @@
     <div class="card-header">
       <div class="logo-wrap">
         {#if !iconError}
-          <img src="/icon.png?v=4" alt="Soryq" class="logo-img" onerror={() => iconError = true} />
+          <img src={iconSrc} alt="Soryq" class="logo-img" onerror={() => iconError = true} />
         {:else}
           <svg width="24" height="24" viewBox="0 0 36 36" fill="none">
             <rect width="36" height="36" rx="8" fill="var(--accent-light)"/>

@@ -1,3 +1,4 @@
+pub mod app_flags;
 pub mod background;
 pub mod db;
 pub mod env_vars;

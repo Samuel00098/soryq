@@ -17,7 +17,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { initDefaultCommands } from '$lib/stores/commandpalette';
   import { requestNotificationPermission } from '$lib/stores/notification';
-  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted, backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur, closeBehavior } from '$lib/stores/settings';
+  import { uiZoom, userShortcuts, matchShortcut, type KeyboardShortcut, onboardingCompleted, reconcileOnboardingFlag, backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur, closeBehavior } from '$lib/stores/settings';
   import { initBackground, applyBackgroundImage, applyInterfaceFrost, applyBackgroundAppearance } from '$lib/stores/background';
   import { initNavigationHistory } from '$lib/stores/navigation';
   import { initApiKeyCache } from '$lib/services/ai-keychain';
@@ -44,6 +44,9 @@
       initApiKeyCache();
       loadThemes();
       initBackground();
+      // Recover the onboarding flag from the durable backend store if WebView
+      // localStorage lost it on a previous abrupt shutdown.
+      reconcileOnboardingFlag();
     }
     initializeWorkspaces();
     initDefaultCommands();

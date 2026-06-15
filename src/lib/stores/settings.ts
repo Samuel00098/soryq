@@ -1,4 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
+import { getAppFlag, setAppFlag } from '$lib/services/app-flags';
 
 function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
   if (typeof window === 'undefined') {
@@ -596,7 +597,7 @@ export function providerSupportsReplyTts(provider: AiProviderId): boolean {
   return provider === 'openrouter' || provider === 'groq' || provider === 'openai' || provider === 'google' || isLocalProvider(provider);
 }
 
-export const voiceRefinementEnabled = persistentWritable('voiceRefinementEnabled', true);
+export const voiceRefinementEnabled = persistentWritable('voiceRefinementEnabled', false);
 export const voiceInputProvider = persistentWritable<VoiceInputProviderId>('voiceInputProvider', 'webspeech');
 export const voiceInputModelByProvider = persistentWritable<Record<string, string>>('voiceInputModelByProvider', {});
 export const voiceAiProvider = persistentWritable<AiProviderId>('voiceAiProvider', 'groq');
@@ -963,6 +964,38 @@ export const backgroundImageBlur = persistentWritable<number>('backgroundImageBl
 // Onboarding
 export const onboardingCompleted = persistentWritable<boolean>('onboardingCompleted', false);
 
+// The onboarding flag is mirrored to a durable backend file as well as
+// localStorage: WebView localStorage flushes lazily and can lose the "completed"
+// write when the OS is shut down abruptly, which made the tour re-appear on every
+// relaunch. The backend file is the durable source of truth.
+const ONBOARDING_FLAG = 'onboardingCompleted';
+
+/** Mark onboarding complete in both localStorage and the durable backend store. */
+export function markOnboardingCompleted() {
+  onboardingCompleted.set(true);
+  void setAppFlag(ONBOARDING_FLAG, 'true');
+}
+
+/** Reset onboarding so the tour shows again, clearing the durable flag too. */
+export function markOnboardingIncomplete() {
+  onboardingCompleted.set(false);
+  void setAppFlag(ONBOARDING_FLAG, 'false');
+}
+
+/**
+ * Reconcile the onboarding flag against the durable backend store on startup.
+ * Recovers the "completed" state when localStorage lost it, and backfills the
+ * backend for users who finished onboarding before this durable store existed.
+ */
+export async function reconcileOnboardingFlag() {
+  const durable = await getAppFlag(ONBOARDING_FLAG);
+  if (durable === 'true') {
+    if (!get(onboardingCompleted)) onboardingCompleted.set(true);
+  } else if (durable === null && get(onboardingCompleted)) {
+    void setAppFlag(ONBOARDING_FLAG, 'true');
+  }
+}
+
 // Terminal
 export const terminalShell = persistentWritable<string>('terminalShell', ''); // empty = auto-detect
 export const terminalCursorStyle = persistentWritable<'bar' | 'block' | 'underline'>('terminalCursorStyle', 'bar');
@@ -1016,7 +1049,7 @@ export function resetSettingsToDefault() {
   enableLsp.set(true);
   aiGhostTextEnabled.set(false);
   showHidden.set(false);
-  voiceRefinementEnabled.set(true);
+  voiceRefinementEnabled.set(false);
   voiceInputProvider.set('webspeech');
   voiceInputModelByProvider.set({});
   voiceAiProvider.set('groq');
@@ -1039,6 +1072,7 @@ export function resetSettingsToDefault() {
   backgroundImageOpacity.set(100);
   backgroundImageBlur.set(0);
   onboardingCompleted.set(false);
+  void setAppFlag(ONBOARDING_FLAG, 'false');
   terminalShell.set('');
   terminalCursorStyle.set('bar');
   terminalScrollback.set(5000);

@@ -60,6 +60,8 @@ pub fn run() {
             commands::theme::theme_activate,
             commands::theme::theme_get_active,
             commands::theme::theme_save,
+            commands::app_flags::app_flag_get,
+            commands::app_flags::app_flag_set,
             commands::background::background_image_set,
             commands::background::background_image_get,
             commands::background::background_image_clear,
