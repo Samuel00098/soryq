@@ -4070,7 +4070,12 @@
   /* ── Body ─────────────────────────────── */
   .modal-body {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    /* Stop the WebView's elastic overscroll bounce so taller tabs don't
+       rubber-band past the top/bottom, and never chain the scroll to the
+       page behind the modal. */
+    overscroll-behavior: none;
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -5283,6 +5288,7 @@
        to the top; height hugs its content up to the cap (no reserved gap). */
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
     max-height: 280px;
     animation: modelDropdownIn 0.15s ease;
     scrollbar-width: thin;
