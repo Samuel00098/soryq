@@ -294,6 +294,7 @@ pub struct ProxyState {
     pub active_project_id: Arc<std::sync::RwLock<Option<String>>>,
     pub external_origin_fallback: bool,
     pub client: Client,
+    pub local_client: Client,
 }
 
 pub struct PreviewManager {
@@ -340,6 +341,7 @@ impl PreviewManager {
             active_project_id: self.active_project_id.clone(),
             external_origin_fallback: true,
             client: preview_http_client(),
+            local_client: preview_local_http_client(),
         };
 
         let app = Router::new().fallback(any(proxy_handler)).with_state(state);
@@ -355,7 +357,7 @@ impl PreviewManager {
                 }
             };
 
-            let serve = axum::serve(listener, app);
+            let serve = axum::serve(NoDelayListener(listener), app);
 
             tokio::select! {
                 res = serve => {
@@ -403,6 +405,7 @@ impl PreviewManager {
             active_project_id: self.active_project_id.clone(),
             external_origin_fallback: false,
             client: preview_http_client(),
+            local_client: preview_local_http_client(),
         };
 
         let app = Router::new().fallback(any(proxy_handler)).with_state(state);
@@ -417,7 +420,7 @@ impl PreviewManager {
                 }
             };
 
-            if let Err(e) = axum::serve(listener, app).await {
+            if let Err(e) = axum::serve(NoDelayListener(listener), app).await {
                 eprintln!("Local dev preview server error: {}", e);
             }
         });
@@ -485,6 +488,36 @@ fn normalize_local_host(host: Option<&str>) -> Result<String, String> {
 }
 
 fn preview_http_client() -> Client {
+    preview_http_client_builder().build().unwrap_or_default()
+}
+
+fn preview_local_http_client() -> Client {
+    preview_http_client_builder()
+        // Local preview must always connect directly to the user's dev server.
+        // If HTTP(S)_PROXY / ALL_PROXY is present, reqwest can otherwise send
+        // loopback requests through a proxy/VPN TLS layer and surface misleading
+        // TLS failures such as BadRecordMac for plain http://localhost URLs.
+        .no_proxy()
+        // Don't follow ANY redirect here — hand every 3xx back to the preview's
+        // WebView so the browser performs the navigation itself. This is essential
+        // for cookie-based auth (Clerk, Auth0, NextAuth, Supabase …): the dev
+        // server bounces the first request through the provider's hosted Frontend
+        // API to run a handshake, and each hop carries Set-Cookie headers that only
+        // mean anything if they land in the *browser*. Following redirects here
+        // instead would (a) drop those cookies (reqwest has no cookie jar), (b)
+        // tunnel the outbound TLS hop through a system/VPN proxy → BadRecordMac,
+        // and (c) strand the browser on the raw dev-server origin, whose
+        // `frame-ancestors` CSP then blocks the preview iframe. Paired with the
+        // Host rewrite in proxy_local_dev_request (which makes every redirect the
+        // dev server emits point back at the proxy origin), this keeps the whole
+        // flow on the proxy — where CSP/X-Frame-Options are stripped — while the
+        // browser drives the redirects exactly as a real browser would.
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default()
+}
+
+fn preview_http_client_builder() -> reqwest::ClientBuilder {
     Client::builder()
         .user_agent(concat!(
             "soryq/",
@@ -493,6 +526,10 @@ fn preview_http_client() -> Client {
         ))
         .gzip(true)
         .brotli(true)
+        // Disable Nagle on the upstream (proxy -> dev server) leg too, so request
+        // writes aren't delayed. reqwest defaults this on, but we set it
+        // explicitly to keep the no-Nagle guarantee independent of that default.
+        .tcp_nodelay(true)
         // Cold DNS + TCP + TLS to an external host routinely takes longer than a
         // second, so a sub-second connect budget makes real sites fail with
         // "error sending request". Loopback connect failures (dev server not
@@ -514,8 +551,6 @@ fn preview_http_client() -> Client {
             }
             attempt.follow()
         }))
-        .build()
-        .unwrap_or_default()
 }
 
 /// Format a reqwest error including its underlying source chain. reqwest's own
@@ -540,6 +575,42 @@ fn get_free_port() -> Option<u16> {
         .and_then(|listener| listener.local_addr())
         .map(|addr| addr.port())
         .ok()
+}
+
+/// `axum::serve` wrapper that disables Nagle on every accepted connection.
+///
+/// The proxy writes a response as headers-then-body. With Nagle enabled (tokio's
+/// default for accepted sockets) the body write is held back until the client
+/// ACKs the headers, and the client's delayed-ACK timer (~200ms on Windows) fires
+/// first — adding a fixed ~200ms stall to *every* proxied response. A dev page
+/// pulls dozens of JS/CSS chunks, so that per-response stall compounds into the
+/// multi-second gap between the in-app preview and a real browser. Setting
+/// `TCP_NODELAY` lets the body flush immediately.
+struct NoDelayListener(tokio::net::TcpListener);
+
+impl axum::serve::Listener for NoDelayListener {
+    type Io = tokio::net::TcpStream;
+    type Addr = std::net::SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            match self.0.accept().await {
+                Ok((stream, addr)) => {
+                    let _ = stream.set_nodelay(true);
+                    return (stream, addr);
+                }
+                // Mirror axum's own TcpListener handling: a transient accept error
+                // must not tear the server down, so back off briefly and retry.
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.0.local_addr()
+    }
 }
 
 fn get_target_url(query: &str) -> Option<String> {
@@ -898,7 +969,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     };
 
     match proxy_local_dev_request(
-        &state.client,
+        &state.local_client,
         parts,
         bytes,
         target_port,
@@ -907,11 +978,9 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     .await
     {
         Ok(res) => build_preview_response(res, false).await,
-        Err(err) => (
-            StatusCode::BAD_GATEWAY,
-            format!("Proxy error: {}", describe_request_error(&err)),
-        )
-            .into_response(),
+        Err(message) => {
+            (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", message)).into_response()
+        }
     }
 }
 
@@ -921,7 +990,7 @@ async fn proxy_local_dev_request(
     body: axum::body::Bytes,
     target_port: u16,
     preferred_host: Option<&str>,
-) -> Result<reqwest::Response, reqwest::Error> {
+) -> Result<reqwest::Response, String> {
     let path = parts
         .uri
         .path_and_query()
@@ -929,7 +998,10 @@ async fn proxy_local_dev_request(
         .unwrap_or("/")
         .to_string();
 
-    let mut last_err: Option<reqwest::Error> = None;
+    // One entry per attempted host so the surfaced error names *every* failure,
+    // not just the last one. Without this, a `localhost`-first failover reports
+    // only the trailing `127.0.0.1` attempt and hides that `localhost` failed too.
+    let mut errors: Vec<String> = Vec::new();
 
     for host in local_dev_hosts(preferred_host) {
         let url_str = format!("http://{}:{}{}", host, target_port, path);
@@ -941,6 +1013,13 @@ async fn proxy_local_dev_request(
         let method = parts.method.clone();
         let mut reqwest_req = reqwest::Request::new(method, url.clone());
         *reqwest_req.headers_mut() = parts.headers.clone();
+
+        // Override the client's 30s default for local dev: a cold first compile
+        // (Next.js compiles middleware + the matched route on the first hit) can
+        // legitimately take minutes, and the default budget surfaces it as a
+        // misleading "operation timed out". The 10s connect_timeout still fails
+        // fast against a dead port, so a generous read budget is safe here.
+        *reqwest_req.timeout_mut() = Some(Duration::from_secs(300));
 
         // Make the forwarded request look first-party to the dev server. The
         // browser issues subresource requests (/_next/* chunks, CSS, modules)
@@ -977,16 +1056,30 @@ async fn proxy_local_dev_request(
             reqwest_req.headers_mut().insert("referer", val);
         }
 
+        // Advertise the proxy's own origin as the Host to the dev server. Auth
+        // frameworks (Clerk et al.) derive their redirect URLs from the request
+        // Host, so this makes every redirect they emit come back to the proxy
+        // origin instead of the raw http://localhost:{devport} — which would
+        // escape the proxy and get blocked by the dev server's frame-ancestors
+        // CSP. The Origin header stays advertised as localhost:{devport} above, so
+        // Next.js `allowedDevOrigins` still trusts the page's subresource fetches.
         reqwest_req.headers_mut().remove("host");
+        if let Ok(val) = proxy_host.parse() {
+            reqwest_req.headers_mut().insert("host", val);
+        }
         *reqwest_req.body_mut() = Some(reqwest::Body::from(body.clone()));
 
         match client.execute(reqwest_req).await {
             Ok(response) => return Ok(response),
-            Err(err) => last_err = Some(err),
+            Err(err) => errors.push(describe_request_error(&err)),
         }
     }
 
-    Err(last_err.expect("at least one local dev host should have been attempted"))
+    Err(if errors.is_empty() {
+        "no local dev host could be attempted".to_string()
+    } else {
+        errors.join("; ")
+    })
 }
 
 async fn proxy_external_url(
@@ -1118,6 +1211,11 @@ fn should_strip_preview_header(key_lower: &str) -> bool {
             | "transfer-encoding"
             // Embedding guards — would prevent the iframe from rendering at all.
             | "x-frame-options"
+            // HSTS is scoped to the host that receives this proxied response. If
+            // a dev server sends it, the WebView can cache HTTPS-only state for
+            // Soryq's plain-HTTP loopback proxy (127.0.0.1), breaking later
+            // preview loads even though the target app works in a normal browser.
+            | "strict-transport-security"
             // CSP authored for the dev origin breaks asset loading under the proxy
             // origin (this is the usual cause of "Dev: On" stripping the CSS).
             | "content-security-policy"
@@ -1434,5 +1532,29 @@ mod tests {
         assert!(!proxy_request_allowed(&headers_with_origin(Some(
             "not-a-url"
         ))));
+    }
+
+    #[test]
+    fn loopback_targets_are_classified_correctly() {
+        // is_loopback_target gates the external client's redirect guard (loopback
+        // redirects are allowed through; redirects to other private IPs are
+        // blocked). A hosted auth domain must read as non-loopback.
+        assert!(super::is_loopback_target("http://localhost:3000/dashboard"));
+        assert!(super::is_loopback_target("http://127.0.0.1:3000/"));
+        assert!(!super::is_loopback_target(
+            "https://romantic-cat-12.clerk.accounts.dev/v1/client/handshake"
+        ));
+    }
+
+    #[test]
+    fn strips_headers_that_break_preview_origin() {
+        assert!(super::should_strip_preview_header(
+            "strict-transport-security"
+        ));
+        assert!(super::should_strip_preview_header("x-frame-options"));
+        assert!(super::should_strip_preview_header(
+            "content-security-policy"
+        ));
+        assert!(!super::should_strip_preview_header("cache-control"));
     }
 }

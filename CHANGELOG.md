@@ -3,6 +3,20 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.3] - 2026-06-16
+
+### Fixed
+
+- **Local dev previews no longer fail behind a VPN or system proxy** — previewing `http://localhost:…` could error with a TLS `BadRecordMac` or "localhost refused to connect" when a corporate/VPN proxy was active, because the loopback request was being routed through that proxy (your normal browser bypasses proxies for localhost, which is why it worked there). The preview now connects straight to your dev server.
+
+- **Authentication-gated apps now load and let you sign in inside the preview** — apps that hand off to a hosted auth provider (Clerk, Auth0, NextAuth, Supabase, and similar) previously broke with a blocked frame or a connection error, because the provider's sign-in handshake bounced the page off the proxy to your raw dev origin, whose embedding policy then refused the frame. The preview now lets the browser perform the handshake itself and keeps the whole flow on the proxy origin (where embedding restrictions are stripped), so the app renders and the login round-trip completes.
+
+- **Copy buttons work inside previewed apps** — clipboard access (used by things like the Next.js dev overlay) was blocked by the preview frame's permissions policy. The preview iframe now grants clipboard read/write, so in-app copy actions succeed instead of throwing.
+
+### Changed
+
+- **Version bumped to 0.4.3** — app metadata and native package metadata now point at v0.4.3.
+
 ## [v0.4.2] - 2026-06-15
 
 ### Added

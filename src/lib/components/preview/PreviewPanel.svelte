@@ -1437,7 +1437,7 @@
                     class:is-active={tab.id === $activePreviewTabId}
                     onload={() => handleIframeLoad(tab.id)}
                     onerror={() => handleIframeError(tab.id)}
-                    allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
+                    allow="accelerometer; camera; clipboard-read; clipboard-write; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
                   sandbox={buildIframeSandbox(tab.url)}
                     allowfullscreen
                   ></iframe>
@@ -1463,7 +1463,7 @@
                 class:is-active={tab.id === $activePreviewTabId}
                 onload={() => handleIframeLoad(tab.id)}
                 onerror={() => handleIframeError(tab.id)}
-                allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
+                allow="accelerometer; camera; clipboard-read; clipboard-write; encrypted-media; geolocation; gyroscope; microphone; payment; usb"
               sandbox={buildIframeSandbox(tab.url)}
                 allowfullscreen
               ></iframe>
