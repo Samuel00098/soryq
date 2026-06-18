@@ -1,43 +1,58 @@
+/* ═══════════════════════════════════════════════════════════════
+   Settings Modal — all colors use CSS variables so themes and
+   transparency settings are respected automatically.
+   ═══════════════════════════════════════════════════════════════ */
+
 .settings-overlay {
   position: fixed;
-  inset: 0;
+  top: 38px; /* Starts below title bar */
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 9000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 28px;
-  background: var(--bg-glass, rgba(4, 4, 6, 0.45));
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
   backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
   -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
 }
 
 .settings-modal {
+  position: relative;
   width: min(1060px, 100%);
   height: min(780px, 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   color: var(--text-primary);
-  background: rgba(18, 18, 22, var(--frost-chrome, 0.65));
+  background: color-mix(in srgb, var(--bg-secondary) calc(var(--frost-chrome, 0.65) * 100%), transparent);
   backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
   -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 12px);
-  box-shadow: var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+  box-shadow: var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)),
+              inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
   animation: settingsScaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes settingsScaleUp {
-  from {
-    transform: scale(0.96);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
-    opacity: 1;
-  }
+/* Solid-theme: fully opaque, no blur */
+:root.solid-theme .settings-modal {
+  background: var(--bg-secondary);
+}
+:root.solid-theme .settings-overlay {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
+@keyframes settingsScaleUp {
+  from { transform: scale(0.96); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* ── Header ── */
 .settings-header {
   display: flex;
   align-items: center;
@@ -46,7 +61,7 @@
   min-height: 72px;
   padding: 16px 24px;
   border-bottom: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.15);
+  background: color-mix(in srgb, var(--bg-primary) 20%, transparent);
 }
 
 .settings-eyebrow {
@@ -75,7 +90,7 @@
   height: 32px;
   border: 1px solid var(--border);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
@@ -85,11 +100,12 @@
 
 .settings-close:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--bg-active);
+  border-color: var(--border-focus);
   transform: rotate(90deg);
 }
 
+/* ── Body layout ── */
 .settings-body {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -105,7 +121,7 @@
   min-height: 0;
   padding: 18px 12px;
   border-right: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.1);
+  background: color-mix(in srgb, var(--bg-primary) 15%, transparent);
   overflow-y: auto;
 }
 
@@ -139,12 +155,12 @@
 
 .settings-tabs button:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
 }
 
 .settings-tabs button.active {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-active);
   border-left-color: var(--accent);
   border-top-color: var(--border);
   border-right-color: var(--border);
@@ -176,14 +192,15 @@
   background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.2));
 }
 
+/* ── Section Cards ── */
 .settings-card {
   max-width: 760px;
   margin: 0 0 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 12px);
-  background: rgba(255, 255, 255, 0.015);
+  background: var(--bg-hover);
   box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
-  overflow: hidden;
+  overflow: visible; /* allow dropdown portals to paint outside */
 }
 
 .settings-card h3 {
@@ -195,7 +212,8 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: rgba(0, 0, 0, 0.05);
+  background: color-mix(in srgb, var(--bg-primary) 8%, transparent);
+  border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0;
 }
 
 .settings-card-body {
@@ -203,6 +221,7 @@
   flex-direction: column;
 }
 
+/* ── Control rows ── */
 .settings-control-row {
   display: grid;
   grid-template-columns: minmax(160px, 250px) minmax(220px, 1fr);
@@ -215,7 +234,7 @@
 }
 
 .settings-control-row:hover {
-  background-color: rgba(255, 255, 255, 0.01);
+  background-color: var(--bg-hover);
 }
 
 .settings-control-row:last-child {
@@ -252,14 +271,13 @@
 
 /* ── Form Inputs ── */
 .settings-control input,
-.settings-control select,
 .shortcut-row input {
   width: 100%;
   min-width: 0;
   height: 34px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--input-border, var(--border));
   border-radius: var(--radius-md, 8px);
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--input-bg, var(--bg-primary));
   color: var(--text-primary);
   padding: 0 12px;
   font: inherit;
@@ -268,10 +286,9 @@
 }
 
 .settings-control input:focus,
-.settings-control select:focus,
 .shortcut-row input:focus {
   border-color: var(--accent);
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--bg-primary);
   box-shadow: 0 0 0 2px var(--accent-glow, rgba(174, 182, 194, 0.08));
   outline: none;
 }
@@ -288,8 +305,7 @@
   box-shadow: none;
 }
 
-.settings-control input:disabled,
-.settings-control select:disabled {
+.settings-control input:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -301,14 +317,14 @@
   height: 22px;
   border-radius: 99px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-active);
   padding: 2px;
   cursor: pointer;
   transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease;
 }
 
 .settings-toggle:hover {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--border-focus);
 }
 
 .settings-toggle span {
@@ -327,10 +343,10 @@
 
 .settings-toggle.active span {
   transform: translateX(20px);
-  background-color: var(--bg-primary, #121216);
+  background-color: var(--bg-primary);
 }
 
-/* ── Buttons ── */
+/* ── Action buttons ── */
 .settings-action-row,
 .settings-footer-actions {
   display: flex;
@@ -364,36 +380,36 @@
 
 .settings-primary {
   background: var(--accent);
-  color: var(--bg-primary, #121216);
+  color: var(--bg-primary);
 }
 
 .settings-primary:hover:not(:disabled) {
   background: var(--accent-hover);
-  box-shadow: 0 0 12px var(--accent-glow, rgba(174, 182, 194, 0.08));
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .settings-secondary,
 .settings-link-button {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-hover);
   border-color: var(--border);
   color: var(--text-primary);
 }
 
 .settings-secondary:hover:not(:disabled),
 .settings-link-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--bg-active);
+  border-color: var(--border-focus);
 }
 
 .settings-danger {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #f87171;
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+  border-color: color-mix(in srgb, var(--error) 30%, transparent);
+  color: var(--error);
 }
 
 .settings-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.25);
-  border-color: #f87171;
+  background: color-mix(in srgb, var(--error) 25%, transparent);
+  border-color: var(--error);
 }
 
 .settings-primary:active:not(:disabled),
@@ -422,7 +438,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 12px);
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.01);
+  background: var(--bg-hover);
 }
 
 .shortcut-group h4 {
@@ -434,7 +450,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: rgba(0, 0, 0, 0.05);
+  background: color-mix(in srgb, var(--bg-primary) 8%, transparent);
 }
 
 .shortcut-row {
@@ -495,7 +511,164 @@
   padding: 18px;
 }
 
-/* ── Themes List ── */
+/* ── Appearance Mode Cards ── */
+.appearance-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding-bottom: 4px;
+}
+
+.appearance-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 12px;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.appearance-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.appearance-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--text-primary);
+}
+
+.appearance-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, transform 0.2s;
+}
+
+.appearance-card:hover .appearance-icon {
+  transform: translateY(-2px);
+}
+
+.appearance-card.selected .appearance-icon {
+  color: var(--accent);
+}
+
+.appearance-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ── Option Cards (close behavior etc.) ── */
+.option-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 0;
+}
+
+.option-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
+.option-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--text-primary);
+}
+
+.option-title {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.option-desc {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+/* ── Number Stepper Control ── */
+.num-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.num-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.num-btn:hover {
+  background: var(--bg-active);
+  border-color: var(--border-focus);
+}
+
+.num-btn:active {
+  transform: scale(0.93);
+}
+
+.num-val {
+  min-width: 36px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.num-btn-reset {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.02em;
+}
+
+.num-btn-reset:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-focus);
+}
+
+/* ── Theme grid ── */
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -505,7 +678,7 @@
 .theme-card {
   display: flex;
   flex-direction: column;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 12px);
   overflow: hidden;
@@ -517,15 +690,15 @@
 
 .theme-card:hover {
   transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.02);
-  border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-md);
 }
 
 .theme-card.active {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.04);
-  box-shadow: 0 0 12px var(--accent-glow, rgba(174, 182, 194, 0.08));
+  background: var(--accent-light);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .theme-preview {
@@ -533,7 +706,7 @@
   height: 36px;
   overflow: hidden;
   border-bottom: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-secondary);
 }
 
 .preview-bar {
@@ -568,7 +741,7 @@
   justify-content: center;
   gap: 8px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
   border: 1px solid var(--border);
   color: var(--text-secondary);
   border-radius: var(--radius-md, 8px);
@@ -579,7 +752,7 @@
 }
 
 .theme-action-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-active);
   border-color: var(--accent);
   color: var(--text-primary);
 }
@@ -627,7 +800,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
   gap: 8px;
@@ -635,7 +808,7 @@
 }
 
 .ct-color-field:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--border-focus);
 }
 
 .ct-color-label {
@@ -659,14 +832,8 @@
   overflow: hidden;
 }
 
-.color-input::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-
-.color-input::-webkit-color-swatch {
-  border: none;
-  border-radius: 50%;
-}
+.color-input::-webkit-color-swatch-wrapper { padding: 0; }
+.color-input::-webkit-color-swatch { border: none; border-radius: 50%; }
 
 .ct-actions {
   display: flex;
@@ -683,19 +850,19 @@
   cursor: pointer;
   transition: all 0.2s ease;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
   color: var(--text-secondary);
 }
 
 .ct-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-active);
   border-color: var(--accent);
   color: var(--text-primary);
 }
 
 .ct-btn.primary {
   background: var(--accent);
-  color: var(--bg-primary, #121216);
+  color: var(--bg-primary);
   border-color: transparent;
 }
 
@@ -718,7 +885,7 @@
   padding: 0 16px;
   border-radius: var(--radius-md, 8px);
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
   color: var(--text-primary);
   font-size: 12.5px;
   font-weight: 600;
@@ -727,30 +894,23 @@
 }
 
 .bg-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-active);
   border-color: var(--accent);
 }
 
 .bg-btn-danger:hover {
   border-color: var(--error);
   color: var(--error);
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--error) 10%, transparent);
 }
 
-/* ── Responsive Styling ── */
+/* ── Responsive ── */
 @media (max-width: 820px) {
-  .settings-overlay {
-    padding: 10px;
-  }
+  .settings-overlay { padding: 10px; }
 
-  .settings-modal {
-    height: min(860px, 100%);
-    border-radius: var(--radius-lg, 12px);
-  }
+  .settings-modal { height: min(860px, 100%); }
 
-  .settings-body {
-    grid-template-columns: 1fr;
-  }
+  .settings-body { grid-template-columns: 1fr; }
 
   .settings-tabs {
     flex-direction: row;
@@ -771,35 +931,226 @@
     border-bottom-color: var(--accent);
   }
 
-  .settings-control-row {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
+  .settings-control-row { grid-template-columns: 1fr; gap: 10px; }
 
-  .shortcut-groups {
-    grid-template-columns: 1fr;
-  }
+  .shortcut-groups { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 520px) {
-  .settings-header {
-    min-height: 62px;
-    padding: 14px;
-  }
+  .settings-header { min-height: 62px; padding: 14px; }
+  .settings-panel  { padding: 14px; }
+  .settings-card   { margin-bottom: 14px; }
+  .shortcut-row    { grid-template-columns: 1fr; }
+  .theme-grid      { grid-template-columns: 1fr 1fr; }
+}
 
-  .settings-panel {
-    padding: 14px;
-  }
+/* ═══════════════════════════════════════════════════════════════
+   Shell Picker Cards — Terminal tab
+   ═══════════════════════════════════════════════════════════════ */
 
-  .settings-card {
-    margin-bottom: 14px;
-  }
+.shell-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 18px;
+}
 
-  .shortcut-row {
-    grid-template-columns: 1fr;
-  }
+.shell-loading {
+  padding: 14px 18px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
 
-  .theme-grid {
-    grid-template-columns: 1fr 1fr;
-  }
+.shell-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  width: 100%;
+}
+
+.shell-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.shell-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.shell-icon {
+  color: var(--text-muted);
+  display: flex;
+  flex-shrink: 0;
+}
+
+.shell-card.selected .shell-icon {
+  color: var(--accent);
+}
+
+.shell-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.shell-path {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 6px 18px 12px;
+  line-height: 1.45;
+}
+
+.shell-hint code {
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-active);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Custom StyledSelect — portal-rendered dropdown
+   Painted into document.body with fixed positioning, so it is
+   never clipped by overflow:hidden parents.
+   Colors exclusively use CSS variables → theme-aware.
+   ═══════════════════════════════════════════════════════════════ */
+
+.sselect {
+  width: 100%;
+  min-width: 0;
+}
+
+.sselect-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--input-border, var(--border));
+  border-radius: var(--radius-md, 8px);
+  background: var(--input-bg, var(--bg-primary));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sselect-trigger:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.sselect.open .sselect-trigger {
+  border-color: var(--accent);
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.sselect-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sselect-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
+}
+
+.sselect.open .sselect-chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+/* Panel is rendered inside .settings-modal — JS sets position:absolute + coordinates */
+.sselect-panel {
+  position: absolute;
+  z-index: 99999;
+  list-style: none;
+  margin: 0;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  /* Use the same glass recipe as the modal so it matches the active theme */
+  background: color-mix(in srgb, var(--bg-secondary) calc(var(--frost-surface, 0.92) * 100%), transparent);
+  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  box-shadow:
+    var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.7)),
+    inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  animation: sselectOpen 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Solid theme: opaque panel, no blur */
+:root.solid-theme .sselect-panel {
+  background: var(--bg-secondary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@keyframes sselectOpen {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+.sselect-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  user-select: none;
+}
+
+.sselect-option:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sselect-option.selected {
+  background: var(--accent-light);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sselect-option.selected svg {
+  color: var(--accent);
+  flex-shrink: 0;
 }

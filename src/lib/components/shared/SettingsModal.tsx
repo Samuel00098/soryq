@@ -135,27 +135,37 @@ function StyledSelect<T extends string>({
 
   const close = useCallback(() => setOpen(false), []);
 
-  // Compute panel position from trigger's screen rect
+  // Compute panel position from trigger's rect relative to the settings modal
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
+    
+    const modal = document.querySelector('.settings-modal');
+    if (!modal) return;
+    
+    const modalRect = modal.getBoundingClientRect();
     const rect = trigger.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
+    
+    const relativeTop = rect.bottom - modalRect.top;
+    const relativeLeft = rect.left - modalRect.left;
+    
+    const spaceBelow = modalRect.bottom - rect.bottom;
+    const spaceAbove = rect.top - modalRect.top;
     const openDown = spaceBelow >= 200 || spaceBelow >= spaceAbove;
+    
     if (openDown) {
       setPanelStyle({
-        position: 'fixed',
-        top: rect.bottom + 6,
-        left: rect.left,
+        position: 'absolute',
+        top: relativeTop + 6,
+        left: relativeLeft,
         width: rect.width,
         maxHeight: Math.min(240, spaceBelow - 12),
       });
     } else {
       setPanelStyle({
-        position: 'fixed',
-        bottom: window.innerHeight - rect.top + 6,
-        left: rect.left,
+        position: 'absolute',
+        bottom: modalRect.height - (rect.top - modalRect.top) + 6,
+        left: relativeLeft,
         width: rect.width,
         maxHeight: Math.min(240, spaceAbove - 12),
       });
@@ -216,7 +226,7 @@ function StyledSelect<T extends string>({
             </li>
           ))}
         </ul>,
-        document.body,
+        document.querySelector('.settings-modal') || document.body,
       )
     : null;
 
