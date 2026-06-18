@@ -3314,7 +3314,7 @@ export default function SketchCanvas() {
           {/* Action buttons: Clear, Save to Workspace, Export PNG */}
           <button
             className={`tool-btn clear-btn${clearConfirm ? ' confirming' : ''}`}
-            style={{ width: '28px', height: '28px' }}
+            style={{ width: clearConfirm ? undefined : '28px', height: '28px' }}
             onClick={handleClear}
             title="Clear all drawings"
           >
