@@ -28,11 +28,12 @@ interface SketchText {
   color: string;
   fontSize: number;
   opacity: number;
+  fontFamily?: 'handwritten' | 'sans-serif' | 'monospace';
 }
 
 interface SketchShape {
   id: string;
-  type: 'rectangle' | 'circle';
+  type: 'rectangle' | 'circle' | 'diamond';
   x: number;
   y: number;
   width: number;
@@ -43,6 +44,10 @@ interface SketchShape {
   borderRadius: number;
   opacity: number;
   text: string;
+  strokeWidth?: number;
+  roughness?: number; // 0 (architect), 1.5 (artist), 3 (cartoonist)
+  fontFamily?: 'handwritten' | 'sans-serif' | 'monospace';
+  fillStyle?: 'transparent' | 'hachure' | 'cross-hatch' | 'solid';
 }
 
 interface SketchArrow {
@@ -55,6 +60,7 @@ interface SketchArrow {
   toPoint?: Point;
   color: string;
   opacity: number;
+  type?: 'arrow' | 'line';
 }
 
 type SketchBackgroundStyle =
@@ -95,6 +101,176 @@ const presetColors = [
   { value: '#18181e', name: 'Dark' }
 ];
 
+// Seeded PRNG for deterministic hand-drawn sketchy visuals
+function createSeededRandom(seedString: string) {
+  let h = 0;
+  for (let i = 0; i < seedString.length; i++) {
+    h = Math.imul(31, h) + seedString.charCodeAt(i) | 0;
+  }
+  return function() {
+    h = Math.imul(h ^ h >>> 16, 2246822507);
+    h = Math.imul(h ^ h >>> 13, 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+}
+
+// Draw a sketchy line between two points
+function drawSketchyLine(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  rand: () => number,
+  roughness: number = 1.5
+) {
+  const length = Math.hypot(x2 - x1, y2 - y1);
+  if (length < 1) return;
+
+  const passes = roughness > 0 ? 2 : 1;
+  const offset = roughness * 1.2;
+
+  for (let pass = 0; pass < passes; pass++) {
+    const sX = x1 + (rand() - 0.5) * offset;
+    const sY = y1 + (rand() - 0.5) * offset;
+    const eX = x2 + (rand() - 0.5) * offset;
+    const eY = y2 + (rand() - 0.5) * offset;
+
+    if (length > 30 && roughness > 0) {
+      const midX = (x1 + x2) / 2 + (rand() - 0.5) * offset * 1.2;
+      const midY = (y1 + y2) / 2 + (rand() - 0.5) * offset * 1.2;
+      ctx.beginPath();
+      ctx.moveTo(sX, sY);
+      ctx.quadraticCurveTo(midX, midY, eX, eY);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(sX, sY);
+      ctx.lineTo(eX, eY);
+      ctx.stroke();
+    }
+  }
+}
+
+// Draw a sketchy circle/ellipse
+function drawSketchyEllipse(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  rand: () => number,
+  roughness: number = 1.5
+) {
+  if (rx <= 0 || ry <= 0) return;
+  const passes = roughness > 0 ? 2 : 1;
+  const steps = Math.max(16, Math.min(32, Math.floor(Math.max(rx, ry) / 2)));
+  const offset = roughness * 1.2;
+
+  for (let pass = 0; pass < passes; pass++) {
+    ctx.beginPath();
+    const points: Point[] = [];
+    const extraSteps = roughness > 0 ? 2 : 0; // overshoot slightly
+
+    for (let i = 0; i <= steps + extraSteps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const rJitterX = (rand() - 0.5) * offset;
+      const rJitterY = (rand() - 0.5) * offset;
+      const px = cx + (rx + rJitterX) * Math.cos(angle) + (rand() - 0.5) * offset * 0.4;
+      const py = cy + (ry + rJitterY) * Math.sin(angle) + (rand() - 0.5) * offset * 0.4;
+      points.push({ x: px, y: py });
+    }
+
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+  }
+}
+
+// Draw a sketchy rounded rectangle
+function drawSketchyRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  rand: () => number,
+  roughness: number = 1.5
+) {
+  r = Math.min(r, w / 2, h / 2);
+  if (r <= 0) {
+    drawSketchyLine(ctx, x, y, x + w, y, rand, roughness);
+    drawSketchyLine(ctx, x + w, y, x + w, y + h, rand, roughness);
+    drawSketchyLine(ctx, x + w, y + h, x, y + h, rand, roughness);
+    drawSketchyLine(ctx, x, y + h, x, y, rand, roughness);
+    return;
+  }
+
+  const passes = roughness > 0 ? 2 : 1;
+  const offset = roughness * 1.2;
+
+  for (let pass = 0; pass < passes; pass++) {
+    ctx.beginPath();
+    const jitter = () => (rand() - 0.5) * offset;
+
+    const tlX = x + r;
+    const tlY = y + r;
+    const trX = x + w - r;
+    const trY = y + r;
+    const brX = x + w - r;
+    const brY = y + h - r;
+    const blX = x + r;
+    const blY = y + h - r;
+
+    ctx.moveTo((tlX + trX) / 2 + jitter(), y + jitter());
+    ctx.lineTo(trX + jitter(), y + jitter());
+    ctx.arcTo(x + w + jitter(), y + jitter(), x + w + jitter(), trY + jitter(), r);
+    ctx.lineTo(x + w + jitter(), brY + jitter());
+    ctx.arcTo(x + w + jitter(), y + h + jitter(), brX + jitter(), y + h + jitter(), r);
+    ctx.lineTo(blX + jitter(), y + h + jitter());
+    ctx.arcTo(x + jitter(), y + h + jitter(), x + jitter(), blY + jitter(), r);
+    ctx.lineTo(x + jitter(), tlY + jitter());
+    ctx.arcTo(x + jitter(), y + jitter(), tlX + jitter(), y + jitter(), r);
+    ctx.lineTo((tlX + trX) / 2 + jitter(), y + jitter());
+    ctx.stroke();
+  }
+}
+
+// Fill sketchy hachure lines inside a shape boundary path
+function fillSketchyHachure(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  drawPathFn: () => void,
+  rand: () => number,
+  spacing: number = 8,
+  angle: number = Math.PI / 4
+) {
+  ctx.save();
+  ctx.beginPath();
+  drawPathFn();
+  ctx.clip();
+
+  const diag = Math.hypot(w, h);
+  for (let offset = -diag; offset < diag; offset += spacing) {
+    const x1 = x + offset;
+    const y1 = y - 10;
+    const x2 = x + offset + h;
+    const y2 = y + h + 10;
+
+    ctx.beginPath();
+    ctx.moveTo(x1 + (rand() - 0.5) * 3, y1 + (rand() - 0.5) * 3);
+    ctx.lineTo(x2 + (rand() - 0.5) * 3, y2 + (rand() - 0.5) * 3);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export default function SketchCanvas() {
   const project = useStore(activeProject);
   const currentAppearance = useStore(appearance);
@@ -128,11 +304,20 @@ export default function SketchCanvas() {
   const redoStackRef = useRef<string[]>([]);
 
   // Toolbar and display states
-  const [currentTool, setCurrentTool] = useState<'select' | 'pen' | 'eraser' | 'text' | 'pan' | 'connector' | 'rectangle' | 'circle'>('select');
+  const [currentTool, setCurrentTool] = useState<'select' | 'pen' | 'eraser' | 'text' | 'pan' | 'connector' | 'rectangle' | 'circle' | 'diamond' | 'line'>('select');
   const [currentColor, setCurrentColor] = useState('#06b6d4');
   const [customColor, setCustomColor] = useState('#e2e2eb');
   const [brushSize, setBrushSize] = useState(6);
   const [brushOpacity, setBrushOpacity] = useState(1.0);
+
+  // New Excalidraw Styling States
+  const [defaultFillColor, setDefaultFillColor] = useState('transparent');
+  const [customFillColor, setCustomFillColor] = useState('#ffffff');
+  const [defaultFillStyle, setDefaultFillStyle] = useState<'transparent' | 'hachure' | 'cross-hatch' | 'solid'>('transparent');
+  const [defaultStrokeWidth, setDefaultStrokeWidth] = useState<number>(2);
+  const [defaultStrokeStyle, setDefaultStrokeStyle] = useState<'solid' | 'dashed' | 'dotted' | 'none'>('solid');
+  const [defaultRoughness, setDefaultRoughness] = useState<number>(1.5);
+  const [defaultFontFamily, setDefaultFontFamily] = useState<'handwritten' | 'sans-serif' | 'monospace'>('handwritten');
 
   // Shapes & Text State
   const [sketchShapes, setSketchShapes] = useState<SketchShape[]>([]);
@@ -140,6 +325,8 @@ export default function SketchCanvas() {
   const [shapeStartPoint, setShapeStartPoint] = useState<Point | null>(null);
   const [shapeCurrentPoint, setShapeCurrentPoint] = useState<Point | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [selectedArrowId, setSelectedArrowId] = useState<string | null>(null);
   const [activeShapeTextInput, setActiveShapeTextInput] = useState<{ id: string; value: string } | null>(null);
 
   // Connectors State
@@ -204,7 +391,14 @@ export default function SketchCanvas() {
     brushOpacity,
     currentTool,
     activeShortcuts,
-    spacePressed
+    spacePressed,
+    defaultFillColor,
+    customFillColor,
+    defaultFillStyle,
+    defaultStrokeWidth,
+    defaultStrokeStyle,
+    defaultRoughness,
+    defaultFontFamily
   });
 
   useEffect(() => {
@@ -223,7 +417,14 @@ export default function SketchCanvas() {
       brushOpacity,
       currentTool,
       activeShortcuts,
-      spacePressed
+      spacePressed,
+      defaultFillColor,
+      customFillColor,
+      defaultFillStyle,
+      defaultStrokeWidth,
+      defaultStrokeStyle,
+      defaultRoughness,
+      defaultFontFamily
     };
   }, [
     zoomScale,
@@ -240,7 +441,14 @@ export default function SketchCanvas() {
     brushOpacity,
     currentTool,
     activeShortcuts,
-    spacePressed
+    spacePressed,
+    defaultFillColor,
+    customFillColor,
+    defaultFillStyle,
+    defaultStrokeWidth,
+    defaultStrokeStyle,
+    defaultRoughness,
+    defaultFontFamily
   ]);
 
   function getSketchStorageKey(projectId: string) {
@@ -479,39 +687,153 @@ export default function SketchCanvas() {
     return arrow.toPoint || null;
   }
 
+  function drawShapeOnCanvas(
+    ctx: CanvasRenderingContext2D,
+    shape: SketchShape,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    borderW: number
+  ) {
+    const rand = createSeededRandom(shape.id);
+    ctx.save();
+    ctx.globalAlpha = shape.opacity;
+    ctx.strokeStyle = shape.color;
+    ctx.lineWidth = borderW;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const borderStyle = shape.borderStyle || 'solid';
+    if (borderStyle === 'dashed') {
+      ctx.setLineDash([6 * (borderW / 2), 6 * (borderW / 2)]);
+    } else if (borderStyle === 'dotted') {
+      ctx.setLineDash([1.5 * (borderW / 2), 4.5 * (borderW / 2)]);
+    } else {
+      ctx.setLineDash([]);
+    }
+
+    let fillStyle = 'transparent';
+    if (shape.fillColor === 'glass') {
+      fillStyle = isLightTheme ? 'rgba(255, 255, 255, 0.45)' : 'rgba(24, 24, 30, 0.45)';
+    } else if (shape.fillColor === 'transparent') {
+      fillStyle = 'transparent';
+    } else if (shape.fillColor === 'tint' || shape.fillColor.endsWith('22')) {
+      fillStyle = shape.color + '22';
+    } else {
+      fillStyle = shape.fillColor;
+    }
+
+    const drawRectPath = () => {
+      const r = shape.borderRadius || 0;
+      if (r > 0) {
+        ctx.roundRect(x, y, w, h, r);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
+    };
+
+    const drawCirclePath = () => {
+      ctx.arc(x + w / 2, y + h / 2, Math.max(w, h) / 2, 0, Math.PI * 2);
+    };
+
+    const drawDiamondPath = () => {
+      ctx.moveTo(x + w / 2, y);
+      ctx.lineTo(x + w, y + h / 2);
+      ctx.lineTo(x + w / 2, y + h);
+      ctx.lineTo(x, y + h / 2);
+      ctx.closePath();
+    };
+
+    const fillStyleType = shape.fillStyle || (shape.fillColor === 'tint' ? 'hachure' : 'solid');
+    const roughness = shape.roughness !== undefined ? shape.roughness : 1.5;
+
+    // Draw Fill
+    if (fillStyle !== 'transparent') {
+      if (fillStyleType === 'hachure' || fillStyleType === 'cross-hatch') {
+        ctx.strokeStyle = shape.fillColor === 'glass' ? (isLightTheme ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)') : (shape.color + '44');
+        ctx.lineWidth = borderW * 0.7;
+        const fillPath = shape.type === 'circle' ? drawCirclePath : (shape.type === 'diamond' ? drawDiamondPath : drawRectPath);
+        
+        fillSketchyHachure(ctx, x, y, w, h, fillPath, rand, 8, Math.PI / 4);
+        if (fillStyleType === 'cross-hatch') {
+          fillSketchyHachure(ctx, x, y, w, h, fillPath, rand, 8, -Math.PI / 4);
+        }
+      } else {
+        ctx.fillStyle = fillStyle;
+        ctx.beginPath();
+        if (shape.type === 'circle') drawCirclePath();
+        else if (shape.type === 'diamond') drawDiamondPath();
+        else drawRectPath();
+        ctx.fill();
+      }
+    }
+
+    // Draw Stroke
+    if (borderStyle !== 'none') {
+      ctx.strokeStyle = shape.color;
+      if (shape.type === 'circle') {
+        drawSketchyEllipse(ctx, x + w / 2, y + h / 2, w / 2, h / 2, rand, roughness);
+      } else if (shape.type === 'diamond') {
+        drawSketchyLine(ctx, x + w / 2, y, x + w, y + h / 2, rand, roughness);
+        drawSketchyLine(ctx, x + w, y + h / 2, x + w / 2, y + h, rand, roughness);
+        drawSketchyLine(ctx, x + w / 2, y + h, x, y + h / 2, rand, roughness);
+        drawSketchyLine(ctx, x, y + h / 2, x + w / 2, y, rand, roughness);
+      } else {
+        const r = shape.borderRadius || 0;
+        if (r > 0) {
+          drawSketchyRoundRect(ctx, x, y, w, h, r, rand, roughness);
+        } else {
+          drawSketchyLine(ctx, x, y, x + w, y, rand, roughness);
+          drawSketchyLine(ctx, x + w, y, x + w, y + h, rand, roughness);
+          drawSketchyLine(ctx, x + w, y + h, x, y + h, rand, roughness);
+          drawSketchyLine(ctx, x, y + h, x, y, rand, roughness);
+        }
+      }
+    }
+
+    ctx.restore();
+  }
+
   function drawArrow(targetCtx: CanvasRenderingContext2D, arrow: SketchArrow) {
     const start = getArrowStart(arrow);
     const end = getArrowEnd(arrow);
     if (!start || !end) return;
 
+    const rand = createSeededRandom(arrow.id);
     targetCtx.save();
     targetCtx.strokeStyle = arrow.color;
     targetCtx.fillStyle = arrow.color;
     targetCtx.lineWidth = 2.5;
     targetCtx.globalAlpha = arrow.opacity;
     targetCtx.lineCap = 'round';
+    targetCtx.lineJoin = 'round';
 
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > 30) {
+    if (dist > 20) {
       const shorten = (arrow.toTextId || arrow.toShapeId) ? 32 : 6;
       const newEndX = end.x - (dx / dist) * shorten;
       const newEndY = end.y - (dy / dist) * shorten;
 
-      targetCtx.beginPath();
-      targetCtx.moveTo(start.x, start.y);
-      targetCtx.lineTo(newEndX, newEndY);
-      targetCtx.stroke();
+      // Draw sketchy line for shaft
+      drawSketchyLine(targetCtx, start.x, start.y, newEndX, newEndY, rand, 1.3);
 
-      const angle = Math.atan2(newEndY - start.y, newEndX - start.x);
-      targetCtx.beginPath();
-      targetCtx.moveTo(newEndX, newEndY);
-      targetCtx.lineTo(newEndX - 8 * Math.cos(angle - Math.PI / 6), newEndY - 8 * Math.sin(angle - Math.PI / 6));
-      targetCtx.lineTo(newEndX - 8 * Math.cos(angle + Math.PI / 6), newEndY - 8 * Math.sin(angle + Math.PI / 6));
-      targetCtx.closePath();
-      targetCtx.fill();
+      // Draw arrowhead if it is an arrow (not type === 'line')
+      if (arrow.type !== 'line') {
+        const angle = Math.atan2(newEndY - start.y, newEndX - start.x);
+        const arrowSize = 10;
+        const leftX = newEndX - arrowSize * Math.cos(angle - Math.PI / 6);
+        const leftY = newEndY - arrowSize * Math.sin(angle - Math.PI / 6);
+        const rightX = newEndX - arrowSize * Math.cos(angle + Math.PI / 6);
+        const rightY = newEndY - arrowSize * Math.sin(angle + Math.PI / 6);
+
+        drawSketchyLine(targetCtx, newEndX, newEndY, leftX, leftY, rand, 1.0);
+        drawSketchyLine(targetCtx, newEndX, newEndY, rightX, rightY, rand, 1.0);
+        drawSketchyLine(targetCtx, leftX, leftY, rightX, rightY, rand, 1.0);
+      }
     }
     targetCtx.restore();
   }
@@ -536,7 +858,7 @@ export default function SketchCanvas() {
       yy = b.y;
     } else {
       xx = a.x + param * C;
-      yy = b.y + param * D;
+      yy = a.y + param * D;
     }
     
     const dx = p.x - xx;
@@ -612,6 +934,19 @@ export default function SketchCanvas() {
       drawArrow(activeCtx, arrow);
     });
 
+    // Draw all shapes sketchily
+    sketchShapes.forEach(shape => {
+      drawShapeOnCanvas(
+        activeCtx,
+        shape,
+        shape.x,
+        shape.y,
+        shape.width,
+        shape.height,
+        shape.strokeWidth || 2
+      );
+    });
+
     // Draw active connecting preview line
     if (connecting && connectingCurrentPoint) {
       activeCtx.save();
@@ -651,13 +986,15 @@ export default function SketchCanvas() {
         activeCtx.stroke();
         
         // Draw preview arrowhead
-        const angle = Math.atan2(dy, dx);
-        activeCtx.beginPath();
-        activeCtx.moveTo(connectingCurrentPoint.x, connectingCurrentPoint.y);
-        activeCtx.lineTo(connectingCurrentPoint.x - 6 * Math.cos(angle - Math.PI / 6), connectingCurrentPoint.y - 6 * Math.sin(angle - Math.PI / 6));
-        activeCtx.lineTo(connectingCurrentPoint.x - 6 * Math.cos(angle + Math.PI / 6), connectingCurrentPoint.y - 6 * Math.sin(angle + Math.PI / 6));
-        activeCtx.closePath();
-        activeCtx.fill();
+        if (currentTool !== 'line') {
+          const angle = Math.atan2(dy, dx);
+          activeCtx.beginPath();
+          activeCtx.moveTo(connectingCurrentPoint.x, connectingCurrentPoint.y);
+          activeCtx.lineTo(connectingCurrentPoint.x - 6 * Math.cos(angle - Math.PI / 6), connectingCurrentPoint.y - 6 * Math.sin(angle - Math.PI / 6));
+          activeCtx.lineTo(connectingCurrentPoint.x - 6 * Math.cos(angle + Math.PI / 6), connectingCurrentPoint.y - 6 * Math.sin(angle + Math.PI / 6));
+          activeCtx.closePath();
+          activeCtx.fill();
+        }
       }
       activeCtx.restore();
     }
@@ -680,6 +1017,12 @@ export default function SketchCanvas() {
         activeCtx.rect(x, y, w, h);
       } else if (currentTool === 'circle') {
         activeCtx.arc(x + w / 2, y + h / 2, Math.max(w, h) / 2, 0, Math.PI * 2);
+      } else if (currentTool === 'diamond') {
+        activeCtx.moveTo(x + w / 2, y);
+        activeCtx.lineTo(x + w, y + h / 2);
+        activeCtx.lineTo(x + w / 2, y + h);
+        activeCtx.lineTo(x, y + h / 2);
+        activeCtx.closePath();
       }
       activeCtx.stroke();
       activeCtx.restore();
@@ -844,7 +1187,8 @@ export default function SketchCanvas() {
         value: trimmed,
         color: currentColor,
         fontSize: Math.max(13, brushSize * 2.5),
-        opacity: brushOpacity
+        opacity: brushOpacity,
+        fontFamily: defaultFontFamily
       };
       setSketchTexts(prev => {
         const next = [...prev, newText];
@@ -900,7 +1244,7 @@ export default function SketchCanvas() {
       }
     }
 
-    if (currentTool === 'rectangle' || currentTool === 'circle') {
+    if (currentTool === 'rectangle' || currentTool === 'circle' || currentTool === 'diamond') {
       e.preventDefault();
       if (activeTextInput) {
         commitText();
@@ -914,7 +1258,7 @@ export default function SketchCanvas() {
       return;
     }
 
-    if (currentTool === 'connector') {
+    if (currentTool === 'connector' || currentTool === 'line') {
       e.preventDefault();
       if (activeTextInput) {
         commitText();
@@ -1078,17 +1422,21 @@ export default function SketchCanvas() {
           // Create new shape
           const newShape: SketchShape = {
             id: Math.random().toString(36).substring(2, 9),
-            type: currentTool as 'rectangle' | 'circle',
+            type: currentTool as 'rectangle' | 'circle' | 'diamond',
             x,
             y,
             width,
             height,
             color: currentColor,
-            fillColor: 'transparent',
-            borderStyle: 'solid',
-            borderRadius: currentTool === 'circle' ? 9999 : 8,
+            fillColor: defaultFillStyle === 'transparent' ? 'transparent' : (defaultFillStyle === 'solid' ? defaultFillColor : 'tint'),
+            borderStyle: defaultStrokeStyle,
+            borderRadius: currentTool === 'circle' ? 9999 : (currentTool === 'diamond' ? 0 : 8),
             opacity: brushOpacity,
-            text: ''
+            text: '',
+            strokeWidth: defaultStrokeWidth,
+            roughness: defaultRoughness,
+            fontFamily: defaultFontFamily,
+            fillStyle: defaultFillStyle
           };
           
           setSketchShapes(prev => {
@@ -1134,16 +1482,18 @@ export default function SketchCanvas() {
       }
 
       const worldCoords = screenToWorld(e.clientX, e.clientY);
+      const isLineTool = currentTool === 'line';
       const newArrow: SketchArrow = {
         id: Math.random().toString(36).substring(2, 9),
-        fromTextId: connectingFromId || undefined,
-        fromShapeId: connectingFromShapeId || undefined,
-        toTextId: targetTextId,
-        toShapeId: targetShapeId,
-        fromPoint: (connectingFromId || connectingFromShapeId) ? undefined : (connectingStartPoint || undefined),
-        toPoint: (targetTextId || targetShapeId) ? undefined : worldCoords,
+        fromTextId: isLineTool ? undefined : (connectingFromId || undefined),
+        fromShapeId: isLineTool ? undefined : (connectingFromShapeId || undefined),
+        toTextId: isLineTool ? undefined : targetTextId,
+        toShapeId: isLineTool ? undefined : targetShapeId,
+        fromPoint: (isLineTool || (!connectingFromId && !connectingFromShapeId)) ? (connectingStartPoint || undefined) : undefined,
+        toPoint: (isLineTool || (!targetTextId && !targetShapeId)) ? worldCoords : undefined,
         color: currentColor,
-        opacity: brushOpacity
+        opacity: brushOpacity,
+        type: isLineTool ? 'line' : 'arrow'
       };
 
       setArrows(prev => {
@@ -1431,6 +1781,92 @@ export default function SketchCanvas() {
     }
   }
 
+  // Helper to update properties of the active selection (shape, text, or arrow)
+  function updateSelectedProperty(property: string, value: any) {
+    if (selectedShapeId) {
+      setSketchShapes(prev => {
+        const next = prev.map(s => {
+          if (s.id === selectedShapeId) {
+            let val = value;
+            if (property === 'fillColor' && typeof value === 'string' && value.endsWith('22')) {
+              val = s.color + '22';
+            }
+            return { ...s, [property]: val };
+          }
+          return s;
+        });
+        setTimeout(() => saveState(), 10);
+        return next;
+      });
+    } else if (selectedTextId) {
+      setSketchTexts(prev => {
+        const next = prev.map(t => {
+          if (t.id === selectedTextId) {
+            return { ...t, [property]: value };
+          }
+          return t;
+        });
+        setTimeout(() => saveState(), 10);
+        return next;
+      });
+    } else if (selectedArrowId) {
+      setArrows(prev => {
+        const next = prev.map(a => {
+          if (a.id === selectedArrowId) {
+            return { ...a, [property]: value };
+          }
+          return a;
+        });
+        setTimeout(() => saveState(), 10);
+        return next;
+      });
+    } else {
+      // No active selection, update defaults
+      if (property === 'color') setCurrentColor(value);
+      else if (property === 'fillColor') setDefaultFillColor(value);
+      else if (property === 'fillStyle') setDefaultFillStyle(value);
+      else if (property === 'strokeWidth') setDefaultStrokeWidth(value);
+      else if (property === 'borderStyle') setDefaultStrokeStyle(value);
+      else if (property === 'roughness') setDefaultRoughness(value);
+      else if (property === 'fontFamily') setDefaultFontFamily(value);
+      else if (property === 'opacity') setBrushOpacity(value);
+    }
+  }
+
+  // Get properties of the active selection (for highlighting button states in left panel)
+  function getSelectedProperty(property: string, defaultValue: any) {
+    if (selectedShapeId) {
+      const shape = sketchShapes.find(s => s.id === selectedShapeId);
+      if (shape && property in shape) {
+        return (shape as any)[property];
+      }
+    } else if (selectedTextId) {
+      const text = sketchTexts.find(t => t.id === selectedTextId);
+      if (text && property in text) {
+        return (text as any)[property];
+      }
+    } else if (selectedArrowId) {
+      const arrow = arrows.find(a => a.id === selectedArrowId);
+      if (arrow && property in arrow) {
+        return (arrow as any)[property];
+      }
+    }
+    return defaultValue;
+  }
+
+  function updateSelectedColor(color: string) {
+    if (selectedShapeId) {
+      updateShapeColor(selectedShapeId, color);
+    } else if (selectedTextId) {
+      updateSelectedProperty('color', color);
+    } else if (selectedArrowId) {
+      updateSelectedProperty('color', color);
+    } else {
+      setCurrentColor(color);
+      if (currentTool === 'eraser') setCurrentTool('pen');
+    }
+  }
+
   // Update shape properties
   function updateShapeProperty(id: string, property: keyof SketchShape, value: any) {
     setSketchShapes(prev => {
@@ -1492,6 +1928,35 @@ export default function SketchCanvas() {
     if (selectedShapeId === id) {
       setSelectedShapeId(null);
     }
+  }
+
+  function deleteText(id: string) {
+    setSketchTexts(prev => {
+      const next = prev.filter(t => t.id !== id);
+      setTimeout(() => saveState(), 10);
+      return next;
+    });
+    setArrows(prev => prev.filter(a => a.fromTextId !== id && a.toTextId !== id));
+    if (selectedTextId === id) {
+      setSelectedTextId(null);
+    }
+  }
+
+  function deleteArrow(id: string) {
+    setArrows(prev => {
+      const next = prev.filter(a => a.id !== id);
+      setTimeout(() => saveState(), 10);
+      return next;
+    });
+    if (selectedArrowId === id) {
+      setSelectedArrowId(null);
+    }
+  }
+
+  function deleteSelected() {
+    if (selectedShapeId) deleteShape(selectedShapeId);
+    else if (selectedTextId) deleteText(selectedTextId);
+    else if (selectedArrowId) deleteArrow(selectedArrowId);
   }
 
   // Edit existing text boxes
@@ -1760,7 +2225,8 @@ export default function SketchCanvas() {
       tempCtx.fillStyle = text.color;
       tempCtx.globalAlpha = text.opacity;
       const displayFontSize = text.fontSize * zoomScale;
-      tempCtx.font = `500 ${displayFontSize}px sans-serif`;
+      const fontFam = text.fontFamily === 'monospace' ? 'monospace' : (text.fontFamily === 'sans-serif' ? 'sans-serif' : '"Architects Daughter", "Caveat", cursive');
+      tempCtx.font = `500 ${displayFontSize}px ${fontFam}`;
       tempCtx.textBaseline = 'top';
       
       const screenX = text.x * zoomScale + panOffset.x;
@@ -1775,55 +2241,24 @@ export default function SketchCanvas() {
 
     // Draw Floating Shape Elements
     sketchShapes.forEach(shape => {
-      tempCtx.save();
-      tempCtx.globalAlpha = shape.opacity;
-      
       const x = shape.x * zoomScale + panOffset.x;
       const y = shape.y * zoomScale + panOffset.y;
       const w = shape.width * zoomScale;
       const h = shape.height * zoomScale;
-      const borderW = Math.max(1, 2 * zoomScale);
-      
-      tempCtx.strokeStyle = shape.color;
-      tempCtx.lineWidth = borderW;
-      
-      if (shape.borderStyle === 'dashed') {
-        tempCtx.setLineDash([4 * zoomScale, 4 * zoomScale]);
-      } else if (shape.borderStyle === 'dotted') {
-        tempCtx.setLineDash([1 * zoomScale, 3 * zoomScale]);
-      } else {
-        tempCtx.setLineDash([]);
-      }
-      
-      if (shape.fillColor === 'glass') {
-        tempCtx.fillStyle = isLightThemeVal ? 'rgba(255, 255, 255, 0.45)' : 'rgba(24, 24, 30, 0.45)';
-      } else if (shape.fillColor === 'transparent') {
-        tempCtx.fillStyle = 'transparent';
-      } else if (shape.fillColor === 'tint' || shape.fillColor.endsWith('22')) {
-        tempCtx.fillStyle = shape.color + '22';
-      } else {
-        tempCtx.fillStyle = shape.fillColor;
-      }
-      
-      tempCtx.beginPath();
-      if (shape.type === 'circle') {
-        tempCtx.arc(x + w / 2, y + h / 2, Math.max(w, h) / 2, 0, Math.PI * 2);
-      } else {
-        const r = shape.borderRadius * zoomScale;
-        tempCtx.roundRect(x, y, w, h, r);
-      }
-      
-      if (shape.fillColor !== 'transparent') {
-        tempCtx.fill();
-      }
-      if (shape.borderStyle !== 'none') {
-        tempCtx.stroke();
-      }
-      
+      const borderW = (shape.strokeWidth || 2) * zoomScale;
+
+      drawShapeOnCanvas(tempCtx, shape, x, y, w, h, borderW);
+
+      // Draw text inside shape
       if (shape.text) {
+        tempCtx.save();
+        tempCtx.globalAlpha = shape.opacity;
         tempCtx.fillStyle = shape.color === '#ffffff' ? '#ffffff' : (shape.color === '#18181e' ? (isLightThemeVal ? '#18181e' : '#ffffff') : shape.color);
         const displayFontSize = Math.max(11, 13 * zoomScale);
-        tempCtx.font = `500 ${displayFontSize}px sans-serif`;
+        
+        // Font family for text export
+        const fontFam = shape.fontFamily === 'monospace' ? 'monospace' : (shape.fontFamily === 'sans-serif' ? 'sans-serif' : '"Architects Daughter", "Caveat", cursive');
+        tempCtx.font = `500 ${displayFontSize}px ${fontFam}`;
         tempCtx.textAlign = 'center';
         tempCtx.textBaseline = 'middle';
         
@@ -1835,8 +2270,8 @@ export default function SketchCanvas() {
         lines.forEach((line, index) => {
           tempCtx.fillText(line, x + w / 2, startY + index * lineHeight);
         });
+        tempCtx.restore();
       }
-      tempCtx.restore();
     });
     
     return tempCanvas;
@@ -1921,15 +2356,27 @@ export default function SketchCanvas() {
           commitText();
           closeSketchCanvas();
         }
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShapeId && !isTyping) {
-        deleteShape(selectedShapeId);
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && !isTyping) {
+        if (selectedShapeId || selectedTextId || selectedArrowId) {
+          deleteSelected();
+        }
       } else if (e.code === 'Space' && !isTyping) {
         setSpacePressed(true);
         if (currentTool !== 'pan') {
           e.preventDefault();
         }
       } else if (!isTyping) {
-        if (canvasZoomInShortcut && matchShortcut(e, canvasZoomInShortcut.keys)) {
+        if (e.key.toLowerCase() === 'v' || e.key === '1') { commitText(); setCurrentTool('select'); }
+        else if (e.key.toLowerCase() === 'h' || e.key === '2') { commitText(); setCurrentTool('pan'); }
+        else if (e.key.toLowerCase() === 'r' || e.key === '3') { commitText(); setCurrentTool('rectangle'); }
+        else if (e.key.toLowerCase() === 'd' || e.key === '4') { commitText(); setCurrentTool('diamond'); }
+        else if (e.key.toLowerCase() === 'o' || e.key === '5') { commitText(); setCurrentTool('circle'); }
+        else if (e.key.toLowerCase() === 'l' || e.key === '6') { commitText(); setCurrentTool('line'); }
+        else if (e.key.toLowerCase() === 'a' || e.key === '7') { commitText(); setCurrentTool('connector'); }
+        else if (e.key.toLowerCase() === 'p' || e.key === '8') { commitText(); setCurrentTool('pen'); }
+        else if (e.key.toLowerCase() === 't' || e.key === '9') { commitText(); setCurrentTool('text'); }
+        else if (e.key.toLowerCase() === 'e' || e.key === '0') { commitText(); setCurrentTool('eraser'); }
+        else if (canvasZoomInShortcut && matchShortcut(e, canvasZoomInShortcut.keys)) {
           e.preventDefault();
           zoomCentered(1.15);
         } else if (canvasZoomOutShortcut && matchShortcut(e, canvasZoomOutShortcut.keys)) {
@@ -1954,7 +2401,7 @@ export default function SketchCanvas() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [activeTextInput, activeShapeTextInput, selectedShapeId, currentTool, zoomScale, panOffset]);
+  }, [activeTextInput, activeShapeTextInput, selectedShapeId, selectedTextId, selectedArrowId, currentTool, zoomScale, panOffset]);
 
   // Handle custom text box ESC / Ctrl+Enter key down
   function handleTextKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -2113,7 +2560,7 @@ export default function SketchCanvas() {
         {sketchTexts.map((text) => (
           <div
             key={text.id}
-            className="floating-text"
+            className={`floating-text font-${text.fontFamily || 'handwritten'}`}
             data-text-id={text.id}
             style={{
               position: 'absolute',
@@ -2144,7 +2591,7 @@ export default function SketchCanvas() {
               width: `${shape.width * zoomScale}px`,
               height: `${shape.height * zoomScale}px`,
               border: shape.borderStyle === 'none' ? 'none' : `${Math.max(1, 2 * zoomScale)}px ${shape.borderStyle} ${shape.color}`,
-              borderRadius: shape.type === 'circle' ? '50%' : `${shape.borderRadius * zoomScale}px`,
+              borderRadius: shape.type === 'circle' ? '50%' : (shape.type === 'diamond' ? '0' : `${shape.borderRadius * zoomScale}px`),
               backgroundColor: shape.fillColor === 'glass'
                 ? (isLightTheme ? 'rgba(255, 255, 255, 0.45)' : 'rgba(24, 24, 30, 0.45)')
                 : (shape.fillColor === 'transparent'
@@ -2189,7 +2636,7 @@ export default function SketchCanvas() {
                 onBlur={() => commitShapeText(shape.id)}
                 onKeyDown={(e) => handleShapeTextKeyDown(e, shape.id)}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="shape-textarea"
+                className={`shape-textarea font-${shape.fontFamily || 'handwritten'}`}
                 style={{
                   width: '100%',
                   height: '100%',
@@ -2200,7 +2647,7 @@ export default function SketchCanvas() {
               />
             ) : (
               <div 
-                className="shape-text-container"
+                className={`shape-text-container font-${shape.fontFamily || 'handwritten'}`}
                 style={{
                   color: shape.color === '#ffffff' ? '#ffffff' : (shape.color === '#18181e' ? 'var(--text-primary)' : shape.color),
                   fontSize: `${Math.max(12, 14 * zoomScale)}px`
@@ -2213,142 +2660,282 @@ export default function SketchCanvas() {
           </div>
         ))}
 
-        {/* Floating shape context toolbar */}
-        {selectedShapeId && currentTool === 'select' && sketchShapes.filter(s => s.id === selectedShapeId).map((activeShape) => (
-          <div
-            key={activeShape.id}
-            className="shape-context-menu bento-card animate-scale"
-            style={{
-              position: 'absolute',
-              left: `${(activeShape.x + activeShape.width / 2) * zoomScale + panOffset.x}px`,
-              top: `${activeShape.y * zoomScale + panOffset.y - 12}px`,
-              transform: 'translate(-50%, -100%)',
-              zIndex: 9030
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {/* Fill options */}
-            <div className="menu-section">
-              <span className="section-lbl">Fill</span>
-              <button
-                className={`menu-btn${activeShape.fillColor === 'transparent' ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'fillColor', 'transparent')}
-                title="Transparent"
-              >
-                None
-              </button>
-              <button
-                className={`menu-btn${activeShape.fillColor === 'glass' ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'fillColor', 'glass')}
-                title="Frosted Glass"
-              >
-                Glass
-              </button>
-              <button
-                className={`menu-btn${activeShape.fillColor === 'tint' || activeShape.fillColor.endsWith('22') ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'fillColor', 'tint')}
-                title="Color Tint"
-              >
-                Tint
-              </button>
-              <button
-                className={`menu-btn${activeShape.fillColor !== 'transparent' && activeShape.fillColor !== 'glass' && !activeShape.fillColor.endsWith('22') ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'fillColor', activeShape.color)}
-                title="Solid Color"
-              >
-                Solid
-              </button>
-            </div>
-
-            <div className="menu-divider" />
-
-            {/* Border Style */}
-            <div className="menu-section">
-              <span className="section-lbl">Border</span>
-              <button
-                className={`menu-btn${activeShape.borderStyle === 'solid' ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'borderStyle', 'solid')}
-                title="Solid Border"
-              >
-                Solid
-              </button>
-              <button
-                className={`menu-btn${activeShape.borderStyle === 'dashed' ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'borderStyle', 'dashed')}
-                title="Dashed Border"
-              >
-                Dash
-              </button>
-              <button
-                className={`menu-btn${activeShape.borderStyle === 'dotted' ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'borderStyle', 'dotted')}
-                title="Dotted Border"
-              >
-                Dot
-              </button>
-              <button
-                className={`menu-btn${activeShape.borderStyle === 'none' ? ' active' : ''}`}
-                onClick={() => updateShapeProperty(activeShape.id, 'borderStyle', 'none')}
-                title="No Border"
-              >
-                None
-              </button>
-            </div>
-
-            <div className="menu-divider" />
-
-            {/* Colors */}
-            <div className="menu-section color-section">
-              {presetColors.map((col) => (
+        {/* Floating left style settings panel */}
+        {showToolbar && (
+          <div className="sketch-style-panel">
+            {/* Stroke Color Section */}
+            <div className="style-panel-section">
+              <span className="style-panel-title">Stroke Color</span>
+              <div className="style-color-grid">
+                {presetColors.map((col) => {
+                  const activeColor = getSelectedProperty('color', currentColor);
+                  return (
+                    <button
+                      key={col.value}
+                      className={`style-color-dot${activeColor === col.value ? ' active' : ''}`}
+                      style={{
+                        backgroundColor: col.value,
+                        border: `1.5px solid ${col.value === '#ffffff' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)'}`
+                      }}
+                      onClick={() => updateSelectedColor(col.value)}
+                      title={col.name}
+                    />
+                  );
+                })}
                 <button
-                  key={col.value}
-                  className={`color-dot-mini${activeShape.color === col.value ? ' active' : ''}`}
-                  style={{ backgroundColor: col.value }}
-                  onClick={() => updateShapeColor(activeShape.id, col.value)}
-                  title={col.name}
+                  className="custom-color-picker-btn"
+                  onClick={() => colorPickerRef.current?.click()}
+                  title="Custom Stroke Color"
+                >
+                  <div className="custom-color-preview" style={{ backgroundColor: getSelectedProperty('color', currentColor) }} />
+                  Custom
+                </button>
+              </div>
+            </div>
+
+            {/* Background/Fill Section (only for shapes) */}
+            {(selectedShapeId || ['rectangle', 'circle', 'diamond'].includes(currentTool)) && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Background Color</span>
+                <div className="style-color-grid">
+                  {/* None/Transparent option */}
+                  <button
+                    className={`style-color-dot${getSelectedProperty('fillColor', defaultFillColor) === 'transparent' ? ' active' : ''}`}
+                    style={{
+                      backgroundColor: 'transparent',
+                      border: '1.5px dashed var(--text-muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onClick={() => updateSelectedProperty('fillColor', 'transparent')}
+                    title="Transparent"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                    </svg>
+                  </button>
+                  {presetColors.map((col) => {
+                    const activeFill = getSelectedProperty('fillColor', defaultFillColor);
+                    return (
+                      <button
+                        key={col.value}
+                        className={`style-color-dot${activeFill === col.value ? ' active' : ''}`}
+                        style={{
+                          backgroundColor: col.value,
+                          border: `1.5px solid ${col.value === '#ffffff' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)'}`
+                        }}
+                        onClick={() => updateSelectedProperty('fillColor', col.value)}
+                        title={col.name}
+                      />
+                    );
+                  })}
+                  <button
+                    className="custom-color-picker-btn"
+                    onClick={() => {
+                      const picker = document.getElementById('bg-color-picker');
+                      picker?.click();
+                    }}
+                    title="Custom Fill Color"
+                  >
+                    <div className="custom-color-preview" style={{ backgroundColor: getSelectedProperty('fillColor', defaultFillColor) === 'transparent' ? '#ffffff' : getSelectedProperty('fillColor', defaultFillColor) }} />
+                    Custom
+                    <input
+                      id="bg-color-picker"
+                      type="color"
+                      value={customFillColor}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomFillColor(val);
+                        updateSelectedProperty('fillColor', val);
+                      }}
+                      style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
+                    />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Fill Style Section (only for shapes) */}
+            {(selectedShapeId || ['rectangle', 'circle', 'diamond'].includes(currentTool)) && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Fill Style</span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 'transparent', label: 'Transparent' },
+                    { value: 'hachure', label: 'Hachure' },
+                    { value: 'cross-hatch', label: 'Cross-Hatch' },
+                    { value: 'solid', label: 'Solid' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${getSelectedProperty('fillStyle', defaultFillStyle) === opt.value ? ' active' : ''}`}
+                      onClick={() => {
+                        updateSelectedProperty('fillStyle', opt.value);
+                        if (opt.value === 'transparent') {
+                          updateSelectedProperty('fillColor', 'transparent');
+                        } else if (getSelectedProperty('fillColor', defaultFillColor) === 'transparent') {
+                          updateSelectedProperty('fillColor', opt.value === 'solid' ? '#06b6d4' : 'tint');
+                        }
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Stroke Width Section */}
+            {(!selectedTextId && currentTool !== 'text') && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Stroke Width</span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 1.5, label: 'Thin' },
+                    { value: 3.5, label: 'Medium' },
+                    { value: 6, label: 'Thick' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${getSelectedProperty('strokeWidth', defaultStrokeWidth) === opt.value ? ' active' : ''}`}
+                      onClick={() => updateSelectedProperty('strokeWidth', opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Stroke Style Section */}
+            {(!selectedTextId && currentTool !== 'text') && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Stroke Style</span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 'solid', label: 'Solid' },
+                    { value: 'dashed', label: 'Dashed' },
+                    { value: 'dotted', label: 'Dotted' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${getSelectedProperty('borderStyle', defaultStrokeStyle) === opt.value ? ' active' : ''}`}
+                      onClick={() => updateSelectedProperty('borderStyle', opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sloppiness / Roughness Section */}
+            {(!selectedTextId && currentTool !== 'text') && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Sloppiness</span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 0, label: 'Architect' },
+                    { value: 1.5, label: 'Artist' },
+                    { value: 3, label: 'Cartoonist' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${getSelectedProperty('roughness', defaultRoughness) === opt.value ? ' active' : ''}`}
+                      onClick={() => updateSelectedProperty('roughness', opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Font Family Section (only for text and text-enabled shapes) */}
+            {(selectedTextId || selectedShapeId || ['text', 'rectangle', 'circle', 'diamond'].includes(currentTool)) && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Font Family</span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 'handwritten', label: 'Handwritten' },
+                    { value: 'sans-serif', label: 'Sans-Serif' },
+                    { value: 'monospace', label: 'Monospace' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${getSelectedProperty('fontFamily', defaultFontFamily) === opt.value ? ' active' : ''}`}
+                      onClick={() => updateSelectedProperty('fontFamily', opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Opacity Section */}
+            <div className="style-panel-section">
+              <span className="style-panel-title">Opacity ({Math.round(getSelectedProperty('opacity', brushOpacity) * 100)}%)</span>
+              <div className="opacity-slider" style={{ padding: '4px 0' }}>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.05"
+                  value={getSelectedProperty('opacity', brushOpacity)}
+                  onChange={(e) => updateSelectedProperty('opacity', Number(e.target.value))}
+                  style={{ width: '100%' }}
                 />
-              ))}
+              </div>
             </div>
 
-            <div className="menu-divider" />
-
-            {/* Layering and Delete */}
-            <div className="menu-section action-section">
-              <button
-                className="menu-icon-btn"
-                onClick={() => moveShapeLayer(activeShape.id, 'front')}
-                title="Bring to Front"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                  <polyline points="2 17 12 22 22 17" />
-                  <polyline points="2 12 12 17 22 12" />
-                </svg>
-              </button>
-              <button
-                className="menu-icon-btn"
-                onClick={() => moveShapeLayer(activeShape.id, 'back')}
-                title="Send to Back"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polygon points="12 22 2 17 12 12 22 17 12 22" />
-                  <polyline points="2 7 12 2 22 7" />
-                  <polyline points="2 12 12 7 22 12" />
-                </svg>
-              </button>
-              <button
-                className="menu-icon-btn delete-btn"
-                onClick={() => deleteShape(activeShape.id)}
-                title="Delete Shape"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                </svg>
-              </button>
-            </div>
+            {/* Layering & Delete Actions (only when element is selected) */}
+            {(selectedShapeId || selectedTextId || selectedArrowId) && (
+              <>
+                <div className="menu-divider" style={{ margin: '4px 0', borderBottom: '1.5px solid var(--border)' }} />
+                <div className="style-panel-section">
+                  <span className="style-panel-title">Actions</span>
+                  <div className="style-panel-grid">
+                    {selectedShapeId && (
+                      <>
+                        <button
+                          className="style-panel-btn"
+                          onClick={() => moveShapeLayer(selectedShapeId, 'front')}
+                          title="Bring to Front"
+                          style={{ flex: 1 }}
+                        >
+                          Bring Front
+                        </button>
+                        <button
+                          className="style-panel-btn"
+                          onClick={() => moveShapeLayer(selectedShapeId, 'back')}
+                          title="Send to Back"
+                          style={{ flex: 1 }}
+                        >
+                          Send Back
+                        </button>
+                      </>
+                    )}
+                    <button
+                      className="style-panel-btn delete-btn"
+                      onClick={deleteSelected}
+                      title="Delete Element"
+                      style={{
+                        flex: '1 1 100%',
+                        background: 'rgba(248, 113, 113, 0.1)',
+                        color: 'var(--error)',
+                        borderColor: 'rgba(248, 113, 113, 0.2)'
+                      }}
+                    >
+                      Delete Selected
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-        ))}
+        )}
 
         {/* Interactive typing input overlay */}
         {activeTextInput && (
@@ -2370,7 +2957,7 @@ export default function SketchCanvas() {
               outline: 'none',
               padding: '4px 8px',
               borderRadius: '6px',
-              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              fontFamily: "'Architects Daughter', 'Caveat', cursive",
               minWidth: `${150 * zoomScale}px`,
               minHeight: `${40 * zoomScale}px`,
               maxWidth: `${400 * zoomScale}px`,
@@ -2385,7 +2972,7 @@ export default function SketchCanvas() {
         )}
       </div>
 
-      {/* Sleek floating toolbar */}
+      {/* Sleek horizontal centered top toolbar (Excalidraw-like) */}
       {showToolbar ? (
         <div className="sketch-toolbar bento-card animate-scale">
           {/* Collapse Button */}
@@ -2407,7 +2994,7 @@ export default function SketchCanvas() {
               <button
                 className={`tool-btn${currentTool === 'select' ? ' active' : ''}`}
                 onClick={() => { commitText(); setCurrentTool('select'); }}
-                title="Select & Move (V)"
+                title="Select & Move (V / 1)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
@@ -2415,68 +3002,9 @@ export default function SketchCanvas() {
                 </svg>
               </button>
               <button
-                className={`tool-btn${currentTool === 'pen' && !spacePressed ? ' active' : ''}`}
-                onClick={() => { commitText(); setCurrentTool('pen'); }}
-                title="Draw (Pen)"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20h9"/>
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                </svg>
-              </button>
-              <button
-                className={`tool-btn${currentTool === 'eraser' ? ' active' : ''}`}
-                onClick={() => { commitText(); setCurrentTool('eraser'); }}
-                title="Erase (Click lines, text, or shapes)"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 20H7L3 16C2 15 2 13 3 12L13 2L22 11L20 13"/>
-                  <path d="M17 17l-4-4"/>
-                </svg>
-              </button>
-              <button
-                className={`tool-btn${currentTool === 'text' ? ' active' : ''}`}
-                onClick={() => { commitText(); setCurrentTool('text'); }}
-                title="Type notes (Text Tool)"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="4 7 4 4 20 4 20 7"/>
-                  <line x1="9" y1="20" x2="15" y2="20"/>
-                  <line x1="12" y1="4" x2="12" y2="20"/>
-                </svg>
-              </button>
-              <button
-                className={`tool-btn${currentTool === 'rectangle' ? ' active' : ''}`}
-                onClick={() => { commitText(); setCurrentTool('rectangle'); }}
-                title="Rectangle Shape"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                </svg>
-              </button>
-              <button
-                className={`tool-btn${currentTool === 'circle' ? ' active' : ''}`}
-                onClick={() => { commitText(); setCurrentTool('circle'); }}
-                title="Circle Shape"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                </svg>
-              </button>
-              <button
-                className={`tool-btn${currentTool === 'connector' ? ' active' : ''}`}
-                onClick={() => { commitText(); setCurrentTool('connector'); }}
-                title="Arrow Connector (Drag notes or shapes)"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="5" y1="19" x2="19" y2="5"/>
-                  <polyline points="12 5 19 5 19 12"/>
-                </svg>
-              </button>
-              <button
                 className={`tool-btn${currentTool === 'pan' || spacePressed ? ' active' : ''}`}
                 onClick={() => { commitText(); setCurrentTool('pan'); }}
-                title="Pan Canvas (Hold Space or Hand Tool)"
+                title="Pan Canvas (Hold Space / H / 2)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
@@ -2485,336 +3013,81 @@ export default function SketchCanvas() {
                   <path d="M6 14a4 4 0 0 0-4-4v0a4 4 0 0 0-4 4v7a4 4 0 0 0 4 4h8a7 7 0 0 0 7-7v-3a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2"/>
                 </svg>
               </button>
-            </div>
-
-            <div className="divider" />
-
-            {/* Quick brush size / font size options */}
-            <div className="toolbar-section sizes">
               <button
-                className={`size-btn${brushSize === 2 ? ' active' : ''}`}
-                onClick={() => setBrushSize(2)}
-                onPointerDown={(e) => e.preventDefault()}
-                title="Fine brush / 13px Text"
-              >
-                <span className="dot size-xs" />
-              </button>
-              <button
-                className={`size-btn${brushSize === 6 ? ' active' : ''}`}
-                onClick={() => setBrushSize(6)}
-                onPointerDown={(e) => e.preventDefault()}
-                title="Medium brush / 18px Text"
-              >
-                <span className="dot size-sm" />
-              </button>
-              <button
-                className={`size-btn${brushSize === 14 ? ' active' : ''}`}
-                onClick={() => setBrushSize(14)}
-                onPointerDown={(e) => e.preventDefault()}
-                title="Thick brush / 35px Text"
-              >
-                <span className="dot size-md" />
-              </button>
-              <button
-                className={`size-btn${brushSize === 32 ? ' active' : ''}`}
-                onClick={() => setBrushSize(32)}
-                onPointerDown={(e) => e.preventDefault()}
-                title="Highlighter / 80px Text"
-              >
-                <span className="dot size-lg" />
-              </button>
-            </div>
-
-            <div className="divider" />
-
-            {/* Preset and custom colors */}
-            <div className="toolbar-section colors">
-              {presetColors.map((col) => (
-                <button
-                  key={col.value}
-                  className={`color-dot${currentColor === col.value && currentTool !== 'eraser' ? ' active' : ''}`}
-                  style={{
-                    backgroundColor: col.value,
-                    border: `1.5px solid ${col.value === '#ffffff' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)'}`
-                  }}
-                  onClick={() => { setCurrentColor(col.value); if (currentTool === 'eraser') setCurrentTool('pen'); }}
-                  onPointerDown={(e) => e.preventDefault()}
-                  title={col.name}
-                />
-              ))}
-              <button
-                className={`color-dot custom-color-trigger${currentColor === customColor && currentTool !== 'eraser' ? ' active' : ''}`}
-                style={{ backgroundImage: 'conic-gradient(red, yellow, green, cyan, blue, magenta, red)' }}
-                onClick={() => colorPickerRef.current?.click()}
-                onPointerDown={(e) => e.preventDefault()}
-                title="Custom Color"
-              >
-                <input
-                  ref={colorPickerRef}
-                  type="color"
-                  value={customColor}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setCustomColor(val);
-                    setCurrentColor(val);
-                    if (currentTool === 'eraser') setCurrentTool('pen');
-                  }}
-                  className="hidden-color-picker"
-                />
-              </button>
-            </div>
-
-            {/* Highlighter opacity slider */}
-            {currentTool !== 'eraser' && (
-              <>
-                <div className="divider" />
-                <div className="toolbar-section opacity-slider">
-                  <span className="slider-label">Opacity</span>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="1.0"
-                    step="0.05"
-                    value={brushOpacity}
-                    onChange={(e) => setBrushOpacity(Number(e.target.value))}
-                    title="Brush/Text Opacity"
-                  />
-                  <span className="slider-val">{Math.round(brushOpacity * 100)}%</span>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Main group-to-group divider */}
-          <div className="divider group-divider hide-on-stack" />
-
-          {/* Group 2: Canvas Settings & Actions */}
-          <div className="toolbar-group utility-group">
-            {/* Grid and Background settings dropdown */}
-            <div className="toolbar-section custom-settings-dropdown-wrapper">
-              <button
-                type="button"
-                className={`settings-trigger-btn${showSettingsDropdown ? ' open' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowSettingsDropdown(!showSettingsDropdown);
-                }}
-                title="Canvas Grid & Export Settings"
+                className={`tool-btn${currentTool === 'rectangle' ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('rectangle'); }}
+                title="Rectangle Shape (R / 3)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <line x1="9" y1="3" x2="9" y2="21" />
-                  <line x1="15" y1="3" x2="15" y2="21" />
-                  <line x1="3" y1="9" x2="21" y2="9" />
-                  <line x1="3" y1="15" x2="21" y2="15" />
-                </svg>
-                <span className="active-style-label">
-                  {backgroundStyle === 'transparent' ? 'Transparent' :
-                   backgroundStyle === 'dot-grid' ? 'Dot Grid' :
-                   backgroundStyle === 'line-grid' ? 'Graph Grid' :
-                   backgroundStyle === 'isometric-grid' ? 'Isometric' :
-                   backgroundStyle === 'blackboard' ? 'Blackboard' :
-                   backgroundStyle === 'blueprint' ? 'Blueprint' :
-                   backgroundStyle === 'solid-dark' ? 'Solid Dark' : 'Solid Light'}
-                </span>
-                <svg className={`dd-chevron${showSettingsDropdown ? ' rotated' : ''}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="6 9 12 15 18 9" />
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
                 </svg>
               </button>
-
-              {showSettingsDropdown && (
-                <div 
-                  className="settings-dropdown-panel" 
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* Background Section */}
-                  <div className="panel-section">
-                    <div className="section-title">Background Style</div>
-                    <div className="grid-style-options">
-                      {[
-                        { value: 'transparent', label: 'Transparent' },
-                        { value: 'dot-grid', label: 'Dot Grid' },
-                        { value: 'line-grid', label: 'Graph Grid' },
-                        { value: 'isometric-grid', label: 'Isometric' },
-                        { value: 'blackboard', label: 'Blackboard' },
-                        { value: 'blueprint', label: 'Blueprint' },
-                        { value: 'solid-dark', label: 'Solid Dark' },
-                        { value: 'solid-light', label: 'Solid Light' }
-                      ].map((style) => (
-                        <button 
-                          key={style.value}
-                          type="button" 
-                          className={`style-opt-btn${backgroundStyle === style.value ? ' active' : ''}`}
-                          onClick={() => {
-                            setBackgroundStyle(style.value as SketchBackgroundStyle);
-                            setTimeout(() => persistCanvasSnapshot(), 10);
-                          }}
-                        >
-                          {style.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Grid Settings */}
-                  {['dot-grid', 'line-grid', 'isometric-grid', 'blackboard', 'blueprint'].includes(backgroundStyle) && (
-                    <div className="panel-section">
-                      <div className="section-title">Grid Configuration</div>
-                      
-                      {/* Spacing Buttons */}
-                      <div className="setting-row">
-                        <span className="setting-label">Grid Spacing</span>
-                        <div className="spacing-btn-group">
-                          {[12, 24, 48].map((spacing) => (
-                            <button
-                              key={spacing}
-                              type="button"
-                              className={`spacing-btn${gridSpacing === spacing ? ' active' : ''}`}
-                              onClick={() => {
-                                setGridSpacing(spacing);
-                                setTimeout(() => persistCanvasSnapshot(), 10);
-                              }}
-                            >
-                              {spacing}px
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Snap Toggle */}
-                      <div className="setting-row">
-                        <span className="setting-label">Snap to Grid</span>
-                        <label className="switch-control">
-                          <input
-                            type="checkbox"
-                            checked={snapToGrid}
-                            onChange={(e) => {
-                              setSnapToGrid(e.target.checked);
-                              setTimeout(() => persistCanvasSnapshot(), 10);
-                            }}
-                          />
-                          <span className="switch-slider" />
-                        </label>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* JSON Utilities */}
-                  <div className="panel-section utilities-section">
-                    <div className="section-title">Utilities</div>
-                    <div className="utility-buttons">
-                      <button type="button" className="util-btn" onClick={exportJSON}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="7 10 12 15 17 10" />
-                          <line x1="12" y1="15" x2="12" y2="3" />
-                        </svg>
-                        Export JSON
-                      </button>
-                      <button type="button" className="util-btn" onClick={() => jsonFileInputRef.current?.click()}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="17 8 12 3 7 8" />
-                          <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
-                        Import JSON
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="divider" />
-
-            {/* GPU Zoom controls */}
-            <div className="toolbar-section zoom-controls">
-              <button className="tool-btn zoom-btn" onClick={() => zoomCentered(0.85)} title="Zoom Out">-</button>
-              <button className="zoom-display-btn" onClick={resetZoom} title="Reset Zoom (1:1 / Center)">{Math.round(zoomScale * 100)}%</button>
-              <button className="tool-btn zoom-btn" onClick={() => zoomCentered(1.15)} title="Zoom In">+</button>
-            </div>
-
-            <div className="divider" />
-
-            {/* Action buttons: undo, redo, clear, save, close */}
-            <div className="toolbar-section actions">
               <button
-                className="action-btn"
-                disabled={!canUndo}
-                onClick={undo}
-                title="Undo"
+                className={`tool-btn${currentTool === 'diamond' ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('diamond'); }}
+                title="Diamond Shape (D / 4)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 7v6h6"/>
-                  <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                  <path d="M12 2L2 12l10 10 10-10L12 2z"/>
                 </svg>
               </button>
               <button
-                className="action-btn"
-                disabled={!canRedo}
-                onClick={redo}
-                title="Redo"
+                className={`tool-btn${currentTool === 'circle' ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('circle'); }}
+                title="Circle Shape (O / 5)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 7v6h-6"/>
-                  <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+                  <circle cx="12" cy="12" r="10" />
                 </svg>
               </button>
               <button
-                className={`action-btn clear-btn${clearConfirm ? ' confirming' : ''}`}
-                onClick={handleClear}
-                title="Clear all drawings"
-              >
-                {clearConfirm ? (
-                  <span className="confirm-text">Confirm?</span>
-                ) : (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
-                )}
-              </button>
-              <button
-                className="action-btn"
-                onClick={downloadPNG}
-                title="Download PNG File"
+                className={`tool-btn${currentTool === 'line' ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('line'); }}
+                title="Straight Line (L / 6)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
+                  <line x1="5" y1="19" x2="19" y2="5"/>
                 </svg>
               </button>
               <button
-                className="action-btn save-btn"
-                disabled={isSaving}
-                onClick={saveToWorkspace}
-                title="Save sketch to Project folder"
+                className={`tool-btn${currentTool === 'connector' ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('connector'); }}
+                title="Arrow Connector (A / 7)"
               >
-                {isSaving ? (
-                  <span className="saving-spinner" />
-                ) : (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                    <polyline points="17 21 17 13 7 13 7 21"/>
-                    <polyline points="7 3 7 8 15 8"/>
-                  </svg>
-                )}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="5" y1="19" x2="19" y2="5"/>
+                  <polyline points="12 5 19 5 19 12"/>
+                </svg>
               </button>
-            </div>
-
-            <div className="divider" />
-
-            {/* Exit button */}
-            <div className="toolbar-section close-section">
               <button
-                className="exit-btn"
-                onClick={exitCanvas}
-                title="Close Sketch Canvas (Esc)"
+                className={`tool-btn${currentTool === 'pen' && !spacePressed ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('pen'); }}
+                title="Draw Freehand (P / 8)"
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/>
-                  <line x1="6" y1="6" x2="18" y2="18"/>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9"/>
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+              </button>
+              <button
+                className={`tool-btn${currentTool === 'text' ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('text'); }}
+                title="Type text (T / 9)"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="4 7 4 4 20 4 20 7"/>
+                  <line x1="9" y1="20" x2="15" y2="20"/>
+                  <line x1="12" y1="4" x2="12" y2="20"/>
+                </svg>
+              </button>
+              <button
+                className={`tool-btn${currentTool === 'eraser' ? ' active' : ''}`}
+                onClick={() => { commitText(); setCurrentTool('eraser'); }}
+                title="Erase lines, text, or shapes (E / 0)"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 20H7L3 16C2 15 2 13 3 12L13 2L22 11L20 13"/>
+                  <path d="M17 17l-4-4"/>
                 </svg>
               </button>
             </div>
@@ -2825,12 +3098,246 @@ export default function SketchCanvas() {
           className="toolbar-toggle bento-card animate-scale"
           onClick={() => setShowToolbar(true)}
           title="Show controls"
+          style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 9010 }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 20h9"/>
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
           </svg>
         </button>
+      )}
+
+      {/* Floating bottom-left panel (zoom + history controls) */}
+      {showToolbar && (
+        <div className="sketch-bottom-left-panel">
+          {/* Zoom controls */}
+          <button className="tool-btn zoom-btn" style={{ width: '24px', height: '24px' }} onClick={() => zoomCentered(0.85)} title="Zoom Out">-</button>
+          <button className="zoom-display-btn" style={{ padding: '2px 6px', fontSize: '11px', fontWeight: 600, minWidth: '44px' }} onClick={resetZoom} title="Reset Zoom">{Math.round(zoomScale * 100)}%</button>
+          <button className="tool-btn zoom-btn" style={{ width: '24px', height: '24px' }} onClick={() => zoomCentered(1.15)} title="Zoom In">+</button>
+
+          <div className="divider" style={{ height: '16px', margin: '0 2px' }} />
+
+          {/* Undo/Redo */}
+          <button
+            className="tool-btn"
+            style={{ width: '24px', height: '24px' }}
+            disabled={!canUndo}
+            onClick={undo}
+            title="Undo (Ctrl+Z)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 7v6h6"/>
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+            </svg>
+          </button>
+          <button
+            className="tool-btn"
+            style={{ width: '24px', height: '24px' }}
+            disabled={!canRedo}
+            onClick={redo}
+            title="Redo (Ctrl+Y)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 7v6h-6"/>
+              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Floating top-right actions panel */}
+      {showToolbar && (
+        <div className="sketch-top-right-panel">
+          {/* Grid settings trigger */}
+          <div className="custom-settings-dropdown-wrapper">
+            <button
+              type="button"
+              className={`settings-trigger-btn${showSettingsDropdown ? ' open' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSettingsDropdown(!showSettingsDropdown);
+              }}
+              title="Canvas Grid Settings"
+              style={{ padding: '0 8px', border: 'none', background: 'transparent' }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+                <line x1="15" y1="3" x2="15" y2="21" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="3" y1="15" x2="21" y2="15" />
+              </svg>
+            </button>
+
+            {showSettingsDropdown && (
+              <div 
+                className="settings-dropdown-panel" 
+                onClick={(e) => e.stopPropagation()}
+                style={{ top: 'calc(100% + 10px)', right: 0 }}
+              >
+                {/* Background Section */}
+                <div className="panel-section">
+                  <div className="section-title">Background Style</div>
+                  <div className="grid-style-options">
+                    {[
+                      { value: 'transparent', label: 'Transparent' },
+                      { value: 'dot-grid', label: 'Dot Grid' },
+                      { value: 'line-grid', label: 'Graph Grid' },
+                      { value: 'isometric-grid', label: 'Isometric' },
+                      { value: 'blackboard', label: 'Blackboard' },
+                      { value: 'blueprint', label: 'Blueprint' },
+                      { value: 'solid-dark', label: 'Solid Dark' },
+                      { value: 'solid-light', label: 'Solid Light' }
+                    ].map((style) => (
+                      <button 
+                        key={style.value}
+                        type="button" 
+                        className={`style-opt-btn${backgroundStyle === style.value ? ' active' : ''}`}
+                        onClick={() => {
+                          setBackgroundStyle(style.value as SketchBackgroundStyle);
+                          setTimeout(() => persistCanvasSnapshot(), 10);
+                        }}
+                      >
+                        {style.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Grid Settings */}
+                {['dot-grid', 'line-grid', 'isometric-grid', 'blackboard', 'blueprint'].includes(backgroundStyle) && (
+                  <div className="panel-section">
+                    <div className="section-title">Grid Configuration</div>
+                    
+                    {/* Spacing Buttons */}
+                    <div className="setting-row">
+                      <span className="setting-label">Grid Spacing</span>
+                      <div className="spacing-btn-group">
+                        {[12, 24, 48].map((spacing) => (
+                          <button
+                            key={spacing}
+                            type="button"
+                            className={`spacing-btn${gridSpacing === spacing ? ' active' : ''}`}
+                            onClick={() => {
+                              setGridSpacing(spacing);
+                              setTimeout(() => persistCanvasSnapshot(), 10);
+                            }}
+                          >
+                            {spacing}px
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Snap Toggle */}
+                    <div className="setting-row">
+                      <span className="setting-label">Snap to Grid</span>
+                      <label className="switch-control">
+                        <input
+                          type="checkbox"
+                          checked={snapToGrid}
+                          onChange={(e) => {
+                            setSnapToGrid(e.target.checked);
+                            setTimeout(() => persistCanvasSnapshot(), 10);
+                          }}
+                        />
+                        <span className="switch-slider" />
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* JSON Utilities */}
+                <div className="panel-section utilities-section">
+                  <div className="section-title">Utilities</div>
+                  <div className="utility-buttons">
+                    <button type="button" className="util-btn" onClick={exportJSON}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                      Export JSON
+                    </button>
+                    <button type="button" className="util-btn" onClick={() => jsonFileInputRef.current?.click()}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      Import JSON
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="divider" style={{ height: '16px', margin: '0 2px' }} />
+
+          {/* Action buttons: Clear, Save to Workspace, Export PNG */}
+          <button
+            className={`tool-btn clear-btn${clearConfirm ? ' confirming' : ''}`}
+            style={{ width: '28px', height: '28px' }}
+            onClick={handleClear}
+            title="Clear all drawings"
+          >
+            {clearConfirm ? (
+              <span className="confirm-text" style={{ fontSize: '9px' }}>Confirm?</span>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            )}
+          </button>
+          
+          <button
+            className="tool-btn"
+            style={{ width: '28px', height: '28px' }}
+            onClick={downloadPNG}
+            title="Export PNG File"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
+
+          <button
+            className="tool-btn"
+            style={{ width: '28px', height: '28px' }}
+            disabled={isSaving}
+            onClick={saveToWorkspace}
+            title="Save sketch to Project folder (.soryq/sketches/)"
+          >
+            {isSaving ? (
+              <span className="saving-spinner" />
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+                <polyline points="7 3 7 8 15 8"/>
+              </svg>
+            )}
+          </button>
+
+          <div className="divider" style={{ height: '16px', margin: '0 2px' }} />
+
+          {/* Close button */}
+          <button
+            className="tool-btn exit-btn"
+            style={{ width: '28px', height: '28px' }}
+            onClick={exitCanvas}
+            title="Close Sketch Canvas (Esc)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
       )}
       
       <input
