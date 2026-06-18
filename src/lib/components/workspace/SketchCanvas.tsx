@@ -20,6 +20,15 @@ interface Stroke {
   isEraser: boolean;
 }
 
+function getFontFamilyString(family?: string) {
+  if (family === 'monospace') return "'Courier New', Courier, monospace";
+  if (family === 'sans-serif') return "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+  if (family === 'serif') return "'Playfair Display', Georgia, serif";
+  if (family === 'playful') return "'Patrick Hand', 'Comic Neue', cursive";
+  if (family === 'marker') return "'Permanent Marker', Impact, sans-serif";
+  return "'Architects Daughter', 'Caveat', cursive";
+}
+
 interface SketchText {
   id: string;
   x: number;
@@ -28,7 +37,7 @@ interface SketchText {
   color: string;
   fontSize: number;
   opacity: number;
-  fontFamily?: 'handwritten' | 'sans-serif' | 'monospace';
+  fontFamily?: 'handwritten' | 'sans-serif' | 'monospace' | 'serif' | 'playful' | 'marker';
 }
 
 interface SketchShape {
@@ -46,7 +55,7 @@ interface SketchShape {
   text: string;
   strokeWidth?: number;
   roughness?: number; // 0 (architect), 1.5 (artist), 3 (cartoonist)
-  fontFamily?: 'handwritten' | 'sans-serif' | 'monospace';
+  fontFamily?: 'handwritten' | 'sans-serif' | 'monospace' | 'serif' | 'playful' | 'marker';
   fillStyle?: 'transparent' | 'hachure' | 'cross-hatch' | 'solid';
 }
 
@@ -317,7 +326,7 @@ export default function SketchCanvas() {
   const [defaultStrokeWidth, setDefaultStrokeWidth] = useState<number>(2);
   const [defaultStrokeStyle, setDefaultStrokeStyle] = useState<'solid' | 'dashed' | 'dotted' | 'none'>('solid');
   const [defaultRoughness, setDefaultRoughness] = useState<number>(1.5);
-  const [defaultFontFamily, setDefaultFontFamily] = useState<'handwritten' | 'sans-serif' | 'monospace'>('handwritten');
+  const [defaultFontFamily, setDefaultFontFamily] = useState<'handwritten' | 'sans-serif' | 'monospace' | 'serif' | 'playful' | 'marker'>('handwritten');
 
   // Shapes & Text State
   const [sketchShapes, setSketchShapes] = useState<SketchShape[]>([]);
@@ -1982,6 +1991,7 @@ export default function SketchCanvas() {
     setCurrentColor(text.color);
     setBrushSize(Math.round(text.fontSize / 2.5));
     setBrushOpacity(text.opacity);
+    if (text.fontFamily) setDefaultFontFamily(text.fontFamily);
     setSketchTexts(prev => {
       const next = prev.filter(t => t.id !== text.id);
       setTimeout(() => saveState(), 10);
@@ -2241,7 +2251,7 @@ export default function SketchCanvas() {
       tempCtx.fillStyle = text.color;
       tempCtx.globalAlpha = text.opacity;
       const displayFontSize = text.fontSize * zoomScale;
-      const fontFam = text.fontFamily === 'monospace' ? 'monospace' : (text.fontFamily === 'sans-serif' ? 'sans-serif' : '"Architects Daughter", "Caveat", cursive');
+      const fontFam = getFontFamilyString(text.fontFamily);
       tempCtx.font = `500 ${displayFontSize}px ${fontFam}`;
       tempCtx.textBaseline = 'top';
       
@@ -2273,7 +2283,7 @@ export default function SketchCanvas() {
         const displayFontSize = Math.max(11, 13 * zoomScale);
         
         // Font family for text export
-        const fontFam = shape.fontFamily === 'monospace' ? 'monospace' : (shape.fontFamily === 'sans-serif' ? 'sans-serif' : '"Architects Daughter", "Caveat", cursive');
+        const fontFam = getFontFamilyString(shape.fontFamily);
         tempCtx.font = `500 ${displayFontSize}px ${fontFam}`;
         tempCtx.textAlign = 'center';
         tempCtx.textBaseline = 'middle';
@@ -2881,12 +2891,41 @@ export default function SketchCanvas() {
                   {[
                     { value: 'handwritten', label: 'Handwritten' },
                     { value: 'sans-serif', label: 'Sans-Serif' },
-                    { value: 'monospace', label: 'Monospace' }
+                    { value: 'monospace', label: 'Monospace' },
+                    { value: 'serif', label: 'Serif' },
+                    { value: 'playful', label: 'Playful' },
+                    { value: 'marker', label: 'Marker' }
                   ].map((opt) => (
                     <button
                       key={opt.value}
                       className={`style-panel-btn${getSelectedProperty('fontFamily', defaultFontFamily) === opt.value ? ' active' : ''}`}
                       onClick={() => updateSelectedProperty('fontFamily', opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Font Size Section (only for text elements) */}
+            {(selectedTextId || currentTool === 'text') && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Font Size</span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 16, label: 'Small' },
+                    { value: 24, label: 'Medium' },
+                    { value: 36, label: 'Large' },
+                    { value: 50, label: 'X-Large' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${getSelectedProperty('fontSize', Math.max(13, brushSize * 2.5)) === opt.value ? ' active' : ''}`}
+                      onClick={() => {
+                        updateSelectedProperty('fontSize', opt.value);
+                        setBrushSize(Math.round(opt.value / 2.5));
+                      }}
                     >
                       {opt.label}
                     </button>
@@ -2978,7 +3017,7 @@ export default function SketchCanvas() {
               outline: 'none',
               padding: '4px 8px',
               borderRadius: '6px',
-              fontFamily: "'Architects Daughter', 'Caveat', cursive",
+              fontFamily: getFontFamilyString(defaultFontFamily),
               minWidth: `${150 * zoomScale}px`,
               minHeight: `${40 * zoomScale}px`,
               maxWidth: `${400 * zoomScale}px`,

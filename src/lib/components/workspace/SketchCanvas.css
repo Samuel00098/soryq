@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Caveat:wght@400;700&family=Comic+Neue:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Permanent+Marker&family=Patrick+Hand&display=swap');
+
 .sketch-overlay {
   position: absolute;
   inset: 0;
@@ -992,3 +994,237 @@
     width: min(280px, calc(100vw - 20px));
   }
 }
+
+/* --- Excalidraw Style Revamp Additions --- */
+
+/* Font family overrides */
+.font-handwritten {
+  font-family: 'Architects Daughter', 'Caveat', cursive !important;
+}
+.font-sans-serif {
+  font-family: 'Inter', -apple-system, sans-serif !important;
+}
+.font-monospace {
+  font-family: var(--font-mono, monospace) !important;
+}
+.font-serif {
+  font-family: 'Playfair Display', Georgia, serif !important;
+}
+.font-playful {
+  font-family: 'Patrick Hand', 'Comic Neue', cursive !important;
+}
+.font-marker {
+  font-family: 'Permanent Marker', Impact, sans-serif !important;
+}
+
+/* Make shape interaction divs transparent */
+.floating-shape {
+  border-color: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.floating-shape:hover:not(.active-selected) {
+  border: 1px dashed rgba(var(--accent-rgb, 6, 182, 212), 0.45) !important;
+  box-shadow: none !important;
+}
+.floating-shape.active-selected {
+  border: 1px dashed var(--accent) !important;
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb, 6, 182, 212), 0.15) !important;
+}
+
+/* Floating left style panel */
+.sketch-style-panel {
+  position: absolute;
+  left: 20px;
+  top: 88px;
+  width: 230px;
+  max-height: calc(100% - 110px);
+  background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.72);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 14px;
+  z-index: 9015;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  animation: slideRight 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  scrollbar-width: thin;
+}
+
+:root.light-theme .sketch-style-panel {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+@keyframes slideRight {
+  from { transform: translateX(-20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.style-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.style-panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.style-panel-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.style-panel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 550;
+  background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.35);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  min-height: 26px;
+}
+
+:root.light-theme .style-panel-btn {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.style-panel-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.style-panel-btn.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Floating bottom-left control panel */
+.sketch-bottom-left-panel {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  z-index: 9010;
+}
+
+:root.light-theme .sketch-bottom-left-panel {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Floating top-right utilities panel */
+.sketch-top-right-panel {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  z-index: 9010;
+}
+
+:root.light-theme .sketch-top-right-panel {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Top toolbar centering override */
+.sketch-toolbar {
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: auto !important;
+  min-width: unset !important;
+}
+
+/* Custom color preset dot overrides in style panel */
+.style-color-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  width: 100%;
+}
+
+.style-color-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: transform 0.1s ease, border-color 0.1s;
+}
+
+.style-color-dot:hover {
+  transform: scale(1.1);
+}
+
+.style-color-dot.active {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 1.5px var(--accent-light);
+}
+
+.custom-color-picker-btn {
+  grid-column: span 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 550;
+  border-radius: 6px;
+  background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.35);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 5px 0;
+  width: 100%;
+}
+
+.custom-color-picker-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.custom-color-preview {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
