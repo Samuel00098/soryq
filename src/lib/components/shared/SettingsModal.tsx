@@ -410,6 +410,13 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     providerLiveModelsRef.current = providerLiveModels;
   }, [providerLiveModels]);
 
+  const [completionLiveModels, setCompletionLiveModels] = useState<Record<string, AiModelOption[]>>({});
+  const completionLiveModelsRef = useRef<Record<string, AiModelOption[]>>({});
+
+  useEffect(() => {
+    completionLiveModelsRef.current = completionLiveModels;
+  }, [completionLiveModels]);
+
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -477,7 +484,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const localProvider = isLocalProvider(provider);
   const selectedModel = models.find((item) => item.id === model) ?? providerDef.models.find((item) => item.id === model);
   const completionDef = getProviderDef(completionProvider);
-  const completionModels = completionDef.models;
+  const completionModels = completionLiveModels[completionProvider] ?? completionDef.models;
   const completionModel = completionModelMap[completionProvider] || completionDef.defaultModel;
   const voiceInputModels = getVoiceInputModelOptions(voiceInput);
   const refinementModels = getProviderDef(refinementProvider).models;
@@ -547,6 +554,48 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     }
   }, []);
 
+  const loadCompletionLiveModels = useCallback(async (prov: AiProviderId, force = false) => {
+    if (!isTauriRuntime()) return;
+    
+    const isLocal = isLocalProvider(prov);
+    const hasKey = isLocal ? true : await providerApiKeyExists(prov).catch(() => false);
+    
+    if (!hasKey) {
+      setCompletionLiveModels((prev) => {
+        if (!prev[prov]) return prev;
+        const next = { ...prev };
+        delete next[prov];
+        return next;
+      });
+      return;
+    }
+
+    if (!force && completionLiveModelsRef.current[prov]) {
+      return;
+    }
+    
+    try {
+      const remote = await listProviderModels(prov);
+      const curated = new Map(getProviderDef(prov).models.map((m) => [m.id, m]));
+      const merged: AiModelOption[] = remote.map((r) => {
+        const c = curated.get(r.id);
+        return {
+          id: r.id,
+          label: c?.label ?? r.label ?? r.id,
+          description: c?.description ?? r.description ?? '',
+          free: c?.free ?? r.id.endsWith(':free'),
+        };
+      });
+      const finalModels = merged.length ? merged : getProviderDef(prov).models;
+      setCompletionLiveModels((prev) => ({
+        ...prev,
+        [prov]: finalModels,
+      }));
+    } catch (err) {
+      console.error('Failed to load completion models for provider:', prov, err);
+    }
+  }, []);
+
   useEffect(() => {
     setApiKeyInput('');
     if (!isTauriRuntime()) {
@@ -573,6 +622,22 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   }, [provider, loadLiveModels]);
 
   useEffect(() => {
+    const isLocal = isLocalProvider(completionProvider);
+    let active = true;
+    providerApiKeyExists(completionProvider)
+      .then((exists) => {
+        if (!active) return;
+        if (exists || isLocal) {
+          void loadCompletionLiveModels(completionProvider);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [completionProvider, loadCompletionLiveModels]);
+
+  useEffect(() => {
     setLocalUrlInput(getProviderBaseUrl(provider, baseUrls) || '');
   }, [provider, baseUrls]);
 
@@ -581,7 +646,8 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     setProviderBaseUrl(provider, trimmed);
     showToast(`${providerDef.label} server URL saved`, 'success');
     void loadLiveModels(provider, true);
-  }, [provider, providerDef.label, loadLiveModels]);
+    void loadCompletionLiveModels(provider, true);
+  }, [provider, providerDef.label, loadLiveModels, loadCompletionLiveModels]);
 
   const handleResetLocalUrl = useCallback(() => {
     const defaultUrl = providerDef.defaultBaseUrl ?? '';
@@ -589,7 +655,8 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     setProviderBaseUrl(provider, defaultUrl);
     showToast(`${providerDef.label} server URL reset to default`, 'info');
     void loadLiveModels(provider, true);
-  }, [provider, providerDef, loadLiveModels]);
+    void loadCompletionLiveModels(provider, true);
+  }, [provider, providerDef, loadLiveModels, loadCompletionLiveModels]);
 
   async function saveKey() {
     if (!apiKeyInput.trim()) return;
@@ -602,6 +669,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     setKeyExists(true);
     showToast(`${providerDef.label} key saved`, 'success');
     void loadLiveModels(provider, true);
+    void loadCompletionLiveModels(provider, true);
   }
 
   async function clearKey() {
@@ -616,6 +684,11 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
       delete next[provider];
       return next;
     });
+    setCompletionLiveModels((prev) => {
+      const next = { ...prev };
+      delete next[provider];
+      return next;
+    });
     showToast(`${providerDef.label} key removed`, 'success');
   }
 
@@ -625,6 +698,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
       return;
     }
     await loadLiveModels(provider, true);
+    await loadCompletionLiveModels(completionProvider, true);
     showToast('Model list refreshed', 'success');
   }
 
