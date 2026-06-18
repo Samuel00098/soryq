@@ -1205,8 +1205,18 @@ export default function SketchCanvas() {
   // Pointer down (start drawing, typing, or panning)
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
-    if (!target.closest('.floating-shape') && !target.closest('.shape-context-menu')) {
+    if (
+      !target.closest('.floating-shape') &&
+      !target.closest('.floating-text') &&
+      !target.closest('.sketch-style-panel') &&
+      !target.closest('.sketch-toolbar') &&
+      !target.closest('.sketch-bottom-left-panel') &&
+      !target.closest('.sketch-top-right-panel') &&
+      !target.closest('.settings-dropdown-panel')
+    ) {
       setSelectedShapeId(null);
+      setSelectedTextId(null);
+      setSelectedArrowId(null);
     }
 
     if (e.button === 1 || e.button === 2 || currentTool === 'pan' || spacePressed) {
@@ -1558,6 +1568,10 @@ export default function SketchCanvas() {
     
     e.stopPropagation();
     commitText();
+    
+    setSelectedTextId(text.id);
+    setSelectedShapeId(null);
+    setSelectedArrowId(null);
 
     draggingTextIdRef.current = text.id;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
@@ -1645,6 +1659,8 @@ export default function SketchCanvas() {
 
     // Set selected shape
     setSelectedShapeId(shape.id);
+    setSelectedTextId(null);
+    setSelectedArrowId(null);
 
     if (e.target && (e.target as HTMLElement).classList.contains('resize-handle')) {
       return; // Handled by resize handler
@@ -2662,7 +2678,12 @@ export default function SketchCanvas() {
 
         {/* Floating left style settings panel */}
         {showToolbar && (
-          <div className="sketch-style-panel">
+          <div 
+            className="sketch-style-panel"
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Stroke Color Section */}
             <div className="style-panel-section">
               <span className="style-panel-title">Stroke Color</span>
@@ -2974,7 +2995,12 @@ export default function SketchCanvas() {
 
       {/* Sleek horizontal centered top toolbar (Excalidraw-like) */}
       {showToolbar ? (
-        <div className="sketch-toolbar bento-card animate-scale">
+        <div 
+          className="sketch-toolbar bento-card animate-scale"
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Collapse Button */}
           <button
             className="tool-btn collapse-btn"
@@ -3109,7 +3135,12 @@ export default function SketchCanvas() {
 
       {/* Floating bottom-left panel (zoom + history controls) */}
       {showToolbar && (
-        <div className="sketch-bottom-left-panel">
+        <div 
+          className="sketch-bottom-left-panel"
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Zoom controls */}
           <button className="tool-btn zoom-btn" style={{ width: '24px', height: '24px' }} onClick={() => zoomCentered(0.85)} title="Zoom Out">-</button>
           <button className="zoom-display-btn" style={{ padding: '2px 6px', fontSize: '11px', fontWeight: 600, minWidth: '44px' }} onClick={resetZoom} title="Reset Zoom">{Math.round(zoomScale * 100)}%</button>
@@ -3147,7 +3178,12 @@ export default function SketchCanvas() {
 
       {/* Floating top-right actions panel */}
       {showToolbar && (
-        <div className="sketch-top-right-panel">
+        <div 
+          className="sketch-top-right-panel"
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Grid settings trigger */}
           <div className="custom-settings-dropdown-wrapper">
             <button
