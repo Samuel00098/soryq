@@ -54,6 +54,10 @@ import {
   focusPromptBar,
   launchPromptBarVoiceMode,
   activeSessionId,
+  activateSessionInPane,
+  getSessionPromptTargetLabel,
+  isAgentSession,
+  sessions as terminalSessions,
   writeToSession,
 } from '$lib/stores/terminal';
 import { agentCenterOpen } from '$lib/stores/orchestrator';
@@ -73,12 +77,49 @@ type AuxPanelId =
   | 'toolbox'
   | 'pet';
 
+type StagePanelId = 'terminal' | 'workspace' | AuxPanelId;
+
 type ActivityItem = {
   id: string;
   title: string;
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
+};
+
+const PANEL_TITLES: Record<AuxPanelId, string> = {
+  editor: 'Editor',
+  preview: 'Preview',
+  review: 'Review',
+  http: 'HTTP Client',
+  tasks: 'Tasks',
+  db: 'Database',
+  containers: 'Containers',
+  toolbox: 'Toolbox',
+  pet: 'DevPet',
+};
+
+const PANEL_VISIBILITY_KEYS: Record<AuxPanelId, keyof Pick<
+  ReturnType<typeof useLayoutStore.getState>,
+  | 'editorVisible'
+  | 'previewVisible'
+  | 'reviewVisible'
+  | 'httpVisible'
+  | 'tasksVisible'
+  | 'dbVisible'
+  | 'containersVisible'
+  | 'toolboxVisible'
+  | 'petVisible'
+>> = {
+  editor: 'editorVisible',
+  preview: 'previewVisible',
+  review: 'reviewVisible',
+  http: 'httpVisible',
+  tasks: 'tasksVisible',
+  db: 'dbVisible',
+  containers: 'containersVisible',
+  toolbox: 'toolboxVisible',
+  pet: 'petVisible',
 };
 
 const SketchCanvas = lazy(() => import('$lib/components/workspace/SketchCanvas.tsx'));
@@ -161,7 +202,10 @@ function SidebarContent({ tab }: { tab: SidebarTab }) {
   return <FileExplorer />;
 }
 
+import { useGlobalTooltips } from '$lib/react/useGlobalTooltips.ts';
+
 export default function AppShell() {
+  useGlobalTooltips();
   const layoutState = useLayoutStore();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const project = useWorkspaceStore((s) => (s.activeProjectId ? s.projects.get(s.activeProjectId) ?? null : null));
@@ -183,10 +227,13 @@ export default function AppShell() {
   const [auxRowResizing, setAuxRowResizing] = useState(false);
   const [auxPanelWidth, setAuxPanelWidth] = useState(layoutState.auxPanelWidth);
   const [auxEditorHeight, setAuxEditorHeight] = useState(layoutState.auxEditorHeight);
+  const [focusedPanel, setFocusedPanel] = useState<StagePanelId | null>(null);
+  const [minimizedPanels, setMinimizedPanels] = useState<Set<StagePanelId>>(() => new Set());
 
   const sidebarResizeRef = useRef({ startX: 0, startWidth: 0 });
   const auxResizeRef = useRef({ startX: 0, startWidth: 0 });
   const auxRowResizeRef = useRef({ startY: 0, startHeight: 0 });
+  const allTerminalSessions = useStore(terminalSessions);
 
   const visiblePanels = useMemo(
     () =>
@@ -203,6 +250,29 @@ export default function AppShell() {
       ].filter((panel) => panel.visible),
     [layoutState],
   );
+
+  const agentSessions = useMemo(
+    () => allTerminalSessions.filter((session) => session.isRunning && isAgentSession(session)),
+    [allTerminalSessions],
+  );
+
+  const visibleStagePanelIds = useMemo<StagePanelId[]>(
+    () => [
+      ...(layoutState.sidebarVisible ? (['workspace'] as const) : []),
+      'terminal' as const,
+      ...visiblePanels.map((panel) => panel.id),
+    ],
+    [layoutState.sidebarVisible, visiblePanels],
+  );
+
+  const stagePanelIds = useMemo(
+    () => visibleStagePanelIds.filter((id) => !minimizedPanels.has(id)),
+    [minimizedPanels, visibleStagePanelIds],
+  );
+
+  const renderedStagePanelIds = focusedPanel
+    ? stagePanelIds.filter((id) => id === focusedPanel)
+    : stagePanelIds;
 
   const auxTabsNarrow = auxPanelWidth < 300;
   const resizing = sidebarResizing || auxResizing || auxRowResizing;
@@ -245,6 +315,17 @@ export default function AppShell() {
       setAuxPanelWidth(Math.max(200, auxMaxWidth()));
     }
   }, [auxPanelWidth, layoutState.sidebarVisible, layoutState.sidebarWidth, visiblePanels.length, windowWidth, zoom]);
+
+  useEffect(() => {
+    const visible = new Set(visibleStagePanelIds);
+    if (focusedPanel && !visible.has(focusedPanel)) {
+      setFocusedPanel(null);
+    }
+    setMinimizedPanels((current) => {
+      const next = new Set(Array.from(current).filter((id) => visible.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [focusedPanel, visibleStagePanelIds]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -413,6 +494,76 @@ export default function AppShell() {
     document.body.style.userSelect = 'none';
   }
 
+  function persistStageLayoutPatch(patch: Partial<ReturnType<typeof useLayoutStore.getState>>) {
+    useLayoutStore.setState((state) => {
+      const next = { ...state, ...patch };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('soryq_layout', JSON.stringify(next));
+      }
+      return next;
+    });
+  }
+
+  function setStagePanelOpen(id: AuxPanelId, open: boolean) {
+    const key = PANEL_VISIBILITY_KEYS[id];
+    persistStageLayoutPatch({
+      [key]: open,
+      activeView: open ? id : 'terminal',
+      lastAuxView: id,
+      editorSplitPreview: id === 'preview' || id === 'editor' ? layoutState.editorSplitPreview : false,
+    });
+    setMinimizedPanels((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    if (!open && focusedPanel === id) {
+      setFocusedPanel(null);
+    }
+  }
+
+  function toggleStagePanel(id: AuxPanelId) {
+    setStagePanelOpen(id, !layoutState[PANEL_VISIBILITY_KEYS[id]]);
+  }
+
+  function closeStagePanel(id: StagePanelId) {
+    if (id === 'workspace') {
+      toggleSidebar();
+      if (focusedPanel === id) setFocusedPanel(null);
+      return;
+    }
+    if (id !== 'terminal') {
+      setStagePanelOpen(id, false);
+    }
+  }
+
+  function toggleStageFocus(id: StagePanelId) {
+    setMinimizedPanels((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setFocusedPanel((current) => (current === id ? null : id));
+  }
+
+  function toggleStageMinimize(id: StagePanelId) {
+    setFocusedPanel((current) => (current === id ? null : current));
+    setMinimizedPanels((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function restoreStagePanel(id: StagePanelId) {
+    setMinimizedPanels((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  }
+
   const topItems: ActivityItem[] = [
     {
       id: 'files',
@@ -456,7 +607,7 @@ export default function AppShell() {
       id: 'editor',
       title: 'Editor',
       active: layoutState.editorVisible,
-      onClick: toggleEditorVisible,
+      onClick: () => toggleStagePanel('editor'),
       icon: <Icon><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></Icon>,
     },
     {
@@ -470,50 +621,57 @@ export default function AppShell() {
       id: 'preview',
       title: 'Preview',
       active: layoutState.previewVisible,
-      onClick: togglePreviewVisible,
+      onClick: () => toggleStagePanel('preview'),
       icon: <Icon><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></Icon>,
     },
     {
       id: 'review',
       title: 'Code Review',
       active: layoutState.reviewVisible,
-      onClick: toggleReviewVisible,
+      onClick: () => toggleStagePanel('review'),
       icon: <Icon><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M13 6h3a2 2 0 0 1 2 2v7" /><path d="M11 18H8a2 2 0 0 1-2-2V9" /></Icon>,
     },
     {
       id: 'http',
       title: 'HTTP Client',
       active: layoutState.httpVisible,
-      onClick: toggleHttpVisible,
+      onClick: () => toggleStagePanel('http'),
       icon: <Icon><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></Icon>,
     },
     {
       id: 'tasks',
       title: 'Tasks',
       active: layoutState.tasksVisible,
-      onClick: toggleTasksVisible,
+      onClick: () => toggleStagePanel('tasks'),
       icon: <Icon><rect x="3" y="3" width="5" height="18" rx="1" /><rect x="10" y="3" width="5" height="12" rx="1" /><rect x="17" y="3" width="5" height="8" rx="1" /></Icon>,
     },
     {
       id: 'db',
       title: 'Database Explorer',
       active: layoutState.dbVisible,
-      onClick: toggleDbVisible,
+      onClick: () => toggleStagePanel('db'),
       icon: <Icon><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" /></Icon>,
     },
     {
       id: 'containers',
       title: 'Containers',
       active: layoutState.containersVisible,
-      onClick: toggleContainersVisible,
+      onClick: () => toggleStagePanel('containers'),
       icon: <Icon><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="M4 12.5 12 17l8-4.5" /><path d="M4 17.5 12 22l8-4.5" /></Icon>,
     },
     {
       id: 'toolbox',
       title: 'Dev Toolbox',
       active: layoutState.toolboxVisible,
-      onClick: toggleToolboxVisible,
+      onClick: () => toggleStagePanel('toolbox'),
       icon: <Icon><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></Icon>,
+    },
+    {
+      id: 'pet',
+      title: 'DevPet',
+      active: layoutState.petVisible,
+      onClick: () => toggleStagePanel('pet'),
+      icon: <Icon><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></Icon>,
     },
   ];
 

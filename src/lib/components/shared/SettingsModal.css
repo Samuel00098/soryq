@@ -17,6 +17,7 @@
   background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+  overscroll-behavior: contain;
 }
 
 .settings-modal {
@@ -119,6 +120,7 @@
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-primary) 15%, transparent);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .settings-tabs button {
@@ -168,6 +170,7 @@
   min-width: 0;
   padding: 24px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: transparent;
 }
 

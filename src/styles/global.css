@@ -576,3 +576,46 @@ input:focus {
   gap: 3px !important;
   letter-spacing: 0.02em;
 }
+
+/* ─── Custom Global Tooltip ─────────────────── */
+.global-tooltip {
+  position: fixed;
+  z-index: 10000; /* High z-index to show above modal backdrops */
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 550;
+  color: var(--text-primary);
+  background: rgba(var(--bg-tertiary-rgb, 34, 34, 42), 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px) scale(0.96);
+  transition: opacity 0.12s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.global-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Light transparent theme adjustments */
+:root:not(.solid-theme).light-theme .global-tooltip {
+  background: rgba(255, 255, 255, 0.85);
+  color: #111116;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* Solid theme overrides */
+:root.solid-theme .global-tooltip {
+  background: var(--bg-tertiary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
