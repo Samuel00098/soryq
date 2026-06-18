@@ -72,6 +72,38 @@
   opacity: 0.35 !important;
 }
 
+/* Ensure titlebar buttons are transparent by default in transparency mode */
+:root:not(.solid-theme) .titlebar .icon-btn,
+:root:not(.solid-theme) .titlebar .nav-btn,
+:root:not(.solid-theme) .titlebar .github-push-btn {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Translucent hover highlights for titlebar buttons */
+:root:not(.solid-theme):not(.light-theme) .titlebar .icon-btn:hover:not(:disabled),
+:root:not(.solid-theme):not(.light-theme) .titlebar .nav-btn:hover:not(:disabled),
+:root:not(.solid-theme):not(.light-theme) .titlebar .github-push-btn:hover:not(:disabled),
+:root:not(.solid-theme):not(.light-theme) .titlebar .wc-min:hover,
+:root:not(.solid-theme):not(.light-theme) .titlebar .wc-max:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+:root:not(.solid-theme).light-theme .titlebar .icon-btn:hover:not(:disabled),
+:root:not(.solid-theme).light-theme .titlebar .nav-btn:hover:not(:disabled),
+:root:not(.solid-theme).light-theme .titlebar .github-push-btn:hover:not(:disabled),
+:root:not(.solid-theme).light-theme .titlebar .wc-min:hover,
+:root:not(.solid-theme).light-theme .titlebar .wc-max:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Translucent active highlights (obeying theme accent color) */
+:root:not(.solid-theme) .titlebar .icon-btn.active,
+:root:not(.solid-theme) .titlebar .nav-btn.active,
+:root:not(.solid-theme) .titlebar .github-push-btn.active {
+  background: rgba(var(--accent-rgb, 174, 182, 194), 0.18) !important;
+}
+
 /* Make terminal translucent in transparency mode by removing double-stacking */
 :root:not(.solid-theme) .terminal-container {
   background: transparent !important;
@@ -519,9 +551,8 @@ input:focus {
 }
 
 /* ── Voice Input Provider Card overrides ──────────────────────────────────
-   These MUST live in global.css because Svelte's CSS dead-code elimination
-   strips descendant-combinator rules it can't statically verify inside
-   {#each} blocks in SettingsModal.svelte.
+   These remain global because provider cards are rendered from dynamic data,
+   and the selectors intentionally reach into repeated card markup.
    ─────────────────────────────────────────────────────────────────────── */
 
 /* Subtitle: clamp to 2 lines and remove forced min-height */
