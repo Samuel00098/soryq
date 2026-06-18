@@ -63,6 +63,7 @@ import {
   type VoiceInputProviderId,
 } from '$lib/stores/settings';
 import { clearProviderApiKey, listProviderModels, providerApiKeyExists, saveProviderApiKey } from '$lib/services/ai-keychain';
+import { describeTtsError, getVoiceReplyConfigError, speak, stopSpeaking } from '$lib/services/tts';
 import { requestNotificationPermission, showToast } from '$lib/stores/notification';
 import { checkForUpdate, installUpdate, pendingUpdate, updateChecking, updateDownloading, updateProgress } from '$lib/stores/updater';
 import { get } from '$lib/stores/storeCompat';
@@ -367,6 +368,14 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   useEffect(() => {
     providerLiveModelsRef.current = providerLiveModels;
   }, [providerLiveModels]);
+
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+    };
+  }, []);
   const [updateMessage, setUpdateMessage] = useState('');
   const [showingCustomThemeEditor, setShowingCustomThemeEditor] = useState(false);
   const [customThemeName, setCustomThemeName] = useState('');
@@ -577,6 +586,37 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     await loadLiveModels(provider, true);
     showToast('Model list refreshed', 'success');
   }
+
+  const previewVoiceOption = useCallback(async (voiceId: string) => {
+    if (previewingVoiceId === voiceId) {
+      stopSpeaking();
+      setPreviewingVoiceId(null);
+      return;
+    }
+
+    const configError = getVoiceReplyConfigError({
+      provider: conversationProvider,
+      model: ttsModel,
+      voice: voiceId,
+    });
+    if (configError) {
+      showToast(configError, 'warning');
+      return;
+    }
+
+    setPreviewingVoiceId(voiceId);
+    try {
+      await speak('Hello, this is a quick preview of my voice in Soryq.', {
+        provider: conversationProvider,
+        model: ttsModel,
+        voice: voiceId,
+      });
+    } catch (error) {
+      showToast(describeTtsError(error), 'error');
+    } finally {
+      setPreviewingVoiceId(null);
+    }
+  }, [conversationProvider, ttsModel, previewingVoiceId]);
 
   async function checkUpdates() {
     setUpdateMessage('');
@@ -1045,12 +1085,32 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   )}
                   {ttsVoices.length > 0 && (
                     <SettingRow title="Voice">
-                      <StyledSelect
-                        value={ttsVoice}
-                        options={ttsVoices.map((v) => ({ id: v.id, label: v.label }))}
-                        onChange={(value) => setVoiceConversationTtsVoice(conversationProvider, value)}
-                        ariaLabel="TTS voice"
-                      />
+                      <div className="voice-selector-row" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
+                        <div style={{ flex: 1 }}>
+                          <StyledSelect
+                            value={ttsVoice}
+                            options={ttsVoices.map((v) => ({ id: v.id, label: v.label }))}
+                            onChange={(value) => setVoiceConversationTtsVoice(conversationProvider, value)}
+                            ariaLabel="TTS voice"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className={`voice-preview-btn${previewingVoiceId === ttsVoice ? ' playing' : ''}`}
+                          onClick={() => void previewVoiceOption(ttsVoice)}
+                          title={previewingVoiceId === ttsVoice ? 'Stop preview' : 'Play preview'}
+                        >
+                          {previewingVoiceId === ttsVoice ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                              <rect x="4" y="4" width="16" height="16" rx="2" />
+                            </svg>
+                          ) : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                              <polygon points="5 3 19 12 5 21" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </SettingRow>
                   )}
                 </Section>
