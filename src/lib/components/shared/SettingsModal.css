@@ -426,7 +426,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  padding: 4px 0 20px;
+  padding: 16px 18px;
 }
 
 .shortcut-group {
@@ -449,17 +449,23 @@
   background: color-mix(in srgb, var(--bg-primary) 8%, transparent);
 }
 
+.shortcut-row-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+
+.shortcut-row-container:last-child {
+  border-bottom: none;
+}
+
 .shortcut-row {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) minmax(128px, 154px);
   gap: 12px;
   align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-subtle, var(--border));
-}
-
-.shortcut-row:last-child {
-  border-bottom: none;
 }
 
 .shortcut-row span {
@@ -472,6 +478,13 @@
   height: 30px;
   font-family: inherit;
   text-align: right;
+}
+
+.custom-shortcut-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
 }
 
 /* ── About Tab ── */

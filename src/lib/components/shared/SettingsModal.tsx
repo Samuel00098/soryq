@@ -390,8 +390,8 @@ function ShortcutEditor({
         <div className="shortcut-group" key={group}>
           <h4>{group}</h4>
           {items.map((shortcut) => (
-            <div className="shortcut-row-container" key={shortcut.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px' }}>
-              <label className="shortcut-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="shortcut-row-container" key={shortcut.id}>
+              <label className="shortcut-row">
                 <span>{shortcut.label}</span>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input value={shortcut.keys} onChange={(event) => onUpdate(shortcut.id, event.target.value)} />
@@ -1395,7 +1395,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   />
                 </Section>
                 <Section title="Add custom command shortcut">
-                  <div className="custom-shortcut-form" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                  <div className="custom-shortcut-form">
                     <div style={{ display: 'flex', gap: '10px' }}>
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>Label / Name</span>
