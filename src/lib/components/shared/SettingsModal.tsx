@@ -122,19 +122,28 @@ function StyledSelect<T extends string>({
   options,
   onChange,
   ariaLabel,
+  showSearch = false,
 }: {
   value: T;
   options: { id: T; label: string }[];
   onChange: (value: T) => void;
   ariaLabel: string;
+  showSearch?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
+  const [searchQuery, setSearchQuery] = useState('');
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLUListElement>(null);
   const selectedLabel = options.find((o) => o.id === value)?.label ?? value;
 
   const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery('');
+    }
+  }, [open]);
 
   // Compute panel position from trigger's rect relative to the settings modal
   const updatePosition = useCallback(() => {
@@ -202,6 +211,12 @@ function StyledSelect<T extends string>({
     };
   }, [open, close, updatePosition]);
 
+  const filteredOptions = useMemo(() => {
+    if (!showSearch || !searchQuery.trim()) return options;
+    const q = searchQuery.toLowerCase();
+    return options.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
+  }, [options, showSearch, searchQuery]);
+
   const panel = open
     ? createPortal(
         <ul
@@ -210,22 +225,47 @@ function StyledSelect<T extends string>({
           role="listbox"
           style={panelStyle}
         >
-          {options.map((opt) => (
-            <li
-              key={opt.id}
-              role="option"
-              aria-selected={opt.id === value}
-              className={`sselect-option${opt.id === value ? ' selected' : ''}`}
-              onMouseDown={() => { onChange(opt.id); setOpen(false); }}
-            >
-              {opt.id === value && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+          {showSearch && (
+            <div className="model-search-bar" onMouseDown={(e) => e.stopPropagation()}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                className="model-search-input"
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                spellCheck="false"
+                autoComplete="off"
+                autoFocus
+              />
+              {searchQuery && (
+                <button type="button" className="model-search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search">×</button>
               )}
-              {opt.label}
-            </li>
-          ))}
+            </div>
+          )}
+          {filteredOptions.length === 0 ? (
+            <div className="model-empty">No options found.</div>
+          ) : (
+            filteredOptions.map((opt) => (
+              <li
+                key={opt.id}
+                role="option"
+                aria-selected={opt.id === value}
+                className={`sselect-option${opt.id === value ? ' selected' : ''}`}
+                onMouseDown={() => { onChange(opt.id); setOpen(false); }}
+              >
+                {opt.id === value && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+                {opt.label}
+              </li>
+            ))
+          )}
         </ul>,
         document.querySelector('.settings-modal') || document.body,
       )
@@ -307,6 +347,7 @@ function ModelSelect({
       options={models.map((m) => ({ id: m.id, label: m.label }))}
       onChange={onChange}
       ariaLabel={label}
+      showSearch={true}
     />
   );
 }
