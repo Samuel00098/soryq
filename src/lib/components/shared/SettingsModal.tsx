@@ -355,26 +355,30 @@ function ModelSelect({
 function ShortcutEditor({
   shortcuts,
   onUpdate,
+  onDelete,
 }: {
   shortcuts: KeyboardShortcut[];
   onUpdate: (id: string, keys: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const grouped = useMemo(() => {
     const groups = new Map<string, KeyboardShortcut[]>();
     for (const shortcut of shortcuts) {
-      const category = shortcut.id.startsWith('canvas')
-        ? 'Canvas'
-        : shortcut.id.includes('Terminal') || shortcut.id === 'newTerminal'
-          ? 'Terminal'
-          : shortcut.id.includes('zoom') || shortcut.id.includes('Zoom')
-            ? 'Window'
-            : shortcut.id.includes('Preview') || shortcut.id.includes('proxy')
-              ? 'Preview'
-              : shortcut.id.includes('File') || shortcut.id.includes('Folder')
-                ? 'File'
-                : shortcut.id.includes('Voice')
-                  ? 'Voice'
-                  : 'Workspace';
+      const category = shortcut.id.startsWith('custom_')
+        ? 'Custom Commands'
+        : shortcut.id.startsWith('canvas')
+          ? 'Canvas'
+          : shortcut.id.includes('Terminal') || shortcut.id === 'newTerminal'
+            ? 'Terminal'
+            : shortcut.id.includes('zoom') || shortcut.id.includes('Zoom')
+              ? 'Window'
+              : shortcut.id.includes('Preview') || shortcut.id.includes('proxy')
+                ? 'Preview'
+                : shortcut.id.includes('File') || shortcut.id.includes('Folder')
+                  ? 'File'
+                  : shortcut.id.includes('Voice')
+                    ? 'Voice'
+                    : 'Workspace';
       groups.set(category, [...(groups.get(category) ?? []), shortcut]);
     }
     return [...groups.entries()];
@@ -386,10 +390,38 @@ function ShortcutEditor({
         <div className="shortcut-group" key={group}>
           <h4>{group}</h4>
           {items.map((shortcut) => (
-            <label className="shortcut-row" key={shortcut.id}>
-              <span>{shortcut.label}</span>
-              <input value={shortcut.keys} onChange={(event) => onUpdate(shortcut.id, event.target.value)} />
-            </label>
+            <div className="shortcut-row-container" key={shortcut.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px' }}>
+              <label className="shortcut-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>{shortcut.label}</span>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input value={shortcut.keys} onChange={(event) => onUpdate(shortcut.id, event.target.value)} />
+                  {shortcut.id.startsWith('custom_') && (
+                    <button 
+                      type="button"
+                      className="settings-delete-btn"
+                      onClick={() => onDelete(shortcut.id)}
+                      title="Delete Custom Shortcut"
+                      style={{
+                        background: 'rgba(248, 113, 113, 0.1)',
+                        color: 'var(--error)',
+                        border: '1px solid rgba(248, 113, 113, 0.2)',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </label>
+              {shortcut.id.startsWith('custom_') && shortcut.command && (
+                <div style={{ paddingLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Command: <code>{shortcut.command}</code>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       ))}
@@ -399,6 +431,9 @@ function ShortcutEditor({
 
 export default function SettingsModal({ onclose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('general');
+  const [customLabel, setCustomLabel] = useState('');
+  const [customKeys, setCustomKeys] = useState('');
+  const [customCommand, setCustomCommand] = useState('');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keyExists, setKeyExists] = useState(false);
   const [providerLiveModels, setProviderLiveModels] = useState<Record<string, AiModelOption[]>>({});
@@ -750,6 +785,39 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
 
   function updateShortcut(id: string, keys: string) {
     userShortcuts.set(shortcuts.map((shortcut) => (shortcut.id === id ? { ...shortcut, keys } : shortcut)));
+  }
+
+  function handleAddShortcut() {
+    if (!customLabel.trim() || !customKeys.trim() || !customCommand.trim()) {
+      showToast('Please fill out all fields to add a shortcut.', 'warning');
+      return;
+    }
+
+    const keysLower = customKeys.trim().toLowerCase();
+    const isConflict = shortcuts.some(s => s && s.keys.toLowerCase() === keysLower);
+    if (isConflict) {
+      showToast(`Shortcut '${customKeys}' is already assigned.`, 'warning');
+      return;
+    }
+
+    const newId = `custom_${Math.random().toString(36).substring(2, 9)}`;
+    const newShortcut = {
+      id: newId,
+      label: customLabel.trim(),
+      keys: customKeys.trim(),
+      command: customCommand.trim()
+    };
+
+    userShortcuts.set([...shortcuts, newShortcut]);
+    setCustomLabel('');
+    setCustomKeys('');
+    setCustomCommand('');
+    showToast('Custom shortcut added successfully.', 'info');
+  }
+
+  function handleDeleteShortcut(id: string) {
+    userShortcuts.set(shortcuts.filter((s) => s && s.id !== id));
+    showToast('Shortcut deleted.', 'info');
   }
 
   async function handleImportTheme() {
@@ -1320,7 +1388,88 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
             {activeTab === 'shortcuts' && (
               <>
                 <Section title="Keyboard shortcuts">
-                  <ShortcutEditor shortcuts={shortcuts} onUpdate={updateShortcut} />
+                  <ShortcutEditor 
+                    shortcuts={shortcuts} 
+                    onUpdate={updateShortcut} 
+                    onDelete={handleDeleteShortcut} 
+                  />
+                </Section>
+                <Section title="Add custom command shortcut">
+                  <div className="custom-shortcut-form" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>Label / Name</span>
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Build Project" 
+                          value={customLabel} 
+                          onChange={(e) => setCustomLabel(e.target.value)} 
+                          style={{
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            color: 'var(--text-primary)',
+                            padding: '6px 10px',
+                            fontSize: '13px',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>Key Combination</span>
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Ctrl+Alt+B" 
+                          value={customKeys} 
+                          onChange={(e) => setCustomKeys(e.target.value)} 
+                          style={{
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            color: 'var(--text-primary)',
+                            padding: '6px 10px',
+                            fontSize: '13px',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 500 }}>Terminal Command</span>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. npm run build" 
+                        value={customCommand} 
+                        onChange={(e) => setCustomCommand(e.target.value)} 
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '6px',
+                          color: 'var(--text-primary)',
+                          padding: '6px 10px',
+                          fontSize: '13px',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                    
+                    <button 
+                      type="button"
+                      className="settings-primary" 
+                      onClick={handleAddShortcut}
+                      style={{
+                        alignSelf: 'flex-start',
+                        marginTop: '4px',
+                        padding: '6px 14px',
+                        fontSize: '12px',
+                        borderRadius: '6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Add Shortcut
+                    </button>
+                  </div>
                 </Section>
                 <div className="settings-footer-actions">
                   <button className="settings-secondary" onClick={() => userShortcuts.set(defaultShortcuts)}>Reset shortcuts</button>

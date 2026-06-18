@@ -1,54 +1,36 @@
-import { writable, derived, get } from 'svelte/store';
+import { writable, derived, get } from '$lib/stores/storeCompat';
 import { getAppFlag, setAppFlag } from '$lib/services/app-flags';
+import { useSettingsStore } from './zustand/settings';
 
-function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
+function persistentWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
   if (typeof window === 'undefined') {
     return writable(defaultValue);
   }
-  // One-time migration to move users off unstable terminal renderers.
-  let stored = localStorage.getItem(`forge_setting_${key}`);
-  if (key === 'terminalRenderer' && stored !== null) {
-    try {
-      const parsed = JSON.parse(stored);
-      const rendererMigrationKey = 'forge_setting_terminalRenderer_migrated_v2';
-      if (!localStorage.getItem(rendererMigrationKey) && (parsed === 'webgl' || parsed === 'canvas')) {
-        localStorage.setItem('forge_setting_terminalRenderer', JSON.stringify('dom'));
-        localStorage.setItem(rendererMigrationKey, '1');
-        stored = JSON.stringify('dom');
-      }
-    } catch (e) {
-      // Ignore JSON parse errors
-    }
-  }
-  let initialValue: T;
-  try {
-    initialValue = stored !== null ? JSON.parse(stored) : defaultValue;
-  } catch {
-    initialValue = defaultValue;
-  }
 
-  if (key === 'userShortcuts') {
-    if (!Array.isArray(initialValue)) {
-      initialValue = defaultValue;
-    } else {
-      // Merge missing default shortcuts
-      const defaultList = defaultValue as unknown as KeyboardShortcut[];
-      const currentList = initialValue as KeyboardShortcut[];
-      const updatedList = [...currentList];
-      for (const def of defaultList) {
-        if (!updatedList.some(item => item && item.id === def.id)) {
-          updatedList.push(def);
-        }
-      }
-      initialValue = updatedList as unknown as T;
-    }
-  }
+  const zustandVal = (useSettingsStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
 
-  const store = writable<T>(initialValue);
-  store.subscribe((val) => {
-    localStorage.setItem(`forge_setting_${key}`, JSON.stringify(val));
+  const store = writable<T>(initial);
+
+  // Sync Zustand → writable on every change
+  const unsub = useSettingsStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) {
+      store.set(next);
+    }
   });
-  return store;
+
+  return {
+    subscribe: store.subscribe,
+    set(value: T) {
+      (useSettingsStore.getState() as any).__set(key, value);
+    },
+    update(fn: (val: T) => T) {
+      const current = (useSettingsStore.getState() as any)[key] as T;
+      const next = fn(current);
+      (useSettingsStore.getState() as any).__set(key, next);
+    },
+  };
 }
 
 const FONT_CANDIDATES = [
@@ -820,6 +802,7 @@ export interface KeyboardShortcut {
   id: string;
   label: string;
   keys: string;
+  command?: string; // Custom shell command to run in active terminal
 }
 
 export interface ShortcutAction {
