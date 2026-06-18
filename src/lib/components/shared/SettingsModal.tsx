@@ -843,8 +843,8 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   }
 
   return (
-    <div className="settings-overlay" onClick={onclose}>
-      <div className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
+    <div className="settings-overlay">
+      <div className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="settings-header">
           <div>
             <span className="settings-eyebrow">Preferences</span>
