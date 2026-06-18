@@ -2695,34 +2695,36 @@ export default function SketchCanvas() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Stroke Color Section */}
-            <div className="style-panel-section">
-              <span className="style-panel-title">Stroke Color</span>
-              <div className="style-color-grid">
-                {presetColors.map((col) => {
-                  const activeColor = getSelectedProperty('color', currentColor);
-                  return (
-                    <button
-                      key={col.value}
-                      className={`style-color-dot${activeColor === col.value ? ' active' : ''}`}
-                      style={{
-                        backgroundColor: col.value,
-                        border: `1.5px solid ${col.value === '#ffffff' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)'}`
-                      }}
-                      onClick={() => updateSelectedColor(col.value)}
-                      title={col.name}
-                    />
-                  );
-                })}
-                <button
-                  className="custom-color-picker-btn"
-                  onClick={() => colorPickerRef.current?.click()}
-                  title="Custom Stroke Color"
-                >
-                  <div className="custom-color-preview" style={{ backgroundColor: getSelectedProperty('color', currentColor) }} />
-                  Custom
-                </button>
+            {currentTool !== 'eraser' && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Stroke Color</span>
+                <div className="style-color-grid">
+                  {presetColors.map((col) => {
+                    const activeColor = getSelectedProperty('color', currentColor);
+                    return (
+                      <button
+                        key={col.value}
+                        className={`style-color-dot${activeColor === col.value ? ' active' : ''}`}
+                        style={{
+                          backgroundColor: col.value,
+                          border: `1.5px solid ${col.value === '#ffffff' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)'}`
+                        }}
+                        onClick={() => updateSelectedColor(col.value)}
+                        title={col.name}
+                      />
+                    );
+                  })}
+                  <button
+                    className="custom-color-picker-btn"
+                    onClick={() => colorPickerRef.current?.click()}
+                    title="Custom Stroke Color"
+                  >
+                    <div className="custom-color-preview" style={{ backgroundColor: getSelectedProperty('color', currentColor) }} />
+                    Custom
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Background/Fill Section (only for shapes) */}
             {(selectedShapeId || ['rectangle', 'circle', 'diamond'].includes(currentTool)) && (
@@ -2818,7 +2820,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Stroke Width Section */}
-            {(!selectedTextId && currentTool !== 'text') && (
+            {(!selectedTextId && !['text', 'pen', 'eraser'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Stroke Width</span>
                 <div className="style-panel-grid">
@@ -2839,8 +2841,33 @@ export default function SketchCanvas() {
               </div>
             )}
 
+            {/* Brush / Eraser Size Section (only for pen and eraser) */}
+            {(currentTool === 'pen' || currentTool === 'eraser') && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">
+                  {currentTool === 'eraser' ? 'Eraser Size' : 'Brush Size'}
+                </span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 2, label: 'Thin' },
+                    { value: 6, label: 'Medium' },
+                    { value: 12, label: 'Thick' },
+                    { value: 24, label: 'Extra Thick' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${brushSize === opt.value ? ' active' : ''}`}
+                      onClick={() => setBrushSize(opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Stroke Style Section */}
-            {(!selectedTextId && currentTool !== 'text') && (
+            {(!selectedTextId && !['text', 'pen', 'eraser'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Stroke Style</span>
                 <div className="style-panel-grid">
@@ -2862,7 +2889,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Sloppiness / Roughness Section */}
-            {(!selectedTextId && currentTool !== 'text') && (
+            {(!selectedTextId && !['text', 'pen', 'eraser'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Sloppiness</span>
                 <div className="style-panel-grid">
@@ -2935,20 +2962,22 @@ export default function SketchCanvas() {
             )}
 
             {/* Opacity Section */}
-            <div className="style-panel-section">
-              <span className="style-panel-title">Opacity ({Math.round(getSelectedProperty('opacity', brushOpacity) * 100)}%)</span>
-              <div className="opacity-slider" style={{ padding: '4px 0' }}>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1.0"
-                  step="0.05"
-                  value={getSelectedProperty('opacity', brushOpacity)}
-                  onChange={(e) => updateSelectedProperty('opacity', Number(e.target.value))}
-                  style={{ width: '100%' }}
-                />
+            {currentTool !== 'eraser' && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Opacity ({Math.round(getSelectedProperty('opacity', brushOpacity) * 100)}%)</span>
+                <div className="opacity-slider" style={{ padding: '4px 0' }}>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.05"
+                    value={getSelectedProperty('opacity', brushOpacity)}
+                    onChange={(e) => updateSelectedProperty('opacity', Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Layering & Delete Actions (only when element is selected) */}
             {(selectedShapeId || selectedTextId || selectedArrowId) && (
