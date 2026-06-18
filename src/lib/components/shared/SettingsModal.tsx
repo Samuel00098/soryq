@@ -843,7 +843,11 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   }
 
   return (
-    <div className="settings-overlay">
+    <div className="settings-overlay" onClick={(e) => {
+      if (e.target === e.currentTarget) {
+        onclose();
+      }
+    }}>
       <div className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="settings-header">
           <div>
