@@ -72,6 +72,7 @@ import { activeTheme, switchPresetTheme, saveTheme, importTheme, themeColorField
 import { presetThemes } from '$lib/stores/presetThemes';
 import { chooseBackgroundImage, removeBackgroundImage, backgroundImagePresent } from '$lib/stores/background';
 import './SettingsModal.css';
+import Dropdown from './Dropdown';
 
 type Tab = 'general' | 'appearance' | 'models' | 'voice' | 'terminal' | 'shortcuts' | 'about';
 
@@ -120,20 +121,22 @@ function SelectField<T extends string>({
   options,
   onChange,
   ariaLabel,
+  disabled,
 }: {
   value: T;
   options: { id: T; label: string }[];
   onChange: (value: T) => void;
   ariaLabel: string;
+  disabled?: boolean;
 }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value as T)} aria-label={ariaLabel}>
-      {options.map((item) => (
-        <option key={item.id} value={item.id}>
-          {item.label}
-        </option>
-      ))}
-    </select>
+    <Dropdown
+      options={options.map((opt) => ({ value: opt.id, label: opt.label }))}
+      value={value}
+      onChange={(val) => onChange(val as T)}
+      ariaLabel={ariaLabel}
+      disabled={disabled}
+    />
   );
 }
 
@@ -178,13 +181,16 @@ function ModelSelect({
   label: string;
 }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label}>
-      {models.map((model) => (
-        <option key={model.id} value={model.id}>
-          {model.label}
-        </option>
-      ))}
-    </select>
+    <Dropdown
+      options={models.map((model) => ({
+        value: model.id,
+        label: model.label,
+        sublabel: model.description,
+      }))}
+      value={value}
+      onChange={onChange}
+      ariaLabel={label}
+    />
   );
 }
 
@@ -789,13 +795,16 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   )}
                   {ttsVoices.length > 0 && (
                     <SettingRow title="Voice">
-                      <select value={ttsVoice} onChange={(event) => setVoiceConversationTtsVoice(conversationProvider, event.target.value)} aria-label="TTS voice">
-                        {ttsVoices.map((voice) => (
-                          <option key={voice.id} value={voice.id}>
-                            {voice.label}
-                          </option>
-                        ))}
-                      </select>
+                      <Dropdown
+                        options={ttsVoices.map((voice) => ({
+                          value: voice.id,
+                          label: voice.label,
+                          sublabel: voice.description,
+                        }))}
+                        value={ttsVoice}
+                        onChange={(val) => setVoiceConversationTtsVoice(conversationProvider, val)}
+                        ariaLabel="TTS voice"
+                      />
                     </SettingRow>
                   )}
                 </Section>
