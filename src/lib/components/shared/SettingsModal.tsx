@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import packageJson from '../../../../package.json';
 import {
   aiBaseUrlByProvider,
@@ -25,7 +26,6 @@ import {
   formatOnSave,
   getProviderBaseUrl,
   getProviderDef,
-  getProviderTtsBadge,
   getTtsModelOptions,
   getTtsVoiceOptionsForModel,
   getVoiceInputModelOptions,
@@ -71,8 +71,8 @@ import { isTauriRuntime } from '$lib/utils/tauri';
 import { activeTheme, switchPresetTheme, saveTheme, importTheme, themeColorFields } from '$lib/stores/theme';
 import { presetThemes } from '$lib/stores/presetThemes';
 import { chooseBackgroundImage, removeBackgroundImage, backgroundImagePresent } from '$lib/stores/background';
+import { getAvailableShells, type ShellInfo } from '$lib/services/pty-bridge';
 import './SettingsModal.css';
-import Dropdown from './Dropdown';
 
 type Tab = 'general' | 'appearance' | 'models' | 'voice' | 'terminal' | 'shortcuts' | 'about';
 
@@ -116,28 +116,138 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (che
   );
 }
 
-function SelectField<T extends string>({
+function StyledSelect<T extends string>({
   value,
   options,
   onChange,
   ariaLabel,
-  disabled,
 }: {
   value: T;
   options: { id: T; label: string }[];
   onChange: (value: T) => void;
   ariaLabel: string;
-  disabled?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLUListElement>(null);
+  const selectedLabel = options.find((o) => o.id === value)?.label ?? value;
+
+  const close = useCallback(() => setOpen(false), []);
+
+  // Compute panel position from trigger's screen rect
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const openDown = spaceBelow >= 200 || spaceBelow >= spaceAbove;
+    if (openDown) {
+      setPanelStyle({
+        position: 'fixed',
+        top: rect.bottom + 6,
+        left: rect.left,
+        width: rect.width,
+        maxHeight: Math.min(240, spaceBelow - 12),
+      });
+    } else {
+      setPanelStyle({
+        position: 'fixed',
+        bottom: window.innerHeight - rect.top + 6,
+        left: rect.left,
+        width: rect.width,
+        maxHeight: Math.min(240, spaceAbove - 12),
+      });
+    }
+  }, []);
+
+  // Open: measure position then show
+  const toggle = useCallback(() => {
+    if (!open) updatePosition();
+    setOpen((v) => !v);
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (
+        triggerRef.current && !triggerRef.current.contains(target) &&
+        panelRef.current && !panelRef.current.contains(target)
+      ) close();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') close();
+    }
+    function onScroll() { updatePosition(); }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open, close, updatePosition]);
+
+  const panel = open
+    ? createPortal(
+        <ul
+          ref={panelRef}
+          className="sselect-panel"
+          role="listbox"
+          style={panelStyle}
+        >
+          {options.map((opt) => (
+            <li
+              key={opt.id}
+              role="option"
+              aria-selected={opt.id === value}
+              className={`sselect-option${opt.id === value ? ' selected' : ''}`}
+              onMouseDown={() => { onChange(opt.id); setOpen(false); }}
+            >
+              {opt.id === value && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+              {opt.label}
+            </li>
+          ))}
+        </ul>,
+        document.body,
+      )
+    : null;
+
   return (
-    <Dropdown
-      options={options.map((opt) => ({ value: opt.id, label: opt.label }))}
-      value={value}
-      onChange={(val) => onChange(val as T)}
-      ariaLabel={ariaLabel}
-      disabled={disabled}
-    />
+    <div className={`sselect${open ? ' open' : ''}`} aria-label={ariaLabel}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="sselect-trigger"
+        onClick={toggle}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="sselect-value">{selectedLabel}</span>
+        <svg className="sselect-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {panel}
+    </div>
   );
+}
+
+// Alias — SelectField and ModelSelect both now use StyledSelect under the hood
+function SelectField<T extends string>(props: {
+  value: T;
+  options: { id: T; label: string }[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+}) {
+  return <StyledSelect {...props} />;
 }
 
 function SettingRow({
@@ -181,13 +291,9 @@ function ModelSelect({
   label: string;
 }) {
   return (
-    <Dropdown
-      options={models.map((model) => ({
-        value: model.id,
-        label: model.label,
-        sublabel: model.description,
-      }))}
+    <StyledSelect
       value={value}
+      options={models.map((m) => ({ id: m.id, label: m.label }))}
       onChange={onChange}
       ariaLabel={label}
     />
@@ -243,14 +349,21 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('general');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keyExists, setKeyExists] = useState(false);
-  const [liveModels, setLiveModels] = useState<AiModelOption[] | null>(null);
+  const [providerLiveModels, setProviderLiveModels] = useState<Record<string, AiModelOption[]>>({});
   const [modelLoading, setModelLoading] = useState(false);
+  const [localUrlInput, setLocalUrlInput] = useState('');
+  const providerLiveModelsRef = useRef<Record<string, AiModelOption[]>>({});
+
+  useEffect(() => {
+    providerLiveModelsRef.current = providerLiveModels;
+  }, [providerLiveModels]);
   const [updateMessage, setUpdateMessage] = useState('');
   const [showingCustomThemeEditor, setShowingCustomThemeEditor] = useState(false);
   const [customThemeName, setCustomThemeName] = useState('');
   const [customThemeId, setCustomThemeId] = useState('');
   const [customThemeColors, setCustomThemeColors] = useState<Record<string, string>>({});
   const [customThemeSyntax, setCustomThemeSyntax] = useState<Record<string, string>>({});
+  const [availableShells, setAvailableShells] = useState<ShellInfo[]>([]);
 
   const currentActiveTheme = useStore(activeTheme);
   const bgPresent = useStore(backgroundImagePresent);
@@ -300,7 +413,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const baseUrls = useStore(aiBaseUrlByProvider);
 
   const providerDef = getProviderDef(provider);
-  const models = liveModels ?? providerDef.models;
+  const models = providerLiveModels[provider] ?? providerDef.models;
   const localProvider = isLocalProvider(provider);
   const selectedModel = models.find((item) => item.id === model) ?? providerDef.models.find((item) => item.id === model);
   const completionDef = getProviderDef(completionProvider);
@@ -324,15 +437,99 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     panelRef.current?.scrollTo({ top: 0 });
   }, [activeTab]);
 
+  // Load available shells once on mount
+  useEffect(() => {
+    getAvailableShells().then(setAvailableShells).catch(() => setAvailableShells([]));
+  }, []);
+
+  const loadLiveModels = useCallback(async (prov: AiProviderId, force = false) => {
+    if (!isTauriRuntime()) return;
+    
+    const isLocal = isLocalProvider(prov);
+    const hasKey = isLocal ? true : await providerApiKeyExists(prov).catch(() => false);
+    
+    if (!hasKey) {
+      setProviderLiveModels((prev) => {
+        if (!prev[prov]) return prev;
+        const next = { ...prev };
+        delete next[prov];
+        return next;
+      });
+      return;
+    }
+
+    if (!force && providerLiveModelsRef.current[prov]) {
+      return;
+    }
+    
+    setModelLoading(true);
+    try {
+      const remote = await listProviderModels(prov);
+      const curated = new Map(getProviderDef(prov).models.map((m) => [m.id, m]));
+      const merged: AiModelOption[] = remote.map((r) => {
+        const c = curated.get(r.id);
+        return {
+          id: r.id,
+          label: c?.label ?? r.label ?? r.id,
+          description: c?.description ?? r.description ?? '',
+          free: c?.free ?? r.id.endsWith(':free'),
+        };
+      });
+      const finalModels = merged.length ? merged : getProviderDef(prov).models;
+      setProviderLiveModels((prev) => ({
+        ...prev,
+        [prov]: finalModels,
+      }));
+    } catch (err) {
+      console.error('Failed to load models for provider:', prov, err);
+    } finally {
+      setModelLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     setApiKeyInput('');
-    setLiveModels(null);
     if (!isTauriRuntime()) {
       setKeyExists(false);
       return;
     }
-    providerApiKeyExists(provider).then(setKeyExists).catch(() => setKeyExists(false));
-  }, [provider]);
+    let active = true;
+    providerApiKeyExists(provider)
+      .then((exists) => {
+        if (!active) return;
+        setKeyExists(exists);
+        const isLocal = isLocalProvider(provider);
+        if (exists || isLocal) {
+          void loadLiveModels(provider);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setKeyExists(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [provider, loadLiveModels]);
+
+  useEffect(() => {
+    setLocalUrlInput(getProviderBaseUrl(provider, baseUrls) || '');
+  }, [provider, baseUrls]);
+
+  const handleSaveLocalUrl = useCallback((val: string) => {
+    const trimmed = val.trim();
+    setProviderBaseUrl(provider, trimmed);
+    showToast(`${providerDef.label} server URL saved`, 'success');
+    void loadLiveModels(provider, true);
+  }, [provider, providerDef.label, loadLiveModels]);
+
+  const handleResetLocalUrl = useCallback(() => {
+    const defaultUrl = providerDef.defaultBaseUrl ?? '';
+    setLocalUrlInput(defaultUrl);
+    setProviderBaseUrl(provider, defaultUrl);
+    showToast(`${providerDef.label} server URL reset to default`, 'info');
+    void loadLiveModels(provider, true);
+  }, [provider, providerDef, loadLiveModels]);
 
   async function saveKey() {
     if (!apiKeyInput.trim()) return;
@@ -344,6 +541,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     setApiKeyInput('');
     setKeyExists(true);
     showToast(`${providerDef.label} key saved`, 'success');
+    void loadLiveModels(provider, true);
   }
 
   async function clearKey() {
@@ -353,6 +551,11 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     }
     await clearProviderApiKey(provider);
     setKeyExists(false);
+    setProviderLiveModels((prev) => {
+      const next = { ...prev };
+      delete next[provider];
+      return next;
+    });
     showToast(`${providerDef.label} key removed`, 'success');
   }
 
@@ -361,16 +564,8 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
       showToast('Live model refresh is available in the desktop app.', 'info');
       return;
     }
-    setModelLoading(true);
-    try {
-      const next = await listProviderModels(provider);
-      setLiveModels(next);
-      showToast('Model list refreshed', 'success');
-    } catch (err) {
-      showToast(String(err), 'error');
-    } finally {
-      setModelLoading(false);
-    }
+    await loadLiveModels(provider, true);
+    showToast('Model list refreshed', 'success');
   }
 
   async function checkUpdates() {
@@ -508,13 +703,21 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
               <>
                 <Section title="Editor">
                   <SettingRow title="Font size" detail={`${currentFontSize}px`}>
-                    <input type="number" min="10" max="32" value={currentFontSize} onChange={(event) => fontSize.set(Number(event.target.value))} />
+                    <div className="num-control">
+                      <button className="num-btn" onClick={() => fontSize.set(Math.max(10, currentFontSize - 1))}>−</button>
+                      <span className="num-val">{currentFontSize}</span>
+                      <button className="num-btn" onClick={() => fontSize.set(Math.min(32, currentFontSize + 1))}>+</button>
+                    </div>
                   </SettingRow>
-                  <SettingRow title="Font family">
-                    <input value={currentFontFamily} onChange={(event) => fontFamily.set(event.target.value)} />
+                  <SettingRow title="Font family" detail="Editor and terminal">
+                    <input value={currentFontFamily} onChange={(event) => fontFamily.set(event.target.value)} placeholder="'JetBrains Mono', monospace" spellCheck={false} />
                   </SettingRow>
                   <SettingRow title="Tab size" detail={`${currentTabSize} spaces`}>
-                    <input type="number" min="1" max="8" value={currentTabSize} onChange={(event) => tabSize.set(Number(event.target.value))} />
+                    <div className="num-control">
+                      <button className="num-btn" onClick={() => tabSize.set(Math.max(1, currentTabSize - 1))}>−</button>
+                      <span className="num-val">{currentTabSize}</span>
+                      <button className="num-btn" onClick={() => tabSize.set(Math.min(8, currentTabSize + 1))}>+</button>
+                    </div>
                   </SettingRow>
                   <SettingRow title="Word wrap">
                     <Toggle label="Toggle word wrap" checked={currentWordWrap} onChange={wordWrap.set} />
@@ -534,10 +737,10 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                 </Section>
 
                 <Section title="Workspace">
-                  <SettingRow title="Show hidden files">
+                  <SettingRow title="Show hidden files" detail="Include dot-prefixed files in the explorer">
                     <Toggle label="Toggle hidden files" checked={currentShowHidden} onChange={showHidden.set} />
                   </SettingRow>
-                  <SettingRow title="Notifications">
+                  <SettingRow title="Notifications" detail="System alerts for agent activity and process exits">
                     <Toggle
                       label="Toggle notifications"
                       checked={currentNotifications}
@@ -547,17 +750,25 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                       }}
                     />
                   </SettingRow>
-                  <SettingRow title="Close behavior">
-                    <SelectField
-                      value={currentCloseBehavior}
-                      options={[
-                        { id: 'quit', label: 'Quit app' },
-                        { id: 'minimize', label: 'Minimize' },
-                      ]}
-                      onChange={closeBehavior.set}
-                      ariaLabel="Close behavior"
-                    />
-                  </SettingRow>
+                </Section>
+
+                <Section title="Window">
+                  <div className="option-cards" style={{ padding: '14px', gap: '10px', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+                    {([
+                      { id: 'quit' as const,     label: 'Quit Soryq',    desc: 'Close the app and stop live terminals.' },
+                      { id: 'minimize' as const, label: 'Keep running',  desc: 'Minimize and keep terminals and agents alive.' },
+                    ]).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        className={`option-card${currentCloseBehavior === opt.id ? ' selected' : ''}`}
+                        onClick={() => closeBehavior.set(opt.id)}
+                      >
+                        <span className="option-title">{opt.label}</span>
+                        <span className="option-desc">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
                 </Section>
               </>
             )}
@@ -565,20 +776,34 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
             {activeTab === 'appearance' && (
               <>
                 <Section title="Theme">
-                  <SettingRow title="Mode">
-                    <SelectField
-                      value={currentAppearance}
-                      options={[
-                        { id: 'system', label: 'System' },
-                        { id: 'light', label: 'Light' },
-                        { id: 'dark', label: 'Dark' },
-                      ]}
-                      onChange={appearance.set}
-                      ariaLabel="Appearance mode"
-                    />
-                  </SettingRow>
+                  {/* Appearance mode — visual cards */}
+                  <div className="appearance-cards" style={{ padding: '16px 18px 10px' }}>
+                    {([
+                      { id: 'system' as const, label: 'System',
+                        icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
+                      { id: 'light'  as const, label: 'Light',
+                        icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg> },
+                      { id: 'dark'   as const, label: 'Dark',
+                        icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg> },
+                    ]).map(({ id, label, icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`appearance-card${currentAppearance === id ? ' selected' : ''}`}
+                        onClick={() => appearance.set(id)}
+                      >
+                        <span className="appearance-icon">{icon}</span>
+                        <span className="appearance-label">{label}</span>
+                      </button>
+                    ))}
+                  </div>
                   <SettingRow title="UI zoom" detail={`${currentZoom}%`}>
-                    <input type="range" min="50" max="200" step="5" value={currentZoom} onChange={(event) => uiZoom.set(Number(event.target.value))} />
+                    <div className="num-control">
+                      <button className="num-btn" onClick={() => uiZoom.set(Math.max(50, currentZoom - 10))}>−</button>
+                      <span className="num-val">{currentZoom}%</span>
+                      <button className="num-btn" onClick={() => uiZoom.set(Math.min(200, currentZoom + 10))}>+</button>
+                      <button className="num-btn-reset" onClick={() => uiZoom.set(100)}>Reset</button>
+                    </div>
                   </SettingRow>
                   <SettingRow title="Transparency" detail={`${currentTransparency}%`}>
                     <input type="range" min="0" max="100" step="5" value={currentTransparency} onChange={(event) => interfaceTransparency.set(Number(event.target.value))} />
@@ -701,14 +926,29 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
             {activeTab === 'models' && (
               <>
                 <Section title="Primary provider">
-                  <SettingRow title="Provider" detail={getProviderTtsBadge(provider) ?? undefined}>
+                  <SettingRow title="Provider" detail="Main AI provider for orchestration & AI commits">
                     <SelectField value={provider} options={aiProviders.map((item) => ({ id: item.id, label: item.label }))} onChange={aiProvider.set} ariaLabel="AI provider" />
                   </SettingRow>
 
                   {localProvider ? (
-                    <SettingRow title={providerDef.keyLabel}>
-                      <input value={getProviderBaseUrl(provider, baseUrls)} onChange={(event) => setProviderBaseUrl(provider, event.target.value)} placeholder={providerDef.keyPlaceholder} />
-                    </SettingRow>
+                    <>
+                      <SettingRow title={providerDef.keyLabel}>
+                        <input
+                          value={localUrlInput}
+                          onChange={(event) => setLocalUrlInput(event.target.value)}
+                          placeholder={providerDef.keyPlaceholder}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              handleSaveLocalUrl(localUrlInput);
+                            }
+                          }}
+                        />
+                      </SettingRow>
+                      <div className="settings-action-row">
+                        <button className="settings-primary" onClick={() => handleSaveLocalUrl(localUrlInput)}>Save URL</button>
+                        <button className="settings-secondary" onClick={handleResetLocalUrl}>Reset</button>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <SettingRow title={providerDef.keyLabel} detail={keyExists ? 'Saved' : 'Not saved'}>
@@ -795,14 +1035,10 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   )}
                   {ttsVoices.length > 0 && (
                     <SettingRow title="Voice">
-                      <Dropdown
-                        options={ttsVoices.map((voice) => ({
-                          value: voice.id,
-                          label: voice.label,
-                          sublabel: voice.description,
-                        }))}
+                      <StyledSelect
                         value={ttsVoice}
-                        onChange={(val) => setVoiceConversationTtsVoice(conversationProvider, val)}
+                        options={ttsVoices.map((v) => ({ id: v.id, label: v.label }))}
+                        onChange={(value) => setVoiceConversationTtsVoice(conversationProvider, value)}
                         ariaLabel="TTS voice"
                       />
                     </SettingRow>
@@ -812,40 +1048,84 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
             )}
 
             {activeTab === 'terminal' && (
-              <Section title="Terminal">
-                <SettingRow title="Shell" detail={shell ? undefined : 'Auto-detect'}>
-                  <input value={shell} onChange={(event) => terminalShell.set(event.target.value)} placeholder="Auto-detect" />
-                </SettingRow>
-                <SettingRow title="Font size" detail={`${termFontSize}px`}>
-                  <input type="number" min="9" max="28" value={termFontSize} onChange={(event) => terminalFontSize.set(Number(event.target.value))} />
-                </SettingRow>
-                <SettingRow title="Scrollback" detail={`${scrollback.toLocaleString()} lines`}>
-                  <input type="number" min="100" max="100000" step="100" value={scrollback} onChange={(event) => terminalScrollback.set(Number(event.target.value))} />
-                </SettingRow>
-                <SettingRow title="Cursor">
-                  <SelectField
-                    value={cursorStyle}
-                    options={[
-                      { id: 'bar', label: 'Bar' },
-                      { id: 'block', label: 'Block' },
-                      { id: 'underline', label: 'Underline' },
-                    ]}
-                    onChange={terminalCursorStyle.set}
-                    ariaLabel="Terminal cursor"
-                  />
-                </SettingRow>
-                <SettingRow title="Renderer">
-                  <SelectField
-                    value={renderer}
-                    options={[
-                      { id: 'dom', label: 'DOM' },
-                      { id: 'canvas', label: 'Canvas' },
-                    ]}
-                    onChange={terminalRenderer.set}
-                    ariaLabel="Terminal renderer"
-                  />
-                </SettingRow>
-              </Section>
+              <>
+                <Section title="Default shell">
+                  <div className="shell-cards">
+                    {availableShells.length === 0 ? (
+                      <div className="shell-loading">Detecting shells…</div>
+                    ) : (
+                      availableShells.map((sh) => {
+                        const basename = sh.program.split(/[\/\\]/).pop() ?? sh.program;
+                        const lc = basename.toLowerCase();
+                        const isSelected = shell === sh.program || (shell === '' && sh === availableShells[0]);
+                        const icon = lc.includes('pwsh') || lc.includes('powershell')
+                          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="18" rx="3"/><polyline points="8,9 4,12 8,15"/><line x1="12" y1="15" x2="20" y2="15"/></svg>
+                          : lc.includes('cmd')
+                          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="18" rx="3"/><path d="M6 9l4 3-4 3"/><line x1="14" y1="15" x2="18" y2="15"/></svg>
+                          : lc.includes('bash') || lc.includes('zsh') || lc.includes('sh')
+                          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="18" rx="3"/><path d="M8 8l4 4-4 4"/><line x1="14" y1="16" x2="18" y2="16"/></svg>
+                          : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="18" rx="3"/><circle cx="12" cy="12" r="3"/></svg>;
+                        return (
+                          <button
+                            key={sh.program}
+                            type="button"
+                            className={`shell-card${isSelected ? ' selected' : ''}`}
+                            onClick={() => terminalShell.set(sh.program)}
+                          >
+                            <span className="shell-icon">{icon}</span>
+                            <div className="shell-info">
+                              <span className="shell-name">{basename}</span>
+                              <span className="shell-path">{sh.program}</span>
+                            </div>
+                            {isSelected && (
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M2 7l3.5 3.5 6.5-7" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <p className="shell-hint">Changes apply to new sessions. Active terminal sessions will automatically restart using the new shell.</p>
+                </Section>
+
+                <Section title="Appearance">
+                  <SettingRow title="Font size" detail={`${termFontSize}px`}>
+                    <div className="num-control">
+                      <button className="num-btn" onClick={() => terminalFontSize.set(Math.max(9, termFontSize - 1))}>−</button>
+                      <span className="num-val">{termFontSize}</span>
+                      <button className="num-btn" onClick={() => terminalFontSize.set(Math.min(28, termFontSize + 1))}>+</button>
+                    </div>
+                  </SettingRow>
+                  <SettingRow title="Cursor">
+                    <SelectField
+                      value={cursorStyle}
+                      options={[
+                        { id: 'bar', label: 'Bar' },
+                        { id: 'block', label: 'Block' },
+                        { id: 'underline', label: 'Underline' },
+                      ]}
+                      onChange={terminalCursorStyle.set}
+                      ariaLabel="Terminal cursor"
+                    />
+                  </SettingRow>
+                  <SettingRow title="Canvas renderer" detail="Faster GPU rendering; disable if terminal glitches">
+                    <Toggle
+                      label="Toggle canvas renderer"
+                      checked={renderer === 'canvas'}
+                      onChange={(on) => terminalRenderer.set(on ? 'canvas' : 'dom')}
+                    />
+                  </SettingRow>
+                  <SettingRow title="Scrollback" detail={`${scrollback.toLocaleString()} lines`}>
+                    <div className="num-control">
+                      <button className="num-btn" onClick={() => terminalScrollback.set(Math.max(100, scrollback - 1000))}>−</button>
+                      <span className="num-val" style={{ minWidth: 54 }}>{scrollback.toLocaleString()}</span>
+                      <button className="num-btn" onClick={() => terminalScrollback.set(Math.min(100000, scrollback + 1000))}>+</button>
+                    </div>
+                  </SettingRow>
+                </Section>
+              </>
             )}
 
             {activeTab === 'shortcuts' && (
