@@ -1577,7 +1577,7 @@ export default function SketchCanvas() {
 
   // Drag text elements
   function startDragText(e: React.PointerEvent<HTMLDivElement>, text: SketchText) {
-    if (currentTool === 'pen') return; // Bubble up to canvas to draw strokes
+    if (['pen', 'rectangle', 'circle', 'diamond', 'line', 'text'].includes(currentTool)) return; // Bubble up to canvas to draw/type
 
     if (currentTool === 'eraser') {
       setSketchTexts(prev => {
@@ -1737,7 +1737,7 @@ export default function SketchCanvas() {
 
   // Drag shape elements
   function startDragShape(e: React.PointerEvent<HTMLDivElement>, shape: SketchShape) {
-    if (currentTool === 'pen') return; // Bubble up to canvas to draw strokes
+    if (['pen', 'rectangle', 'circle', 'diamond', 'line', 'text'].includes(currentTool)) return; // Bubble up to canvas to draw/type
 
     if (currentTool === 'eraser') {
       setSketchShapes(prev => {
@@ -2974,7 +2974,7 @@ export default function SketchCanvas() {
     <div className="sketch-overlay animate-fade">
       <div 
         ref={viewportRef}
-        className="canvas-viewport"
+        className={`canvas-viewport tool-${currentTool}`}
         style={{
           cursor: spacePressed || currentTool === 'pan' 
             ? (panning ? 'grabbing' : 'grab') 
@@ -3010,7 +3010,7 @@ export default function SketchCanvas() {
               fontSize: `${text.fontSize * zoomScale}px`,
               color: text.color,
               opacity: text.opacity,
-              cursor: currentTool === 'eraser' ? 'pointer' : (currentTool === 'select' ? 'move' : 'default')
+              cursor: currentTool === 'eraser' ? 'pointer' : (currentTool === 'select' ? 'move' : 'inherit')
             }}
             onPointerDown={(e) => startDragText(e, text)}
             onDoubleClick={() => editExistingText(text)}
@@ -3044,7 +3044,7 @@ export default function SketchCanvas() {
               backdropFilter: shape.fillColor === 'glass' ? 'blur(8px)' : 'none',
               WebkitBackdropFilter: shape.fillColor === 'glass' ? 'blur(8px)' : 'none',
               opacity: shape.opacity,
-              cursor: currentTool === 'eraser' ? 'pointer' : (currentTool === 'select' ? 'move' : 'default')
+              cursor: currentTool === 'eraser' ? 'pointer' : (currentTool === 'select' ? 'move' : 'inherit')
             }}
             onPointerDown={(e) => startDragShape(e, shape)}
           >
