@@ -29,6 +29,26 @@ const currentAiModel = vi.hoisted(() => {
     },
   };
 });
+const voicePersonality = vi.hoisted(() => {
+  let value = 'helpful';
+  return {
+    subscribe(run: (value: string) => void) {
+      run(value);
+      return () => {};
+    },
+    set(next: string) {
+      value = next;
+    },
+  };
+});
+const getVoicePersonalityDef = vi.hoisted(() =>
+  vi.fn((_id: string) => ({
+    id: 'helpful',
+    label: 'Helpful Assistant',
+    description: 'A calm, friendly, and knowledgeable assistant.',
+    systemPrompt: 'You are a calm, friendly, and knowledgeable assistant.',
+  }))
+);
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('$lib/services/ai-keychain', () => ({ isProviderApiKeyConfiguredLocal }));
@@ -38,6 +58,8 @@ vi.mock('$lib/stores/settings', () => ({
   getProviderDef,
   isLocalProvider,
   getProviderBaseUrl,
+  voicePersonality,
+  getVoicePersonalityDef,
 }));
 
 import { routeOrchestratorRequest, resolveAgentCommand } from './orchestrator-brain';
@@ -162,6 +184,26 @@ describe('routeOrchestratorRequest', () => {
       { kind: 'preview', url: '/login' },
       { kind: 'run', command: 'npm test' },
       { kind: 'task', op: 'create', title: 'Wire up auth' },
+    ]);
+  });
+
+  it('parses setting / theme actions from the model', async () => {
+    invoke.mockResolvedValueOnce(
+      '{"reply":"Done.","actions":[' +
+        '{"kind":"setting","setting":"theme","value":"Dracula"},' +
+        '{"kind":"theme","theme":"Nord"},' +
+        '{"kind":"setting","setting":"fontSize","value":16},' +
+        '{"kind":"setting","setting":"wordWrap","value":true}]}'
+    );
+
+    const result = await routeOrchestratorRequest('use the dracula theme and bump the font', [{ command: 'claude', name: 'Claude' }]);
+
+    expect(result.viaLLM).toBe(true);
+    expect(result.actions).toEqual([
+      { kind: 'setting', setting: 'theme', value: 'Dracula' },
+      { kind: 'setting', setting: 'theme', value: 'Nord' },
+      { kind: 'setting', setting: 'fontsize', value: 16 },
+      { kind: 'setting', setting: 'wordwrap', value: true },
     ]);
   });
 
@@ -312,6 +354,32 @@ describe('routeOrchestratorRequest', () => {
     expect(result.reply).toContain('latest terminal output');
     expect(result.reply).toContain('402 Payment Required');
     expect(result.reply).not.toContain('```');
+  });
+
+  it('dispatches direct task requests in voice mode without an LLM', async () => {
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
+
+    const result = await routeOrchestratorRequest('fix the voice mode loop', ALL_AGENTS, {
+      conversational: true,
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result.actions).toEqual([
+      { kind: 'spawn', agent: 'claude', prompt: 'fix the voice mode loop' },
+    ]);
+    expect(result.reply).toContain('keep you posted');
+  });
+
+  it('keeps vague voice-mode discussion conversational without an LLM', async () => {
+    isProviderApiKeyConfiguredLocal.mockReturnValue(false);
+
+    const result = await routeOrchestratorRequest('I think the voice mode is broken somehow', ALL_AGENTS, {
+      conversational: true,
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result.actions).toEqual([]);
+    expect(result.reply).toContain('Say the word');
   });
 
   it('answers prioritization questions from the task panel without invoking the LLM', async () => {

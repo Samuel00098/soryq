@@ -7,6 +7,8 @@ import {
   getProviderDef,
   isLocalProvider,
   getProviderBaseUrl,
+  voicePersonality,
+  getVoicePersonalityDef,
 } from '$lib/stores/settings';
 import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 
@@ -43,7 +45,14 @@ export type OrchestratorAction =
   /** Run a shell command (or a named run preset) in a terminal. */
   | { kind: 'run'; command: string }
   /** Manage the task board: create a new item, move one by title, or delete one. */
-  | { kind: 'task'; op: 'create' | 'todo' | 'doing' | 'done' | 'delete'; title: string };
+  | { kind: 'task'; op: 'create' | 'todo' | 'doing' | 'done' | 'delete'; title: string }
+  /** Change an application setting or the active theme (the things the user can
+   *  set manually in Settings). `setting` names the option; `value` is its new value. */
+  | { kind: 'setting'; setting: string; value: string | number | boolean }
+  /** Switch the workspace's ambient arrangement (Focus = one room, Split = two, Gallery = grid). */
+  | { kind: 'layout'; mode: 'focus' | 'split' | 'gallery' }
+  /** Focus / minimize / restore / close a specific room (panel or agent) by name. */
+  | { kind: 'room'; op: 'focus' | 'minimize' | 'restore' | 'close'; target: string };
 
 export interface RouteResult {
   /** Short conversational message shown back to the user. */
@@ -81,6 +90,11 @@ export interface AppStateRef {
   settingsOpen?: boolean;
   /** Aux panels currently visible. */
   visiblePanels?: string[];
+  /** The workspace's room layout: ambient arrangement + the open rooms. */
+  layout?: {
+    ambient: 'focus' | 'split' | 'gallery';
+    rooms: Array<{ title: string; focused: boolean; minimized: boolean }>;
+  };
   sidebar?: { open: boolean; tab?: string };
   editor?: {
     activeFile?: string | null;
@@ -103,6 +117,15 @@ export interface AppStateRef {
   availableViews?: string[];
   /** Saved run presets the assistant may launch by name. */
   availableRuns?: Array<{ name: string; command: string }>;
+  /** Current user-configurable settings + theme, so the assistant can report and change them. */
+  settings?: {
+    /** Name of the active theme. */
+    theme?: string | null;
+    /** All theme names the assistant can switch to (by name). */
+    availableThemes?: string[];
+    /** Current values of the settings the assistant may change, keyed by setting name. */
+    values?: Record<string, string | number | boolean>;
+  };
 }
 
 export interface RouteContext {
@@ -114,6 +137,8 @@ export interface RouteContext {
   runningAgents?: RunningAgentRef[];
   reviewingAgents?: RunningAgentRef[];
   taskOutputs?: AgentOutputRef[];
+  /** The evolving brain profile — durable things learned about the user + project. */
+  profile?: string[];
   /** Full read of the application UI state (active page, editor, terminals, …). */
   appState?: AppStateRef;
   llmConfig?: RouteLlmConfig;
@@ -144,6 +169,15 @@ function describeAppState(app: AppStateRef): string[] {
   const lines: string[] = ['Application state (what the user is looking at right now):'];
   if (app.activeView) lines.push(`- Active view: ${compactText(app.activeView, 40)}${app.settingsOpen ? ' (Settings panel open)' : ''}`);
   if (app.visiblePanels?.length) lines.push(`- Visible panels: ${app.visiblePanels.map((p) => compactText(p, 24)).join(', ')}`);
+  if (app.layout) {
+    const rooms = app.layout.rooms
+      .map((r) => {
+        const tags = [r.focused ? 'focused' : null, r.minimized ? 'minimized' : null].filter(Boolean).join(', ');
+        return `${compactText(r.title, 32)}${tags ? ` (${tags})` : ''}`;
+      })
+      .join(', ');
+    lines.push(`- Workspace layout: ${app.layout.ambient} mode${rooms ? `; rooms: ${rooms}` : ''}`);
+  }
   const ed = app.editor;
   if (ed) {
     if (ed.activeFile) {
@@ -182,6 +216,17 @@ function describeAppState(app: AppStateRef): string[] {
   if (app.preview?.url) lines.push(`- Preview URL: ${compactText(app.preview.url, 120)}${app.preview.running ? ' (dev server connected)' : ''}`);
   if (app.branch) lines.push(`- Git branch: ${compactText(app.branch, 60)}`);
   if (app.availableRuns?.length) lines.push(`- Run presets: ${app.availableRuns.map((r) => `${compactText(r.name, 24)} (\`${compactText(r.command, 40)}\`)`).join(', ')}`);
+  const settings = app.settings;
+  if (settings) {
+    if (settings.theme) lines.push(`- Active theme: ${compactText(settings.theme, 48)}`);
+    if (settings.values && Object.keys(settings.values).length) {
+      const pairs = Object.entries(settings.values).map(([k, v]) => `${k}=${compactText(String(v), 32)}`);
+      lines.push(`- Current settings: ${pairs.join(', ')}`);
+    }
+    if (settings.availableThemes?.length) {
+      lines.push(`- Themes you can switch to (use the exact name with a "setting" action, setting="theme"): ${settings.availableThemes.map((t) => compactText(t, 32)).join(', ')}`);
+    }
+  }
   return lines;
 }
 
@@ -477,7 +522,7 @@ function heuristicRoute(message: string, agents: AgentChoice[], ctx?: RouteConte
   // going rather than silently spawning a terminal behind the voice overlay.
   // When there are running agents, surface their terminal output so the reply
   // is useful (e.g. "how's the agent doing" → recent output) instead of canned.
-  if (ctx?.conversational && !EXPLICIT_SPAWN_RE.test(text)) {
+  if (ctx?.conversational && !EXPLICIT_SPAWN_RE.test(text) && !(ACTION_RE.test(text) && !QUESTION_START_RE.test(text) && !QUESTION_MARK_RE.test(text))) {
     const refs = outputRefs(ctx);
     if (refs.length) {
       return {
@@ -528,8 +573,11 @@ function heuristicRoute(message: string, agents: AgentChoice[], ctx?: RouteConte
   // answer it, so fall back to a helpful prompt asking for an actionable goal.
   const actionable = !isQuestion && (hasRealTask || message.trim().length > 24);
   if (actionable) {
+    const reply = ctx?.conversational
+      ? `On it \u2014 I'll launch ${agent.name} to work on that and keep you posted.`
+      : `On it \u2014 handing this to ${agent.name} to work on. You can watch it in its terminal.`;
     return {
-      reply: `On it — handing this to ${agent.name} to work on. You can watch it in its terminal.`,
+      reply,
       actions: [{ kind: 'spawn', agent: agent.command, prompt: message.trim() }],
       viaLLM: false,
     };
@@ -547,7 +595,8 @@ function buildSystemPrompt(
   agents: AgentChoice[],
   running: RunningAgentRef[],
   reviewing: RunningAgentRef[],
-  conversational = false
+  conversational = false,
+  profile: string[] = []
 ): string {
   const list = agents.map((a) => `- ${a.command} — ${a.name}`).join('\n');
   const runningList = running.length
@@ -563,6 +612,13 @@ function buildSystemPrompt(
   return [
     "You are Soryq's in-app assistant. The user talks to you in natural language. You can see the whole application — the active page, open editor files and cursor, terminals, preview, git branch, the task board — shown under \"Application state\" in the user message. You do two kinds of things: (1) DRIVE THE APP directly (navigate pages, open files, run the preview, manage tasks), and (2) DELEGATE coding work to a fleet of local terminal agents you spawn and direct. Answer questions about anything you can see, and take the right actions to do what the user asks inside the app.",
     '',
+    ...(profile.length
+      ? [
+          'What you have learned about this user and project (apply it; it reflects how they like to work). Tagged [you] = applies everywhere, [this project] = project-specific:',
+          ...profile.map((line) => `- ${line}`),
+          '',
+        ]
+      : []),
     'Available agent types (use the exact command id on the left when spawning):',
     list,
     '',
@@ -599,6 +655,12 @@ function buildSystemPrompt(
     '    Run a command in a terminal (e.g. "npm run dev", "npm test"). If the user names a saved run preset, pass its command. This is for plain shell commands — to do CODING work, spawn an agent instead.',
     '- {"kind": "task", "op": "create"|"todo"|"doing"|"done"|"delete", "title": "<task title>"}',
     '    Manage the task board. "add a task to …" → create; "mark X done" / "move X to in progress" → done/doing (match the existing item by title); "remove the X task" → delete.',
+    '- {"kind": "setting", "setting": "<setting name>", "value": <string | number | boolean>}',
+    '    Change a setting the user can normally set in Settings — including the THEME. "switch to the Dracula theme" / "use a light theme" → setting "theme" with the theme name as value (pick the closest name from the themes listed in the app state). Other settings you can set: appearance ("system"|"light"|"dark"), fontSize (number), tabSize (number), wordWrap (true|false), minimap (true|false), vimMode (true|false), formatOnSave (true|false), enableLsp (true|false), showHidden (true|false), notificationsEnabled (true|false), aiGhostTextEnabled (true|false), uiZoom (number, 50-200), interfaceTransparency (number, 0-100), terminalFontSize (number). Match the user\'s request to the closest setting and a valid value. The current values are shown in the app state; report from there when asked what a setting is.',
+    '- {"kind": "layout", "mode": "focus"|"split"|"gallery"}',
+    '    Rearrange the whole workspace. Focus = one big room; Split = two rooms side by side; Gallery = a grid of every open room. "focus mode" → focus; "split the view" → split; "show everything" / "gallery" → gallery.',
+    '- {"kind": "room", "op": "focus"|"minimize"|"restore"|"close", "target": "<room name>"}',
+    '    Act on one room. Rooms are the workspace, terminal, an agent (by its name), or a panel (editor, preview, review, http, tasks, db, containers, toolbox, pet). "focus the terminal" → focus terminal; "minimize the editor" → minimize editor; "close the preview" → close preview. Use the workspace layout shown in the app state to pick the right room name.',
     '',
     'Rules:',
     '- Prefer an APP action when the user wants to look at or move around the app (open a file, switch pages, run the preview, jump to a line, manage tasks). Use SPAWN/SEND only when actual code needs writing or investigating.',
@@ -621,12 +683,14 @@ function buildSystemPrompt(
       ? [
           '',
           'VOICE CONVERSATION MODE — IMPORTANT:',
-          'You are in a spoken, back-and-forth conversation. The user is talking WITH you, not dictating commands. Conversation is the default; acting is the exception.',
-          '- Default to an EMPTY actions array. Answer, discuss, acknowledge, and ask follow-up questions in "reply".',
-          '- ONLY spawn/send/close an agent when the user EXPLICITLY and unambiguously asks you to — e.g. "open an agent and add X", "spawn claude to fix Y", "have an agent do Z". A direct imperative to act on the codebase counts; anything softer does not.',
+          'You are in a spoken, back-and-forth conversation. The user is talking WITH you, and they may ask you to do work while you keep replying conversationally.',
+          '- Always include a natural spoken acknowledgement in "reply", even when you are also returning actions. The reply should say what you are about to do or what you just did.',
+          '- Use an EMPTY actions array for questions, brainstorming, observations, status checks, or anything that sounds like thinking out loud.',
+          '- DO spawn/send/close or use APP-CONTROL actions when the user clearly asks you to do something — e.g. "fix X", "build Y", "run the tests", "open the preview", "switch to Dracula", "open an agent and add X", "spawn claude to fix Y", "have an agent do Z".',
           '- A question, an observation, thinking out loud, brainstorming, or describing a problem is NOT a request to spawn. When in any doubt, DO NOT act — just talk and, if useful, offer to put an agent on it.',
           '- Never spawn an agent merely because the message mentions code or a task. Wait for the explicit go-ahead.',
           '- Terminal output for running agents is shown above. Reference it in your replies: say what the agents just outputted, mention their last action, or summarize progress. Do NOT recite the raw output verbatim — paraphrase naturally.',
+          `- PERSONALITY: Speak in a natural, human-like way according to these personality instructions: ${getVoicePersonalityDef(get(voicePersonality)).systemPrompt}`,
         ]
       : []),
   ].join('\n');
@@ -701,6 +765,40 @@ function parseAction(raw: unknown, agents: AgentChoice[]): OrchestratorAction | 
     const command = str(obj.command);
     if (!command) return null;
     return { kind: 'run', command };
+  }
+  if (kind === 'setting' || kind === 'config' || kind === 'theme') {
+    // "theme" is sugar for a setting action targeting the theme.
+    const setting = kind === 'theme' ? 'theme' : str(obj.setting || obj.key).toLowerCase();
+    const rawValue = kind === 'theme' ? (obj.theme ?? obj.value) : obj.value;
+    if (!setting) return null;
+    if (typeof rawValue === 'string') {
+      const v = rawValue.trim();
+      if (!v) return null;
+      return { kind: 'setting', setting, value: v };
+    }
+    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+      return { kind: 'setting', setting, value: rawValue };
+    }
+    if (typeof rawValue === 'boolean') {
+      return { kind: 'setting', setting, value: rawValue };
+    }
+    return null;
+  }
+  if (kind === 'layout') {
+    const mode = str(obj.mode).toLowerCase();
+    if (mode === 'focus' || mode === 'split' || mode === 'gallery') {
+      return { kind: 'layout', mode };
+    }
+    return null;
+  }
+  if (kind === 'room') {
+    const op = str(obj.op).toLowerCase();
+    const target = str(obj.target);
+    if (!target) return null;
+    if (op === 'focus' || op === 'minimize' || op === 'restore' || op === 'close') {
+      return { kind: 'room', op, target };
+    }
+    return null;
   }
   if (kind === 'task') {
     const op = str(obj.op).toLowerCase();
@@ -785,7 +883,7 @@ export async function routeOrchestratorRequest(
     const def = getProviderDef(provider);
     const primaryModel = ctx?.llmConfig?.model ?? get(currentAiModel);
     const modelsToTry = [primaryModel, ...def.models.map((m) => m.id).filter((id) => id !== primaryModel)];
-    const systemPrompt = buildSystemPrompt(agents, ctx?.runningAgents ?? [], ctx?.reviewingAgents ?? [], ctx?.conversational);
+    const systemPrompt = buildSystemPrompt(agents, ctx?.runningAgents ?? [], ctx?.reviewingAgents ?? [], ctx?.conversational, ctx?.profile);
     const userText = buildUserText(message, ctx);
 
     for (const model of modelsToTry) {

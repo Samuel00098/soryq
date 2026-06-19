@@ -56,6 +56,9 @@ import {
   voiceConversationAiProvider,
   voiceInputProvider,
   voiceInputUsesModelTranscription,
+  voicePersonality,
+  voicePersonalities,
+  getVoicePersonalityDef,
   voiceRefinementEnabled,
   wordWrap,
   type AiModelOption,
@@ -514,6 +517,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const conversationModel = useStore(currentVoiceConversationAiModel);
   const ttsModel = useStore(currentVoiceConversationTtsModel);
   const ttsVoice = useStore(currentVoiceConversationTtsVoice);
+  const currentPersonality = useStore(voicePersonality);
   const baseUrls = useStore(aiBaseUrlByProvider);
 
   const providerDef = getProviderDef(provider);
@@ -1305,6 +1309,15 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                       </div>
                     </SettingRow>
                   )}
+                  <SettingRow title="Personality">
+                    <SelectField
+                      value={currentPersonality}
+                      options={voicePersonalities.map((p) => ({ id: p.id, label: p.label }))}
+                      onChange={voicePersonality.set}
+                      ariaLabel="Voice personality"
+                    />
+                    <p className="setting-hint">{getVoicePersonalityDef(currentPersonality).description}</p>
+                  </SettingRow>
                 </Section>
               </>
             )}
