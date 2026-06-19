@@ -1126,6 +1126,7 @@
     var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.7)),
     inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
   animation: sselectOpen 0.15s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1258,28 +1259,34 @@
 }
 
 /* ── Coding CLI agents ── */
+/* Flat, divider-separated rows so the agent list matches the other settings
+   sections (.settings-control-row) instead of looking like stacked boxes. */
 .agent-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 0 18px;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-subtle, var(--border));
 }
 
 .agent-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-md, 8px);
+  gap: 16px;
+  padding: 12px 18px;
+  min-height: 58px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.agent-row:hover {
   background: var(--bg-hover);
-  transition: all 0.15s ease;
 }
 
 .agent-row.built-in {
-  background: var(--bg-primary);
-  opacity: 0.85;
+  background: transparent;
+  opacity: 1;
 }
 
 .agent-meta {
@@ -1297,17 +1304,17 @@
 }
 
 .agent-name {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .agent-badge {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 600;
-  color: var(--text-muted);
-  background: var(--bg-active);
-  border: 1px solid var(--border);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
   padding: 1px 6px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -1323,29 +1330,81 @@
   white-space: nowrap;
 }
 
+/* Custom checkbox rules for .agent-rules-toggle */
 .agent-rules-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 11.5px;
   color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
   user-select: none;
+  transition: color 0.15s ease;
+}
+
+.agent-rules-toggle:hover:not(.disabled) {
+  color: var(--text-primary);
 }
 
 .agent-rules-toggle.disabled {
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
-.agent-rules-toggle input {
+.agent-rules-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-focus, var(--border));
+  border-radius: 4px;
+  outline: none;
+  background: var(--bg-active);
   cursor: pointer;
-  accent-color: var(--accent);
+  display: inline-grid;
+  place-content: center;
+  transition: all 0.2s ease;
 }
 
-.agent-rules-toggle.disabled input {
+.agent-rules-toggle:not(.disabled):hover input[type="checkbox"] {
+  border-color: var(--accent);
+}
+
+.agent-rules-toggle input[type="checkbox"]::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em var(--bg-primary);
+  transform-origin: center;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+.agent-rules-toggle input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.agent-rules-toggle input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
+
+.agent-rules-toggle input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.agent-rules-toggle.disabled input[type="checkbox"] {
   cursor: not-allowed;
+  background: var(--bg-hover);
+  border-color: var(--border-subtle, var(--border));
+}
+
+.agent-rules-toggle.disabled input[type="checkbox"]:checked {
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg-hover));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border-subtle, var(--border)));
 }
 
 .agent-remove {
@@ -1367,12 +1426,34 @@
   color: var(--error, #f87171);
 }
 
-.agent-add {
+/* ── Add Custom Agent Container ── */
+.agent-add-container {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 18px;
+  border-top: 1px solid var(--border-subtle, var(--border));
+  background: color-mix(in srgb, var(--bg-hover) 25%, transparent);
+}
+
+.agent-add-container:last-child {
+  border-radius: 0 0 var(--radius-lg, 12px) var(--radius-lg, 12px);
+}
+
+.agent-add-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.agent-add-fields {
+  display: flex;
+  gap: 10px;
   flex-wrap: wrap;
-  padding: 0 18px;
-  margin-top: 16px;
+  align-items: center;
 }
 
 .agent-input {
@@ -1394,9 +1475,13 @@
   box-shadow: 0 0 0 2px var(--accent-glow, rgba(174, 182, 194, 0.08));
 }
 
+.agent-input-name {
+  flex: 0 0 180px;
+}
+
 .agent-input-cmd {
   flex: 1;
-  min-width: 180px;
+  min-width: 200px;
   font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
 }
 
@@ -1418,21 +1503,68 @@
   filter: brightness(1.08);
 }
 
+.agent-add-btn:active {
+  transform: translateY(1px);
+}
+
 .agent-rules-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
-  margin-left: 18px;
   font-size: 11.5px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
+  align-self: flex-start;
+  transition: color 0.15s ease;
 }
 
-.agent-rules-row input {
+.agent-rules-row:hover {
+  color: var(--text-primary);
+}
+
+.agent-rules-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-focus, var(--border));
+  border-radius: 4px;
+  outline: none;
+  background: var(--bg-active);
   cursor: pointer;
-  accent-color: var(--accent);
+  display: inline-grid;
+  place-content: center;
+  transition: all 0.2s ease;
+}
+
+.agent-rules-row:hover input[type="checkbox"] {
+  border-color: var(--accent);
+}
+
+.agent-rules-row input[type="checkbox"]::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em var(--bg-primary);
+  transform-origin: center;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+.agent-rules-row input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.agent-rules-row input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
+
+.agent-rules-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .agent-rules-row code {
@@ -1443,9 +1575,8 @@
 }
 
 .agent-error {
-  margin-top: 8px;
-  margin-left: 18px;
-  font-size: 11.5px;
+  margin: 0;
+  font-size: 12px;
   color: var(--error, #f87171);
 }
 
@@ -1456,7 +1587,7 @@
   gap: 8px;
   margin-top: 20px;
   padding: 12px 18px 0;
-  border-top: 1.5px solid var(--border);
+  border-top: 1px solid var(--border-subtle, var(--border));
 }
 
 .restore-presets-label {

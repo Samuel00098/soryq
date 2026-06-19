@@ -490,6 +490,9 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     completionLiveModelsRef.current = completionLiveModels;
   }, [completionLiveModels]);
 
+  const [providerSttModels, setProviderSttModels] = useState<Record<string, AiModelOption[]>>({});
+  const [providerTtsModels, setProviderTtsModels] = useState<Record<string, AiModelOption[]>>({});
+
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -561,20 +564,13 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const completionDef = getProviderDef(completionProvider);
   const completionModels = completionLiveModels[completionProvider] ?? completionDef.models;
   const completionModel = completionModelMap[completionProvider] || completionDef.defaultModel;
-  const liveInputModels = providerLiveModels[voiceInput as AiProviderId];
+  const liveSttModels = providerSttModels[voiceInput as AiProviderId];
   const voiceInputModels = useMemo(() => {
-    if (liveInputModels && liveInputModels.length > 0) {
-      if (voiceInput === 'ollama' || voiceInput === 'lmstudio') {
-        return liveInputModels;
-      }
-      const filtered = liveInputModels.filter((m) =>
-        /whisper|transcribe|speech|asr|chirp|voxtral|mai-transcribe|parakeet|qwen3-asr/i.test(m.id) ||
-        /whisper|transcribe|speech|asr|chirp|voxtral|mai-transcribe|parakeet|qwen3-asr/i.test(m.label)
-      );
-      if (filtered.length > 0) return filtered;
+    if (liveSttModels && liveSttModels.length > 0) {
+      return liveSttModels;
     }
     return getVoiceInputModelOptions(voiceInput);
-  }, [voiceInput, liveInputModels]);
+  }, [voiceInput, liveSttModels]);
 
   const refinementModels = useMemo(() => {
     return providerLiveModels[refinementProvider] ?? getProviderDef(refinementProvider).models;
@@ -584,24 +580,18 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     return providerLiveModels[conversationProvider] ?? getProviderDef(conversationProvider).models;
   }, [conversationProvider, providerLiveModels]);
 
-  const liveTtsModels = providerLiveModels[conversationProvider];
+  const liveTtsModels = providerTtsModels[conversationProvider];
   const ttsModels = useMemo(() => {
     if (liveTtsModels && liveTtsModels.length > 0) {
-      const filtered = liveTtsModels.filter((m) =>
-        /tts|voice|speech|voxtral|kokoro|zonos|csm|orpheus/i.test(m.id) ||
-        /tts|voice|speech|voxtral|kokoro|zonos|csm|orpheus/i.test(m.label)
-      );
-      if (filtered.length > 0) {
-        return filtered.map((m) => {
-          const curated = getTtsModelOptions(conversationProvider).find((d) => d.id === m.id);
-          return {
-            id: m.id,
-            label: curated?.label ?? m.label ?? m.id,
-            description: curated?.description ?? m.description ?? '',
-            voices: getTtsVoiceOptionsForModel(conversationProvider, m.id),
-          };
-        });
-      }
+      return liveTtsModels.map((m) => {
+        const curated = getTtsModelOptions(conversationProvider).find((d) => d.id === m.id);
+        return {
+          id: m.id,
+          label: curated?.label ?? m.label ?? m.id,
+          description: curated?.description ?? m.description ?? '',
+          voices: curated?.voices ?? getTtsVoiceOptionsForModel(conversationProvider, m.id),
+        };
+      });
     }
     return getTtsModelOptions(conversationProvider);
   }, [conversationProvider, liveTtsModels]);
@@ -757,17 +747,55 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
 
   useEffect(() => {
     if (activeTab !== 'voice') return;
-    const loadVoiceProvider = async (prov: string) => {
-      const isLocal = isLocalProvider(prov as AiProviderId);
-      const hasKey = isLocal ? true : await providerApiKeyExists(prov as AiProviderId).catch(() => false);
+    const loadChatModels = async (prov: string) => {
+      const pid = prov as AiProviderId;
+      const isLocal = isLocalProvider(pid);
+      const hasKey = isLocal ? true : await providerApiKeyExists(pid).catch(() => false);
       if (hasKey) {
-        void loadLiveModels(prov as AiProviderId);
+        void loadLiveModels(pid);
       }
     };
-    if (refinementProvider) void loadVoiceProvider(refinementProvider);
-    if (conversationProvider) void loadVoiceProvider(conversationProvider);
+    const loadSttModels = async (prov: string) => {
+      const pid = prov as AiProviderId;
+      const isLocal = isLocalProvider(pid);
+      const hasKey = isLocal ? true : await providerApiKeyExists(pid).catch(() => false);
+      if (!hasKey) return;
+      try {
+        const remote = await listProviderModels(pid, 'stt');
+        const merged: AiModelOption[] = remote.map((r) => ({
+          id: r.id,
+          label: r.label ?? r.id,
+          description: r.description ?? '',
+        }));
+        if (merged.length) {
+          setProviderSttModels((prev) => ({ ...prev, [pid]: merged }));
+        }
+      } catch { /* ignore */ }
+    };
+    const loadTtsModels = async (prov: string) => {
+      const pid = prov as AiProviderId;
+      const isLocal = isLocalProvider(pid);
+      const hasKey = isLocal ? true : await providerApiKeyExists(pid).catch(() => false);
+      if (!hasKey) return;
+      try {
+        const remote = await listProviderModels(pid, 'tts');
+        const merged: AiModelOption[] = remote.map((r) => ({
+          id: r.id,
+          label: r.label ?? r.id,
+          description: r.description ?? '',
+        }));
+        if (merged.length) {
+          setProviderTtsModels((prev) => ({ ...prev, [pid]: merged }));
+        }
+      } catch { /* ignore */ }
+    };
+    if (refinementProvider) void loadChatModels(refinementProvider);
+    if (conversationProvider) {
+      void loadChatModels(conversationProvider);
+      void loadTtsModels(conversationProvider);
+    }
     if (voiceInput && voiceInput !== 'webspeech') {
-      void loadVoiceProvider(voiceInput);
+      void loadSttModels(voiceInput);
     }
   }, [activeTab, refinementProvider, conversationProvider, voiceInput, loadLiveModels]);
 
@@ -1537,7 +1565,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
             {activeTab === 'agents' && (
               <>
                 <Section title="Coding CLI agents">
-                  <p className="shell-hint" style={{ marginTop: '-2px', marginBottom: '12px', marginLeft: 0 }}>
+                  <p className="shell-hint" style={{ marginTop: 0, marginBottom: '14px' }}>
                     Add your own agent CLI alongside the built-ins (Claude Code, Codex…). It appears in the
                     spawn picker, panes running it show its name, and typing its command in any shell is
                     recognized as that agent. Agents that read a <code>CLAUDE.md</code> / <code>AGENTS.md</code>
@@ -1579,7 +1607,9 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                     {$customAgents.map((agent) => (
                       <div className="agent-row" key={agent.id}>
                         <div className="agent-meta">
-                          <span className="agent-name">{agent.name}</span>
+                          <div className="agent-name-row">
+                            <span className="agent-name">{agent.name}</span>
+                          </div>
                           <code className="agent-cmd">{agent.command}</code>
                         </div>
                         <label className="agent-rules-toggle" title="Reads a CLAUDE.md / AGENTS.md rules file at startup">
@@ -1602,38 +1632,44 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                     ))}
                   </div>
 
-                  {/* Add Agent Form */}
-                  <div className="agent-add">
-                    <input
-                      className="agent-input"
-                      type="text"
-                      placeholder="Name (e.g. Aider)"
-                      value={newAgentName}
-                      onChange={(e) => setNewAgentName(e.target.value)}
-                      maxLength={40}
-                    />
-                    <input
-                      className="agent-input agent-input-cmd"
-                      type="text"
-                      placeholder="Launch command (e.g. aider --no-auto-commits)"
-                      value={newAgentCommand}
-                      onChange={(e) => setNewAgentCommand(e.target.value)}
-                      maxLength={200}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddCustomAgent(); }}
-                    />
-                    <button className="agent-add-btn" type="button" onClick={handleAddCustomAgent}>Add agent</button>
+                  {/* Add Agent Form Container */}
+                  <div className="agent-add-container">
+                    <h4 className="agent-add-title">Add Custom Agent</h4>
+                    
+                    <div className="agent-add-fields">
+                      <input
+                        className="agent-input agent-input-name"
+                        type="text"
+                        placeholder="Name (e.g. Aider)"
+                        value={newAgentName}
+                        onChange={(e) => setNewAgentName(e.target.value)}
+                        maxLength={40}
+                      />
+                      <input
+                        className="agent-input agent-input-cmd"
+                        type="text"
+                        placeholder="Launch command (e.g. aider --no-auto-commits)"
+                        value={newAgentCommand}
+                        onChange={(e) => setNewAgentCommand(e.target.value)}
+                        maxLength={200}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddCustomAgent(); }}
+                      />
+                      <button className="agent-add-btn" type="button" onClick={handleAddCustomAgent}>Add agent</button>
+                    </div>
+
+                    <label className="agent-rules-row">
+                      <input
+                        type="checkbox"
+                        checked={newAgentReadsRules}
+                        onChange={(e) => setNewAgentReadsRules(e.target.checked)}
+                      />
+                      <span>This CLI reads a <code>CLAUDE.md</code> / <code>AGENTS.md</code> rules file at startup</span>
+                    </label>
+
+                    {agentFormError && (
+                      <p className="agent-error">{agentFormError}</p>
+                    )}
                   </div>
-                  <label className="agent-rules-row">
-                    <input
-                      type="checkbox"
-                      checked={newAgentReadsRules}
-                      onChange={(e) => setNewAgentReadsRules(e.target.checked)}
-                    />
-                    <span>This CLI reads a <code>CLAUDE.md</code> / <code>AGENTS.md</code> rules file at startup</span>
-                  </label>
-                  {agentFormError && (
-                    <p className="agent-error">{agentFormError}</p>
-                  )}
 
                   {/* Hidden Built-ins restore section */}
                   {PRESET_AGENTS.filter(agent => $removedPresetAgents.includes(agent.command)).length > 0 && (
