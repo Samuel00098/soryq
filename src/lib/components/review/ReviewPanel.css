@@ -287,6 +287,7 @@
 /* File Card Body / Diff */
 .file-card-body {
   overflow-x: auto;
+  overflow-y: hidden;
   background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.3);
   border-radius: 0 0 6px 6px;
 }
