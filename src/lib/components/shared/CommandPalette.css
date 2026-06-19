@@ -1,0 +1,149 @@
+/* Styles for CommandPalette.tsx — extracted verbatim from the original CSS. */
+
+.command-palette-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-glass, rgba(4, 4, 6, 0.65));
+  backdrop-filter: blur(12px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 15vh;
+  z-index: 9999;
+}
+
+.command-palette {
+  width: 600px;
+  max-width: 90%;
+  background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow, var(--shadow-lg)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: min(400px, 70vh);
+  animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  view-transition-name: soryq-command-palette;
+}
+
+@keyframes scaleUp {
+  from {
+    transform: scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.search-container {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+
+.search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.palette-input::placeholder {
+  color: var(--text-muted);
+}
+
+.results-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.no-results {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.command-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+  border-left: 2px solid transparent;
+}
+
+.command-item.selected {
+  background: var(--accent-light);
+  border-left-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.command-item.selected .command-name {
+  color: var(--text-primary);
+}
+
+.command-item.selected .command-category {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent) !important;
+}
+
+.command-item.selected .command-shortcut {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--text-primary) !important;
+}
+
+.command-details {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.command-category {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.command-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.command-shortcut {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--editor-font-family, monospace);
+  transition: background-color 0.15s, color 0.15s;
+}

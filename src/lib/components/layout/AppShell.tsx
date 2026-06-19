@@ -15,6 +15,7 @@ import TerminalPane from '$lib/components/terminal/TerminalPane.tsx';
 import WelcomeScreen from '$lib/components/workspace/WelcomeScreen.tsx';
 import FloatingPromptBar from '$lib/components/terminal/FloatingPromptBar.tsx';
 import AgentCommandCenter from '$lib/components/terminal/AgentCommandCenter.tsx';
+import AgentWorktreeBadge from '$lib/components/orchestrator/AgentWorktreeBadge.tsx';
 import ContainersPanel from '$lib/components/containers/ContainersPanelLazy.tsx';
 import DbExplorerPanel from '$lib/components/db/DbExplorerPanelLazy.tsx';
 import HttpClientPanel from '$lib/components/http/HttpClientPanelLazy.tsx';
@@ -56,7 +57,6 @@ import {
   focusPromptBar,
   launchPromptBarVoiceMode,
   activeSessionId,
-  activateSessionInPane,
   getSessionPromptTargetLabel,
   isAgentSession,
   killSession,
@@ -238,6 +238,21 @@ import { useGlobalTooltips } from '$lib/react/useGlobalTooltips.ts';
 
 export default function AppShell() {
   useGlobalTooltips();
+
+  function withTransition(action: () => void) {
+    const startViewTransition = (document as Document & {
+      startViewTransition?: (callback: () => void) => { finished?: Promise<unknown> };
+    }).startViewTransition;
+
+    if (startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      startViewTransition.call(document, () => {
+        flushSync(action);
+      });
+    } else {
+      action();
+    }
+  }
+
   const layoutState = useLayoutStore();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const project = useWorkspaceStore((s) => (s.activeProjectId ? s.projects.get(s.activeProjectId) ?? null : null));
@@ -633,7 +648,9 @@ export default function AppShell() {
           openSettings();
           break;
         case 'newWorkspace':
-          useWorkspaceStore.getState().__set('newWorkspacePromptOpen', true);
+          withTransition(() => {
+            useWorkspaceStore.getState().__set('newWorkspacePromptOpen', true);
+          });
           break;
         case 'goToTerminal':
           setActiveView('terminal');
@@ -735,26 +752,33 @@ export default function AppShell() {
   }
 
   function setPanelRoomOpen(id: AuxPanelId, open: boolean) {
-    const key = PANEL_VISIBILITY_KEYS[id];
-    persistLayoutPatch({
-      [key]: open,
-      activeView: open ? id : 'terminal',
-      lastAuxView: id,
-      editorSplitPreview: false,
-    });
+    withTransition(() => {
+      const key = PANEL_VISIBILITY_KEYS[id];
+      persistLayoutPatch({
+        [key]: open,
+        activeView: open ? id : 'terminal',
+        lastAuxView: id,
+        editorSplitPreview: false,
+      });
 
-    setMinimizedRooms((current) => {
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
+      setMinimizedRooms((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
 
-    if (open) setFocusedRoom(id);
-    else if (focusedRoom === id) setFocusedRoom('terminal');
+      if (open) setFocusedRoom(id);
+      else if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
+    });
   }
 
   function togglePanelRoom(id: AuxPanelId) {
-    setPanelRoomOpen(id, !Boolean(layoutState[PANEL_VISIBILITY_KEYS[id]]));
+    const isOpen = Boolean(layoutState[PANEL_VISIBILITY_KEYS[id]]);
+    if (isOpen && activeRoom !== id) {
+      focusRoom(id);
+      return;
+    }
+    setPanelRoomOpen(id, !isOpen);
   }
 
   function nextVisibleRoom(excluding: RoomId, minimized = minimizedRooms) {
@@ -762,73 +786,87 @@ export default function AppShell() {
   }
 
   function focusRoom(id: RoomId) {
-    setMinimizedRooms((current) => {
-      const next = new Set(current);
-      next.delete(id);
-      return next;
+    withTransition(() => {
+      setMinimizedRooms((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setFocusedRoom(id);
+      if (id === 'terminal') setTerminalRoomOpen(true);
     });
-    setFocusedRoom(id);
-    if (id === 'terminal') setTerminalRoomOpen(true);
   }
 
   function showRoomInPrimary(id: RoomId) {
-    setMinimizedRooms((current) => {
-      const next = new Set(current);
-      next.delete(id);
-      return next;
+    withTransition(() => {
+      setMinimizedRooms((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      if (id === 'terminal') setTerminalRoomOpen(true);
+      if (activeRoom && activeRoom !== id) {
+        setSecondaryRoom(activeRoom);
+      }
+      setFocusedRoom(id);
     });
-    if (id === 'terminal') setTerminalRoomOpen(true);
-    if (activeRoom && activeRoom !== id) {
-      setSecondaryRoom(activeRoom);
-    }
-    setFocusedRoom(id);
   }
 
   function showRoomInSecondary(id: RoomId) {
-    setMinimizedRooms((current) => {
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
-    if (id === 'terminal') setTerminalRoomOpen(true);
-    if (id === activeRoom) {
-      if (splitRoom) {
-        setFocusedRoom(splitRoom);
-        setSecondaryRoom(id);
+    withTransition(() => {
+      setMinimizedRooms((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      if (id === 'terminal') setTerminalRoomOpen(true);
+      if (id === activeRoom) {
+        if (splitRoom) {
+          setFocusedRoom(splitRoom);
+          setSecondaryRoom(id);
+        }
+        return;
       }
-      return;
-    }
-    setSecondaryRoom(id);
+      setSecondaryRoom(id);
+    });
   }
 
   function activateGalleryPanel(id: RoomId) {
-    focusRoom(id);
-    setGalleryScrollRoom(id);
+    withTransition(() => {
+      focusRoom(id);
+      setGalleryScrollRoom(id);
+    });
   }
 
   function minimizeRoom(id: RoomId) {
-    setMinimizedRooms((current) => {
-      const next = new Set(current);
-      next.add(id);
-      return next;
+    withTransition(() => {
+      setMinimizedRooms((current) => {
+        const next = new Set(current);
+        next.add(id);
+        return next;
+      });
+      if (focusedRoom === id) {
+        setFocusedRoom(nextVisibleRoom(id));
+      }
     });
-    if (focusedRoom === id) {
-      setFocusedRoom(nextVisibleRoom(id));
-    }
   }
 
   function restoreRoom(id: RoomId) {
-    setMinimizedRooms((current) => {
-      const next = new Set(current);
-      next.delete(id);
-      return next;
+    withTransition(() => {
+      setMinimizedRooms((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setFocusedRoom(id);
     });
-    setFocusedRoom(id);
   }
 
   function focusRoomMode(id: RoomId) {
-    focusRoom(id);
-    setAmbientLayout('focus');
+    withTransition(() => {
+      focusRoom(id);
+      setAmbientLayout('focus');
+    });
   }
 
   function handleFocusModeClick(event: React.MouseEvent, id: RoomId) {
@@ -838,27 +876,29 @@ export default function AppShell() {
   }
 
   function closeRoom(id: RoomId) {
-    if (id === 'workspace') {
-      toggleSidebar();
-      if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
-      return;
-    }
-    if (id === 'terminal') {
-      setTerminalRoomOpen(false);
-      if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
-      return;
-    }
-    if (id === 'orchestrator') {
-      agentCenterOpen.set(false);
-      if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
-      return;
-    }
-    if (isAgentRoomId(id)) {
-      void killSession(getAgentRoomSessionId(id));
-      if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
-      return;
-    }
-    setPanelRoomOpen(id, false);
+    withTransition(() => {
+      if (id === 'workspace') {
+        toggleSidebar();
+        if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
+        return;
+      }
+      if (id === 'terminal') {
+        setTerminalRoomOpen(false);
+        if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
+        return;
+      }
+      if (id === 'orchestrator') {
+        agentCenterOpen.set(false);
+        if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
+        return;
+      }
+      if (isAgentRoomId(id)) {
+        void killSession(getAgentRoomSessionId(id));
+        if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
+        return;
+      }
+      setPanelRoomOpen(id, false);
+    });
   }
 
   function reorderGalleryRoom(targetRoom: RoomId) {
@@ -1149,7 +1189,7 @@ export default function AppShell() {
       const session = getAgentSessionForRoom(id);
       return session?.agentPreset ?? 'agent';
     }
-    if (id === 'terminal') return agentSessions.length > 0 ? `${agentSessions.length} agents` : 'terminal';
+    if (id === 'terminal') return 'terminal';
     if (id === 'orchestrator') return 'assistant';
     if (id === 'workspace') return layoutState.sidebarTab;
     return 'tool';
@@ -1200,6 +1240,7 @@ export default function AppShell() {
       }
       return (
         <div className="agent-terminal-room">
+          <AgentWorktreeBadge sessionId={sessionId} />
           <TerminalPane
             sessionId={sessionId}
             paneIndex={terminalPaneAssignments.indexOf(sessionId)}
@@ -1212,34 +1253,14 @@ export default function AppShell() {
       );
     }
     if (id === 'terminal') {
+      // The terminal room is the user's personal terminal only. Agents never
+      // surface here — each runs in its own `agent:N` room (reachable from the
+      // room dock / stack), keeping this grid free of agent panes and churn.
       return (
-        <>
-          {agentSessions.length > 0 && (
-            <div className="agent-room-strip" aria-label="Agent rooms">
-              {agentSessions.map((session) => (
-                <button
-                  key={session.id}
-                  className={`agent-room-card${session.id === currentActiveSessionId ? ' active' : ''}`}
-                  onClick={() => {
-                    activateSessionInPane(session.id);
-                    focusRoom('terminal');
-                  }}
-                  title={session.taskSummary ?? session.title}
-                >
-                  <span className="agent-room-pulse" />
-                  <span className="agent-room-copy">
-                    <span className="agent-room-name">{getSessionPromptTargetLabel(session, allTerminalSessions)}</span>
-                    <span className="agent-room-task">{session.taskSummary || session.paneTitle || session.title}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="terminal-room-body">
-            <TerminalPanel />
-            {projectSwitching && <div className="project-switch-overlay" />}
-          </div>
-        </>
+        <div className="terminal-room-body">
+          <TerminalPanel />
+          {projectSwitching && <div className="project-switch-overlay" />}
+        </div>
       );
     }
     return <PanelHost id={id} />;

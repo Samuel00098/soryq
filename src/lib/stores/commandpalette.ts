@@ -1,22 +1,49 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
+import { useCommandPaletteStore } from './zustand/commandpalette';
+import { flushSync } from 'react-dom';
 
-export interface Command {
-  id: string;
-  name: string;
-  category: string;
-  shortcut?: string;
-  action: () => void | Promise<void>;
+function withTransition(fn: () => void) {
+  const startViewTransition = (document as any).startViewTransition;
+  if (startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    startViewTransition.call(document, () => {
+      flushSync(fn);
+    });
+  } else {
+    fn();
+  }
 }
 
-export const isOpen = writable(false);
-export const search = writable('');
-export const commands = writable<Command[]>([]);
+export type { Command } from './zustand/commandpalette';
+
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useCommandPaletteStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useCommandPaletteStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useCommandPaletteStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useCommandPaletteStore.getState() as any)[key] as T;
+      (useCommandPaletteStore.getState() as any).__set(key, fn(current));
+    },
+  };
+}
+
+export const isOpen = syncWritable<boolean>('isOpen', false);
+export const search = syncWritable<string>('search', '');
+export const commands = syncWritable<any[]>('commands', []);
 
 export function toggleCommandPalette() {
-  isOpen.update((v) => !v);
-  if (get(isOpen)) {
-    search.set('');
-  }
+  withTransition(() => {
+    isOpen.update((v) => !v);
+    if (get(isOpen)) {
+      search.set('');
+    }
+  });
 }
 
 import { newWorkspacePromptOpen, openProject, openProjectByPath } from './workspace';
@@ -26,7 +53,7 @@ import { createTerminalSession } from './terminal';
 import { startProxy, stopProxy } from './preview';
 
 export function initDefaultCommands() {
-  const defaultCmds: Command[] = [
+  const defaultCmds: any[] = [
     {
       id: 'file.save',
       name: 'Save Active File',
@@ -146,10 +173,10 @@ export function initDefaultCommands() {
   commands.set(defaultCmds);
 }
 
-export function registerCommand(command: Command) {
+export function registerCommand(command: any) {
   commands.update((cmds) => {
-    if (cmds.some((c) => c.id === command.id)) {
-      return cmds.map((c) => (c.id === command.id ? command : c));
+    if (cmds.some((c: any) => c.id === command.id)) {
+      return cmds.map((c: any) => (c.id === command.id ? command : c));
     }
     return [...cmds, command];
   });
