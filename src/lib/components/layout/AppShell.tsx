@@ -29,7 +29,6 @@ import { useEditorStore } from '$lib/stores/zustand/editor';
 import {
   toggleSidebar,
   setActiveView,
-  toggleEditorSplitPreview,
   openSettings,
   toggleSidebarTab,
   toggleEditorVisible,
@@ -45,6 +44,7 @@ import {
   togglePetVisible,
   openQuickCapture,
   openEnvManager,
+  envManagerOpen,
 } from '$lib/stores/layout';
 import { sketchCanvasOpen, toggleSketchCanvas } from '$lib/stores/sketch';
 import { openDailyNote } from '$lib/stores/dailyNote';
@@ -56,7 +56,6 @@ import { useSettingsStore } from '$lib/stores/zustand/settings';
 import { matchShortcut } from '$lib/stores/settings';
 import {
   createTerminalSession,
-  focusPromptBar,
   launchPromptBarVoiceMode,
   activeSessionId,
   getSessionPromptTargetLabel,
@@ -158,6 +157,7 @@ const GALLERY_DEFAULT_HEIGHT = 320;
 
 const SketchCanvas = lazy(() => import('$lib/components/workspace/SketchCanvas.tsx'));
 const EditorPanel = lazy(() => import('$lib/components/editor/EditorPanel.tsx'));
+const EnvManager = lazy(() => import('$lib/components/shared/EnvManager.tsx'));
 
 function Icon({ children }: { children: React.ReactNode }) {
   return (
@@ -296,6 +296,7 @@ export default function AppShell() {
   const activeFile = useEditorStore((s) => s.activeFile);
   const auxTabsRef = useAction<HTMLDivElement>(clampHorizontalScroll);
   const layoutCommand = useStore(layoutControlCommand);
+  const isEnvManagerOpen = useStore(envManagerOpen);
 
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const [sidebarResizing, setSidebarResizing] = useState(false);
@@ -709,9 +710,6 @@ export default function AppShell() {
         case 'goToPet':
           togglePetVisible();
           break;
-        case 'toggleSidebar':
-          toggleSidebar();
-          break;
         case 'openSearch':
           toggleSidebarTab('search');
           break;
@@ -730,9 +728,6 @@ export default function AppShell() {
           setFocusedRoom('terminal');
           createTerminalSession();
           break;
-        case 'splitPreview':
-          toggleEditorSplitPreview();
-          break;
         case 'formatDocument':
           formatActiveFile();
           break;
@@ -750,9 +745,6 @@ export default function AppShell() {
           break;
         case 'toggleSketch':
           toggleSketchCanvas();
-          break;
-        case 'openPromptBar':
-          focusPromptBar();
           break;
         case 'launchVoiceMode':
           launchPromptBarVoiceMode();
@@ -1387,11 +1379,69 @@ export default function AppShell() {
     );
   }
 
+  function getRoomPreview(id: RoomId) {
+    if (id === 'editor') {
+      return (
+        <div className="room-card-preview">
+          {activeFile ? activeFile.split(/[/\\]/).pop() : 'No active file'}
+        </div>
+      );
+    }
+    if (id === 'terminal') {
+      return (
+        <div className="room-card-preview">
+          {allTerminalSessions.length > 0
+            ? `${allTerminalSessions.length} active session${allTerminalSessions.length > 1 ? 's' : ''}`
+            : 'No active shells'}
+        </div>
+      );
+    }
+    if (id === 'workspace') {
+      return (
+        <div className="room-card-preview">
+          {project ? project.name : 'Empty workspace'}
+        </div>
+      );
+    }
+    if (id === 'orchestrator') {
+      return <div className="room-card-preview">Agent chat mode active</div>;
+    }
+    if (id === 'preview') {
+      return <div className="room-card-preview">Live markdown & web preview</div>;
+    }
+    if (id === 'review') {
+      return <div className="room-card-preview">Code review & diff viewer</div>;
+    }
+    if (id === 'tasks') {
+      return <div className="room-card-preview">View & run task checklist</div>;
+    }
+    if (id === 'http') {
+      return <div className="room-card-preview">Compose REST HTTP requests</div>;
+    }
+    if (id === 'db') {
+      return <div className="room-card-preview">Explore connected databases</div>;
+    }
+    if (id === 'containers') {
+      return <div className="room-card-preview">Docker containers & images</div>;
+    }
+    if (id === 'toolbox') {
+      return <div className="room-card-preview">Dev utility toolbox</div>;
+    }
+    if (id === 'pet') {
+      return <div className="room-card-preview">DevPet companion</div>;
+    }
+    return null;
+  }
+
   function renderRoomCard(id: RoomId) {
     return (
       <button key={id} className="room-card bento-card" onClick={() => focusRoom(id)} title={`Open ${roomTitle(id)}`}>
-        <span className="room-card-kind">{roomKind(id)}</span>
+        <div className="room-card-header">
+          <span className="room-card-icon">{roomIcon(id)}</span>
+          <span className="room-card-kind">{roomKind(id)}</span>
+        </div>
         <span className="room-card-name">{roomTitle(id)}</span>
+        {getRoomPreview(id)}
       </button>
     );
   }
@@ -1651,6 +1701,12 @@ export default function AppShell() {
               )}
             </div>
           </div>
+        )}
+
+        {isEnvManagerOpen && (
+          <Suspense fallback={null}>
+            <EnvManager />
+          </Suspense>
         )}
       </div>
 

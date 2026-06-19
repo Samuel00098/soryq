@@ -11,6 +11,7 @@
   overflow: hidden;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 
 .zoom-content {
@@ -54,7 +55,7 @@
 }
 
 .rooms-table.ambient-focus {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
 }
 
 .rooms-table.ambient-split {
@@ -344,20 +345,62 @@
 .room-card {
   appearance: none;
   width: 100%;
-  min-height: 72px;
+  min-height: 108px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: center;
-  gap: 7px;
-  padding: 12px;
-  border-radius: 10px;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 12px;
   text-align: left;
   color: var(--text-secondary);
   cursor: pointer;
   animation: shell-chip-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
-  transition: border-color 0.16s ease, color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  transition: border-color 0.16s ease, color 0.16s ease, transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.room-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.room-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  opacity: 0.8;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.room-card-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.room-card-preview {
+  width: 100%;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.16);
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome.light .room-card-preview {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.02);
 }
 
 .room-card:hover {
