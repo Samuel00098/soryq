@@ -358,31 +358,23 @@
 }
 
 /* Split Diff Styling */
-.diff-table.split-diff td {
-  width: 50%;
-}
-.diff-table.split-diff td.ln {
-  width: 40px;
-  min-width: 40px;
-  max-width: 40px;
-}
 
 /* Left side deleted cell */
-.del-code {
+.deletion-code {
   background: rgba(239, 68, 68, 0.08);
   color: var(--error);
 }
-.del-ln {
+.deletion-ln {
   background: rgba(239, 68, 68, 0.04);
   color: color-mix(in srgb, var(--error) 60%, var(--text-muted));
 }
 
 /* Right side added cell */
-.add-code {
+.addition-code {
   background: rgba(34, 197, 94, 0.08);
   color: var(--success);
 }
-.add-ln {
+.addition-ln {
   background: rgba(34, 197, 94, 0.04);
   color: color-mix(in srgb, var(--success) 60%, var(--text-muted));
 }
