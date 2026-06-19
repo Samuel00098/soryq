@@ -137,7 +137,6 @@ export default function WelcomeScreen() {
                 </svg>
               )}
             </div>
-            <h1 className="app-name">Soryq</h1>
           </div>
           <div className="brand-subtitle-row">
             <span className="welcome-kicker">{greeting}</span>
