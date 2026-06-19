@@ -93,6 +93,7 @@ interface PersistedSketchState {
   texts?: SketchText[];
   arrows?: SketchArrow[];
   shapes?: SketchShape[];
+  groups?: { id: string; elementIds: string[] }[];
 }
 
 const LEGACY_SKETCH_STATE_V3_KEY = 'soryq_sketch_state_v3';
@@ -309,6 +310,12 @@ export default function SketchCanvas() {
   const resizeShapeStartRef = useRef({ x: 0, y: 0 });
   const shapeStartDimsRef = useRef({ width: 0, height: 0 });
 
+  const dragElementStartsRef = useRef<{ [id: string]: { x: number; y: number } }>({});
+  const resizeElementStartsRef = useRef<{
+    selectionBox: { xMin: number; yMin: number; w: number; h: number };
+    elements: { [id: string]: { x: number; y: number; width: number; height: number; fontSize?: number } };
+  } | null>(null);
+
   const undoStackRef = useRef<string[]>([]);
   const redoStackRef = useRef<string[]>([]);
 
@@ -333,6 +340,15 @@ export default function SketchCanvas() {
   const [drawingShape, setDrawingShape] = useState(false);
   const [shapeStartPoint, setShapeStartPoint] = useState<Point | null>(null);
   const [shapeCurrentPoint, setShapeCurrentPoint] = useState<Point | null>(null);
+  
+  // Grouping & Multi-Selection States
+  interface SketchGroup {
+    id: string;
+    elementIds: string[];
+  }
+  const [sketchGroups, setSketchGroups] = useState<SketchGroup[]>([]);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [selectedArrowId, setSelectedArrowId] = useState<string | null>(null);
@@ -395,6 +411,8 @@ export default function SketchCanvas() {
     sketchTexts,
     arrows,
     sketchShapes,
+    sketchGroups,
+    selectedElementIds,
     currentColor,
     brushSize,
     brushOpacity,
@@ -421,6 +439,8 @@ export default function SketchCanvas() {
       sketchTexts,
       arrows,
       sketchShapes,
+      sketchGroups,
+      selectedElementIds,
       currentColor,
       brushSize,
       brushOpacity,
@@ -445,6 +465,8 @@ export default function SketchCanvas() {
     sketchTexts,
     arrows,
     sketchShapes,
+    sketchGroups,
+    selectedElementIds,
     currentColor,
     brushSize,
     brushOpacity,
@@ -494,7 +516,8 @@ export default function SketchCanvas() {
       strokes: s.strokes,
       texts: s.sketchTexts,
       arrows: s.arrows,
-      shapes: s.sketchShapes
+      shapes: s.sketchShapes,
+      groups: s.sketchGroups
     };
   }
 
@@ -507,11 +530,15 @@ export default function SketchCanvas() {
     setSketchTexts([]);
     setArrows([]);
     setSketchShapes([]);
+    setSketchGroups([]);
+    setSelectedElementIds([]);
     undoStackRef.current = [];
     redoStackRef.current = [];
     setCanUndo(false);
     setCanRedo(false);
     setSelectedShapeId(null);
+    setSelectedTextId(null);
+    setSelectedArrowId(null);
     setActiveTextInput(null);
     setActiveShapeTextInput(null);
     setBackgroundStyle('transparent');
@@ -1071,6 +1098,8 @@ export default function SketchCanvas() {
       setSketchTexts(stateObj.texts ?? []);
       setArrows(stateObj.arrows ?? []);
       setSketchShapes(stateObj.shapes ?? []);
+      setSketchGroups(stateObj.groups ?? []);
+      setSelectedElementIds([]);
       if (options.persist !== false) {
         persistStateString(stateStr, options.projectId);
       }
@@ -1578,20 +1607,68 @@ export default function SketchCanvas() {
     e.stopPropagation();
     commitText();
     
-    setSelectedTextId(text.id);
-    setSelectedShapeId(null);
-    setSelectedArrowId(null);
+    const s = stateRef.current;
+    const isAlreadySelected = s.selectedElementIds.includes(text.id);
+    const isDeepSelect = e.ctrlKey || e.metaKey;
+    
+    if (!isAlreadySelected) {
+      selectElement(text.id, e.shiftKey, isDeepSelect);
+    } else if (e.shiftKey) {
+      selectElement(text.id, true, isDeepSelect);
+    }
+
+    // Determine what active selected IDs will be (to avoid state async delays)
+    let activeSelectionIds = s.selectedElementIds;
+    if (!isAlreadySelected) {
+      let resolvedIds = [text.id];
+      if (!isDeepSelect) {
+        const parentGroup = s.sketchGroups.find(g => g.elementIds.includes(text.id));
+        if (parentGroup) {
+          resolvedIds = [...parentGroup.elementIds];
+        }
+      }
+      if (e.shiftKey) {
+        activeSelectionIds = Array.from(new Set([...s.selectedElementIds, ...resolvedIds]));
+      } else {
+        activeSelectionIds = resolvedIds;
+      }
+    } else if (e.shiftKey) {
+      let resolvedIds = [text.id];
+      if (!isDeepSelect) {
+        const parentGroup = s.sketchGroups.find(g => g.elementIds.includes(text.id));
+        if (parentGroup) {
+          resolvedIds = [...parentGroup.elementIds];
+        }
+      }
+      const nextSet = new Set(s.selectedElementIds);
+      resolvedIds.forEach(rid => nextSet.delete(rid));
+      activeSelectionIds = Array.from(nextSet);
+    }
+
+    // Record starting coordinates of all selected elements
+    const starts: { [id: string]: { x: number; y: number } } = {};
+    activeSelectionIds.forEach(selId => {
+      const sh = s.sketchShapes.find(shape => shape.id === selId);
+      if (sh) {
+        starts[selId] = { x: sh.x, y: sh.y };
+      } else {
+        const t = s.sketchTexts.find(txt => txt.id === selId);
+        if (t) {
+          starts[selId] = { x: t.x, y: t.y };
+        }
+      }
+    });
+    dragElementStartsRef.current = starts;
 
     draggingTextIdRef.current = text.id;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
-    textStartRef.current = { x: text.x, y: text.y };
 
     window.addEventListener('pointermove', handleTextDragMove);
     window.addEventListener('pointerup', handleTextDragUp);
   }
 
   function handleTextDragMove(e: PointerEvent) {
-    const { zoomScale, snapToGrid, backgroundStyle, gridSpacing } = stateRef.current;
+    const { zoomScale, snapToGrid, backgroundStyle, gridSpacing, selectedElementIds } = stateRef.current;
     if (!draggingTextIdRef.current || !viewportRef.current) return;
     const rect = viewportRef.current.getBoundingClientRect();
     const cssZoom = rect.width / viewportRef.current.clientWidth;
@@ -1599,30 +1676,51 @@ export default function SketchCanvas() {
     const deltaX = ((e.clientX - dragStartRef.current.x) / cssZoom) / zoomScale;
     const deltaY = ((e.clientY - dragStartRef.current.y) / cssZoom) / zoomScale;
     
-    setSketchTexts(prevTexts => prevTexts.map(t => {
-      if (t.id === draggingTextIdRef.current) {
-        let targetX = textStartRef.current.x + deltaX;
-        let targetY = textStartRef.current.y + deltaY;
-        
-        if (snapToGrid) {
-          if (backgroundStyle === 'isometric-grid') {
-            const rowSpacing = gridSpacing * 0.86602540378; // Math.sqrt(3)/2
-            const r = Math.round(targetY / rowSpacing);
-            const xShift = (r % 2 === 0) ? 0 : gridSpacing / 2;
-            const c = Math.round((targetX - xShift) / gridSpacing);
-            targetX = c * gridSpacing + xShift;
-            targetY = r * rowSpacing;
-          } else {
+    // Drag all selected shapes
+    setSketchShapes(prevShapes => prevShapes.map(s => {
+      if (selectedElementIds.includes(s.id)) {
+        const start = dragElementStartsRef.current[s.id];
+        if (start) {
+          let targetX = start.x + deltaX;
+          let targetY = start.y + deltaY;
+          if (snapToGrid) {
             targetX = Math.round(targetX / gridSpacing) * gridSpacing;
             targetY = Math.round(targetY / gridSpacing) * gridSpacing;
           }
+          return { ...s, x: targetX, y: targetY };
         }
-        
-        return {
-          ...t,
-          x: targetX,
-          y: targetY
-        };
+      }
+      return s;
+    }));
+
+    // Drag all selected texts
+    setSketchTexts(prevTexts => prevTexts.map(t => {
+      if (selectedElementIds.includes(t.id)) {
+        const start = dragElementStartsRef.current[t.id];
+        if (start) {
+          let targetX = start.x + deltaX;
+          let targetY = start.y + deltaY;
+          
+          if (snapToGrid) {
+            if (backgroundStyle === 'isometric-grid') {
+              const rowSpacing = gridSpacing * 0.86602540378; // Math.sqrt(3)/2
+              const r = Math.round(targetY / rowSpacing);
+              const xShift = (r % 2 === 0) ? 0 : gridSpacing / 2;
+              const c = Math.round((targetX - xShift) / gridSpacing);
+              targetX = c * gridSpacing + xShift;
+              targetY = r * rowSpacing;
+            } else {
+              targetX = Math.round(targetX / gridSpacing) * gridSpacing;
+              targetY = Math.round(targetY / gridSpacing) * gridSpacing;
+            }
+          }
+          
+          return {
+            ...t,
+            x: targetX,
+            y: targetY
+          };
+        }
       }
       return t;
     }));
@@ -1666,11 +1764,6 @@ export default function SketchCanvas() {
       return;
     }
 
-    // Set selected shape
-    setSelectedShapeId(shape.id);
-    setSelectedTextId(null);
-    setSelectedArrowId(null);
-
     if (e.target && (e.target as HTMLElement).classList.contains('resize-handle')) {
       return; // Handled by resize handler
     }
@@ -1678,16 +1771,68 @@ export default function SketchCanvas() {
     e.stopPropagation();
     commitText();
 
+    const s = stateRef.current;
+    const isAlreadySelected = s.selectedElementIds.includes(shape.id);
+    const isDeepSelect = e.ctrlKey || e.metaKey;
+    
+    if (!isAlreadySelected) {
+      selectElement(shape.id, e.shiftKey, isDeepSelect);
+    } else if (e.shiftKey) {
+      selectElement(shape.id, true, isDeepSelect);
+    }
+
+    // Determine what active selected IDs will be (to avoid state async delays)
+    let activeSelectionIds = s.selectedElementIds;
+    if (!isAlreadySelected) {
+      let resolvedIds = [shape.id];
+      if (!isDeepSelect) {
+        const parentGroup = s.sketchGroups.find(g => g.elementIds.includes(shape.id));
+        if (parentGroup) {
+          resolvedIds = [...parentGroup.elementIds];
+        }
+      }
+      if (e.shiftKey) {
+        activeSelectionIds = Array.from(new Set([...s.selectedElementIds, ...resolvedIds]));
+      } else {
+        activeSelectionIds = resolvedIds;
+      }
+    } else if (e.shiftKey) {
+      let resolvedIds = [shape.id];
+      if (!isDeepSelect) {
+        const parentGroup = s.sketchGroups.find(g => g.elementIds.includes(shape.id));
+        if (parentGroup) {
+          resolvedIds = [...parentGroup.elementIds];
+        }
+      }
+      const nextSet = new Set(s.selectedElementIds);
+      resolvedIds.forEach(rid => nextSet.delete(rid));
+      activeSelectionIds = Array.from(nextSet);
+    }
+
+    // Record starting coordinates of all selected elements
+    const starts: { [id: string]: { x: number; y: number } } = {};
+    activeSelectionIds.forEach(selId => {
+      const sh = s.sketchShapes.find(sh => sh.id === selId);
+      if (sh) {
+        starts[selId] = { x: sh.x, y: sh.y };
+      } else {
+        const t = s.sketchTexts.find(txt => txt.id === selId);
+        if (t) {
+          starts[selId] = { x: t.x, y: t.y };
+        }
+      }
+    });
+    dragElementStartsRef.current = starts;
+
     draggingShapeIdRef.current = shape.id;
     dragShapeStartRef.current = { x: e.clientX, y: e.clientY };
-    shapeStartCoordsRef.current = { x: shape.x, y: shape.y };
 
     window.addEventListener('pointermove', handleShapeDragMove);
     window.addEventListener('pointerup', handleShapeDragUp);
   }
 
   function handleShapeDragMove(e: PointerEvent) {
-    const { zoomScale, snapToGrid, gridSpacing } = stateRef.current;
+    const { zoomScale, snapToGrid, gridSpacing, selectedElementIds } = stateRef.current;
     if (!draggingShapeIdRef.current || !viewportRef.current) return;
     const rect = viewportRef.current.getBoundingClientRect();
     const cssZoom = rect.width / viewportRef.current.clientWidth;
@@ -1695,23 +1840,38 @@ export default function SketchCanvas() {
     const deltaX = ((e.clientX - dragShapeStartRef.current.x) / cssZoom) / zoomScale;
     const deltaY = ((e.clientY - dragShapeStartRef.current.y) / cssZoom) / zoomScale;
     
+    // Move all selected shapes together
     setSketchShapes(prevShapes => prevShapes.map(s => {
-      if (s.id === draggingShapeIdRef.current) {
-        let targetX = shapeStartCoordsRef.current.x + deltaX;
-        let targetY = shapeStartCoordsRef.current.y + deltaY;
-        
-        if (snapToGrid) {
-          targetX = Math.round(targetX / gridSpacing) * gridSpacing;
-          targetY = Math.round(targetY / gridSpacing) * gridSpacing;
+      if (selectedElementIds.includes(s.id)) {
+        const start = dragElementStartsRef.current[s.id];
+        if (start) {
+          let targetX = start.x + deltaX;
+          let targetY = start.y + deltaY;
+          if (snapToGrid) {
+            targetX = Math.round(targetX / gridSpacing) * gridSpacing;
+            targetY = Math.round(targetY / gridSpacing) * gridSpacing;
+          }
+          return { ...s, x: targetX, y: targetY };
         }
-        
-        return {
-          ...s,
-          x: targetX,
-          y: targetY
-        };
       }
       return s;
+    }));
+
+    // Move all selected texts together
+    setSketchTexts(prevTexts => prevTexts.map(t => {
+      if (selectedElementIds.includes(t.id)) {
+        const start = dragElementStartsRef.current[t.id];
+        if (start) {
+          let targetX = start.x + deltaX;
+          let targetY = start.y + deltaY;
+          if (snapToGrid) {
+            targetX = Math.round(targetX / gridSpacing) * gridSpacing;
+            targetY = Math.round(targetY / gridSpacing) * gridSpacing;
+          }
+          return { ...t, x: targetX, y: targetY };
+        }
+      }
+      return t;
     }));
   }
 
@@ -1732,6 +1892,48 @@ export default function SketchCanvas() {
     resizeShapeStartRef.current = { x: e.clientX, y: e.clientY };
     shapeStartDimsRef.current = { width: shape.width, height: shape.height };
 
+    const s = stateRef.current;
+    const selectedIds = s.selectedElementIds;
+    const isPartOfSelection = selectedIds.includes(shape.id);
+
+    if (isPartOfSelection && selectedIds.length > 1) {
+      let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+      const elements: { [id: string]: { x: number; y: number; width: number; height: number; fontSize?: number } } = {};
+      
+      selectedIds.forEach(id => {
+        const sh = s.sketchShapes.find(item => item.id === id);
+        if (sh) {
+          xMin = Math.min(xMin, sh.x);
+          yMin = Math.min(yMin, sh.y);
+          xMax = Math.max(xMax, sh.x + sh.width);
+          yMax = Math.max(yMax, sh.y + sh.height);
+          elements[id] = { x: sh.x, y: sh.y, width: sh.width, height: sh.height };
+        } else {
+          const txt = s.sketchTexts.find(item => item.id === id);
+          if (txt) {
+            const w = txt.value.length * txt.fontSize * 0.6;
+            const h = txt.fontSize * 1.2;
+            xMin = Math.min(xMin, txt.x);
+            yMin = Math.min(yMin, txt.y);
+            xMax = Math.max(xMax, txt.x + w);
+            yMax = Math.max(yMax, txt.y + h);
+            elements[id] = { x: txt.x, y: txt.y, width: w, height: h, fontSize: txt.fontSize };
+          }
+        }
+      });
+
+      if (xMin !== Infinity) {
+        resizeElementStartsRef.current = {
+          selectionBox: { xMin, yMin, w: xMax - xMin, h: yMax - yMin },
+          elements
+        };
+      } else {
+        resizeElementStartsRef.current = null;
+      }
+    } else {
+      resizeElementStartsRef.current = null;
+    }
+
     window.addEventListener('pointermove', handleShapeResizeMove);
     window.addEventListener('pointerup', handleShapeResizeUp);
   }
@@ -1744,30 +1946,84 @@ export default function SketchCanvas() {
     
     const deltaX = ((e.clientX - resizeShapeStartRef.current.x) / cssZoom) / zoomScale;
     const deltaY = ((e.clientY - resizeShapeStartRef.current.y) / cssZoom) / zoomScale;
-    
-    setSketchShapes(prevShapes => prevShapes.map(s => {
-      if (s.id === resizingShapeIdRef.current) {
-        let targetWidth = shapeStartDimsRef.current.width + deltaX;
-        let targetHeight = shapeStartDimsRef.current.height + deltaY;
-        
-        if (snapToGrid) {
-          targetWidth = Math.round(targetWidth / gridSpacing) * gridSpacing;
-          targetHeight = Math.round(targetHeight / gridSpacing) * gridSpacing;
-        }
-        
-        return {
-          ...s,
-          width: Math.max(15, targetWidth),
-          height: Math.max(15, targetHeight)
-        };
+
+    if (resizeElementStartsRef.current) {
+      const { selectionBox, elements } = resizeElementStartsRef.current;
+      const primaryStart = elements[resizingShapeIdRef.current];
+      if (!primaryStart) return;
+
+      let targetWidth = primaryStart.width + deltaX;
+      let targetHeight = primaryStart.height + deltaY;
+      
+      if (snapToGrid) {
+        targetWidth = Math.round(targetWidth / gridSpacing) * gridSpacing;
+        targetHeight = Math.round(targetHeight / gridSpacing) * gridSpacing;
       }
-      return s;
-    }));
+
+      const sx = Math.max(0.1, targetWidth / Math.max(1, primaryStart.width));
+      const sy = Math.max(0.1, targetHeight / Math.max(1, primaryStart.height));
+
+      // Resize and reposition shapes in group
+      setSketchShapes(prevShapes => prevShapes.map(s => {
+        if (s.id in elements) {
+          const start = elements[s.id];
+          const newX = selectionBox.xMin + (start.x - selectionBox.xMin) * sx;
+          const newY = selectionBox.yMin + (start.y - selectionBox.yMin) * sy;
+          const newWidth = Math.max(15, start.width * sx);
+          const newHeight = Math.max(15, start.height * sy);
+          return {
+            ...s,
+            x: newX,
+            y: newY,
+            width: newWidth,
+            height: newHeight
+          };
+        }
+        return s;
+      }));
+
+      // Resize and reposition texts in group
+      setSketchTexts(prevTexts => prevTexts.map(t => {
+        if (t.id in elements) {
+          const start = elements[t.id];
+          const newX = selectionBox.xMin + (start.x - selectionBox.xMin) * sx;
+          const newY = selectionBox.yMin + (start.y - selectionBox.yMin) * sy;
+          const newFontSize = Math.max(8, Math.min(200, Math.round((start.fontSize || 16) * Math.min(sx, sy))));
+          return {
+            ...t,
+            x: newX,
+            y: newY,
+            fontSize: newFontSize
+          };
+        }
+        return t;
+      }));
+    } else {
+      setSketchShapes(prevShapes => prevShapes.map(s => {
+        if (s.id === resizingShapeIdRef.current) {
+          let targetWidth = shapeStartDimsRef.current.width + deltaX;
+          let targetHeight = shapeStartDimsRef.current.height + deltaY;
+          
+          if (snapToGrid) {
+            targetWidth = Math.round(targetWidth / gridSpacing) * gridSpacing;
+            targetHeight = Math.round(targetHeight / gridSpacing) * gridSpacing;
+          }
+          
+          return {
+            ...s,
+            width: Math.max(15, targetWidth),
+            height: Math.max(15, targetHeight)
+          };
+        }
+        return s;
+      }));
+    }
   }
 
   function handleShapeResizeUp() {
     if (resizingShapeIdRef.current) {
       resizingShapeIdRef.current = null;
+      resizeElementStartsRef.current = null;
       saveState();
     }
     window.removeEventListener('pointermove', handleShapeResizeMove);
@@ -1806,45 +2062,148 @@ export default function SketchCanvas() {
     }
   }
 
+  // Grouping and Multi-Selection Helpers
+  function selectElement(id: string, isMultiSelect: boolean, isDeepSelect: boolean) {
+    const s = stateRef.current;
+    let resolvedIds = [id];
+    if (!isDeepSelect) {
+      const parentGroup = s.sketchGroups.find(g => g.elementIds.includes(id));
+      if (parentGroup) {
+        resolvedIds = [...parentGroup.elementIds];
+      }
+    }
+
+    let nextSelected: string[];
+    if (isMultiSelect) {
+      const allSelected = new Set(s.selectedElementIds);
+      const someAlreadySelected = resolvedIds.some(rid => allSelected.has(rid));
+      if (someAlreadySelected) {
+        resolvedIds.forEach(rid => allSelected.delete(rid));
+      } else {
+        resolvedIds.forEach(rid => allSelected.add(rid));
+      }
+      nextSelected = Array.from(allSelected);
+    } else {
+      nextSelected = resolvedIds;
+    }
+
+    setSelectedElementIds(nextSelected);
+
+    // Keep legacy single-selection state in sync for compatibility
+    if (nextSelected.length === 0) {
+      setSelectedShapeId(null);
+      setSelectedTextId(null);
+      setSelectedArrowId(null);
+    } else if (nextSelected.length === 1) {
+      const selId = nextSelected[0];
+      const isShape = s.sketchShapes.some(shape => shape.id === selId);
+      const isText = s.sketchTexts.some(text => text.id === selId);
+      const isArrow = s.arrows.some(arrow => arrow.id === selId);
+      if (isShape) {
+        setSelectedShapeId(selId);
+        setSelectedTextId(null);
+        setSelectedArrowId(null);
+      } else if (isText) {
+        setSelectedShapeId(null);
+        setSelectedTextId(selId);
+        setSelectedArrowId(null);
+      } else if (isArrow) {
+        setSelectedShapeId(null);
+        setSelectedTextId(null);
+        setSelectedArrowId(selId);
+      }
+    } else {
+      setSelectedShapeId(null);
+      setSelectedTextId(null);
+      setSelectedArrowId(null);
+    }
+  }
+
+  function groupSelected() {
+    const s = stateRef.current;
+    if (s.selectedElementIds.length < 2) return;
+    
+    const newGroupId = Math.random().toString(36).substring(2, 9);
+    
+    // Remove selected element IDs from any existing groups first
+    const updatedGroups = s.sketchGroups.map(g => ({
+      ...g,
+      elementIds: g.elementIds.filter(id => !s.selectedElementIds.includes(id))
+    })).filter(g => g.elementIds.length > 0);
+    
+    const newGroup: SketchGroup = {
+      id: newGroupId,
+      elementIds: [...s.selectedElementIds]
+    };
+    
+    setSketchGroups([...updatedGroups, newGroup]);
+    setTimeout(() => saveState(), 10);
+  }
+
+  function ungroupSelected() {
+    const s = stateRef.current;
+    if (s.selectedElementIds.length === 0) return;
+    
+    setSketchGroups(prev => {
+      const next = prev.filter(g => !g.elementIds.some(id => s.selectedElementIds.includes(id)));
+      setTimeout(() => saveState(), 10);
+      return next;
+    });
+  }
+
   // Helper to update properties of the active selection (shape, text, or arrow)
   function updateSelectedProperty(property: string, value: any) {
-    if (selectedShapeId) {
-      setSketchShapes(prev => {
-        const next = prev.map(s => {
-          if (s.id === selectedShapeId) {
-            let val = value;
-            if (property === 'fillColor' && typeof value === 'string' && value.endsWith('22')) {
-              val = s.color + '22';
-            }
-            return { ...s, [property]: val };
+    const s = stateRef.current;
+    let changed = false;
+    
+    // Bulk edit selected shapes
+    setSketchShapes(prev => {
+      let isChanged = false;
+      const next = prev.map(shape => {
+        if (s.selectedElementIds.includes(shape.id) || shape.id === selectedShapeId) {
+          isChanged = true;
+          let val = value;
+          if (property === 'fillColor' && typeof value === 'string' && value.endsWith('22')) {
+            val = shape.color + '22';
           }
-          return s;
-        });
-        setTimeout(() => saveState(), 10);
-        return next;
+          return { ...shape, [property]: val };
+        }
+        return shape;
       });
-    } else if (selectedTextId) {
-      setSketchTexts(prev => {
-        const next = prev.map(t => {
-          if (t.id === selectedTextId) {
-            return { ...t, [property]: value };
-          }
-          return t;
-        });
-        setTimeout(() => saveState(), 10);
-        return next;
+      if (isChanged) changed = true;
+      return next;
+    });
+
+    // Bulk edit selected texts
+    setSketchTexts(prev => {
+      let isChanged = false;
+      const next = prev.map(text => {
+        if (s.selectedElementIds.includes(text.id) || text.id === selectedTextId) {
+          isChanged = true;
+          return { ...text, [property]: value };
+        }
+        return text;
       });
-    } else if (selectedArrowId) {
-      setArrows(prev => {
-        const next = prev.map(a => {
-          if (a.id === selectedArrowId) {
-            return { ...a, [property]: value };
-          }
-          return a;
-        });
-        setTimeout(() => saveState(), 10);
-        return next;
+      if (isChanged) changed = true;
+      return next;
+    });
+
+    // Bulk edit selected arrows
+    setArrows(prev => {
+      let isChanged = false;
+      const next = prev.map(arrow => {
+        if (s.selectedElementIds.includes(arrow.id) || arrow.id === selectedArrowId) {
+          isChanged = true;
+          return { ...arrow, [property]: value };
+        }
+        return arrow;
       });
+      if (isChanged) changed = true;
+      return next;
+    });
+
+    if (changed) {
+      setTimeout(() => saveState(), 10);
     } else {
       // No active selection, update defaults
       if (property === 'color') setCurrentColor(value);
@@ -1860,6 +2219,22 @@ export default function SketchCanvas() {
 
   // Get properties of the active selection (for highlighting button states in left panel)
   function getSelectedProperty(property: string, defaultValue: any) {
+    const s = stateRef.current;
+    if (s.selectedElementIds.length > 0) {
+      const firstShape = s.sketchShapes.find(shape => s.selectedElementIds.includes(shape.id));
+      if (firstShape && property in firstShape) {
+        return (firstShape as any)[property];
+      }
+      const firstText = s.sketchTexts.find(text => s.selectedElementIds.includes(text.id));
+      if (firstText && property in firstText) {
+        return (firstText as any)[property];
+      }
+      const firstArrow = s.arrows.find(arrow => s.selectedElementIds.includes(arrow.id));
+      if (firstArrow && property in firstArrow) {
+        return (firstArrow as any)[property];
+      }
+    }
+
     if (selectedShapeId) {
       const shape = sketchShapes.find(s => s.id === selectedShapeId);
       if (shape && property in shape) {
@@ -1880,7 +2255,19 @@ export default function SketchCanvas() {
   }
 
   function updateSelectedColor(color: string) {
-    if (selectedShapeId) {
+    const s = stateRef.current;
+    if (s.selectedElementIds.length > 0) {
+      s.selectedElementIds.forEach(id => {
+        const isShape = s.sketchShapes.some(shape => shape.id === id);
+        if (isShape) {
+          updateShapeColor(id, color);
+        } else {
+          setSketchTexts(prev => prev.map(t => t.id === id ? { ...t, color } : t));
+          setArrows(prev => prev.map(a => a.id === id ? { ...a, color } : a));
+        }
+      });
+      setTimeout(() => saveState(), 10);
+    } else if (selectedShapeId) {
       updateShapeColor(selectedShapeId, color);
     } else if (selectedTextId) {
       updateSelectedProperty('color', color);
@@ -1979,9 +2366,28 @@ export default function SketchCanvas() {
   }
 
   function deleteSelected() {
-    if (selectedShapeId) deleteShape(selectedShapeId);
-    else if (selectedTextId) deleteText(selectedTextId);
-    else if (selectedArrowId) deleteArrow(selectedArrowId);
+    const s = stateRef.current;
+    if (s.selectedElementIds.length > 0) {
+      setSketchShapes(prev => prev.filter(shape => !s.selectedElementIds.includes(shape.id)));
+      setSketchTexts(prev => prev.filter(text => !s.selectedElementIds.includes(text.id)));
+      setArrows(prev => prev.filter(arrow => !s.selectedElementIds.includes(arrow.id)));
+      
+      // Remove deleted elements from groups
+      setSketchGroups(prev => prev.map(g => ({
+        ...g,
+        elementIds: g.elementIds.filter(id => !s.selectedElementIds.includes(id))
+      })).filter(g => g.elementIds.length > 0));
+      
+      setSelectedElementIds([]);
+      setSelectedShapeId(null);
+      setSelectedTextId(null);
+      setSelectedArrowId(null);
+      setTimeout(() => saveState(), 10);
+    } else {
+      if (selectedShapeId) deleteShape(selectedShapeId);
+      else if (selectedTextId) deleteText(selectedTextId);
+      else if (selectedArrowId) deleteArrow(selectedArrowId);
+    }
   }
 
   // Edit existing text boxes
@@ -2383,8 +2789,15 @@ export default function SketchCanvas() {
           closeSketchCanvas();
         }
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && !isTyping) {
-        if (selectedShapeId || selectedTextId || selectedArrowId) {
+        if (selectedShapeId || selectedTextId || selectedArrowId || s.selectedElementIds.length > 0) {
           deleteSelected();
+        }
+      } else if (e.key.toLowerCase() === 'g' && (e.ctrlKey || e.metaKey) && !isTyping) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          ungroupSelected();
+        } else {
+          groupSelected();
         }
       } else if (e.code === 'Space' && !isTyping) {
         setSpacePressed(true);
@@ -2427,7 +2840,7 @@ export default function SketchCanvas() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [activeTextInput, activeShapeTextInput, selectedShapeId, selectedTextId, selectedArrowId, currentTool, zoomScale, panOffset]);
+  }, [activeTextInput, activeShapeTextInput, selectedShapeId, selectedTextId, selectedArrowId, selectedElementIds, sketchGroups, currentTool, zoomScale, panOffset]);
 
   // Handle custom text box ESC / Ctrl+Enter key down
   function handleTextKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -2468,6 +2881,8 @@ export default function SketchCanvas() {
     drawGrid();
     redraw();
   }, [
+    viewportWidth,
+    viewportHeight,
     backgroundStyle,
     gridSpacing,
     zoomScale,
@@ -2586,7 +3001,7 @@ export default function SketchCanvas() {
         {sketchTexts.map((text) => (
           <div
             key={text.id}
-            className={`floating-text font-${text.fontFamily || 'handwritten'}`}
+            className={`floating-text font-${text.fontFamily || 'handwritten'}${selectedElementIds.includes(text.id) && currentTool === 'select' ? ' active-selected' : ''}`}
             data-text-id={text.id}
             style={{
               position: 'absolute',
@@ -2608,7 +3023,7 @@ export default function SketchCanvas() {
         {sketchShapes.map((shape) => (
           <div
             key={shape.id}
-            className={`floating-shape ${shape.type}${selectedShapeId === shape.id && currentTool === 'select' ? ' active-selected' : ''}`}
+            className={`floating-shape ${shape.type}${(selectedElementIds.includes(shape.id) || selectedShapeId === shape.id) && currentTool === 'select' ? ' active-selected' : ''}`}
             data-shape-id={shape.id}
             style={{
               position: 'absolute',
@@ -2634,7 +3049,7 @@ export default function SketchCanvas() {
             onPointerDown={(e) => startDragShape(e, shape)}
           >
             {/* Resize handle */}
-            {selectedShapeId === shape.id && currentTool === 'select' && (
+            {(selectedShapeId === shape.id || (selectedElementIds.includes(shape.id) && currentTool === 'select')) && (
               <div 
                 className="resize-handle"
                 style={{
@@ -2727,7 +3142,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Background/Fill Section (only for shapes) */}
-            {(selectedShapeId || ['rectangle', 'circle', 'diamond'].includes(currentTool)) && (
+            {(selectedShapeId || selectedElementIds.some(id => sketchShapes.some(s => s.id === id)) || ['rectangle', 'circle', 'diamond'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Background Color</span>
                 <div className="style-color-grid">
@@ -2790,7 +3205,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Fill Style Section (only for shapes) */}
-            {(selectedShapeId || ['rectangle', 'circle', 'diamond'].includes(currentTool)) && (
+            {(selectedShapeId || selectedElementIds.some(id => sketchShapes.some(s => s.id === id)) || ['rectangle', 'circle', 'diamond'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Fill Style</span>
                 <div className="style-panel-grid">
@@ -2820,7 +3235,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Stroke Width Section */}
-            {(!selectedTextId && !['text', 'pen', 'eraser'].includes(currentTool)) && (
+            {(!selectedTextId && !selectedElementIds.some(id => sketchTexts.some(t => t.id === id)) && !['text', 'pen', 'eraser'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Stroke Width</span>
                 <div className="style-panel-grid">
@@ -2867,7 +3282,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Stroke Style Section */}
-            {(!selectedTextId && !['text', 'pen', 'eraser'].includes(currentTool)) && (
+            {(!selectedTextId && !selectedElementIds.some(id => sketchTexts.some(t => t.id === id)) && !['text', 'pen', 'eraser'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Stroke Style</span>
                 <div className="style-panel-grid">
@@ -2889,7 +3304,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Sloppiness / Roughness Section */}
-            {(!selectedTextId && !['text', 'pen', 'eraser'].includes(currentTool)) && (
+            {(!selectedTextId && !selectedElementIds.some(id => sketchTexts.some(t => t.id === id)) && !['text', 'pen', 'eraser'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Sloppiness</span>
                 <div className="style-panel-grid">
@@ -2911,7 +3326,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Font Family Section (only for text and text-enabled shapes) */}
-            {(selectedTextId || selectedShapeId || ['text', 'rectangle', 'circle', 'diamond'].includes(currentTool)) && (
+            {(selectedTextId || selectedShapeId || selectedElementIds.length > 0 || ['text', 'rectangle', 'circle', 'diamond'].includes(currentTool)) && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Font Family</span>
                 <div className="style-panel-grid">
@@ -2936,7 +3351,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Font Size Section (only for text elements) */}
-            {(selectedTextId || currentTool === 'text') && (
+            {(selectedTextId || selectedElementIds.some(id => sketchTexts.some(t => t.id === id)) || currentTool === 'text') && (
               <div className="style-panel-section">
                 <span className="style-panel-title">Font Size</span>
                 <div className="style-panel-grid">
@@ -2980,17 +3395,20 @@ export default function SketchCanvas() {
             )}
 
             {/* Layering & Delete Actions (only when element is selected) */}
-            {(selectedShapeId || selectedTextId || selectedArrowId) && (
+            {(selectedShapeId || selectedTextId || selectedArrowId || selectedElementIds.length > 0) && (
               <>
                 <div className="menu-divider" style={{ margin: '4px 0', borderBottom: '1.5px solid var(--border)' }} />
                 <div className="style-panel-section">
                   <span className="style-panel-title">Actions</span>
                   <div className="style-panel-grid">
-                    {selectedShapeId && (
+                    {(selectedShapeId || selectedElementIds.some(id => sketchShapes.some(s => s.id === id))) && (
                       <>
                         <button
                           className="style-panel-btn"
-                          onClick={() => moveShapeLayer(selectedShapeId, 'front')}
+                          onClick={() => {
+                            const ids = selectedElementIds.length > 0 ? selectedElementIds.filter(id => sketchShapes.some(s => s.id === id)) : [selectedShapeId!];
+                            ids.forEach(id => moveShapeLayer(id, 'front'));
+                          }}
                           title="Bring to Front"
                           style={{ flex: 1 }}
                         >
@@ -2998,13 +3416,36 @@ export default function SketchCanvas() {
                         </button>
                         <button
                           className="style-panel-btn"
-                          onClick={() => moveShapeLayer(selectedShapeId, 'back')}
+                          onClick={() => {
+                            const ids = selectedElementIds.length > 0 ? selectedElementIds.filter(id => sketchShapes.some(s => s.id === id)) : [selectedShapeId!];
+                            ids.forEach(id => moveShapeLayer(id, 'back'));
+                          }}
                           title="Send to Back"
                           style={{ flex: 1 }}
                         >
                           Send Back
                         </button>
                       </>
+                    )}
+                    {selectedElementIds.length >= 2 && (
+                      <button
+                        className="style-panel-btn"
+                        onClick={groupSelected}
+                        title="Group Selection"
+                        style={{ flex: '1 1 45%' }}
+                      >
+                        Group
+                      </button>
+                    )}
+                    {selectedElementIds.length > 0 && sketchGroups.some(g => g.elementIds.some(id => selectedElementIds.includes(id))) && (
+                      <button
+                        className="style-panel-btn"
+                        onClick={ungroupSelected}
+                        title="Ungroup Selection"
+                        style={{ flex: '1 1 45%' }}
+                      >
+                        Ungroup
+                      </button>
                     )}
                     <button
                       className="style-panel-btn delete-btn"
