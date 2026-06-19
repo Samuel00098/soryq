@@ -941,6 +941,10 @@ export default function SketchCanvas() {
     
     // Apply zoom, pan, and dpr transform
     activeCtx.setTransform(zoomScale * dpr, 0, 0, zoomScale * dpr, panOffset.x * dpr, panOffset.y * dpr);
+
+    // Set high-quality image smoothing for crisp renderings
+    activeCtx.imageSmoothingEnabled = true;
+    activeCtx.imageSmoothingQuality = 'high';
     
     // Draw all strokes
     strokes.forEach(stroke => {
@@ -2058,8 +2062,15 @@ export default function SketchCanvas() {
           const start = elements[s.id];
           const newX = selectionBox.xMin + (start.x - selectionBox.xMin) * sx;
           const newY = selectionBox.yMin + (start.y - selectionBox.yMin) * sy;
-          const newWidth = Math.max(15, start.width * sx);
-          const newHeight = Math.max(15, start.height * sy);
+          let newWidth = Math.max(15, start.width * sx);
+          let newHeight = Math.max(15, start.height * sy);
+          
+          if (s.type === 'image') {
+            const scale = Math.min(sx, sy);
+            newWidth = Math.max(15, start.width * scale);
+            newHeight = Math.max(15, start.height * scale);
+          }
+          
           return {
             ...s,
             x: newX,
@@ -2096,6 +2107,14 @@ export default function SketchCanvas() {
           if (snapToGrid) {
             targetWidth = Math.round(targetWidth / gridSpacing) * gridSpacing;
             targetHeight = Math.round(targetHeight / gridSpacing) * gridSpacing;
+          }
+
+          if (s.type === 'image') {
+            const scaleX = targetWidth / shapeStartDimsRef.current.width;
+            const scaleY = targetHeight / shapeStartDimsRef.current.height;
+            const scale = Math.max(0.05, (scaleX + scaleY) / 2);
+            targetWidth = shapeStartDimsRef.current.width * scale;
+            targetHeight = shapeStartDimsRef.current.height * scale;
           }
           
           return {
@@ -2628,6 +2647,10 @@ export default function SketchCanvas() {
     const tempCtx = tempCanvas.getContext('2d');
     if (!tempCtx) return null;
     
+    // Set high-quality image smoothing for crisp renderings
+    tempCtx.imageSmoothingEnabled = true;
+    tempCtx.imageSmoothingQuality = 'high';
+    
     const w = tempCanvas.width;
     const h = tempCanvas.height;
     const isLightThemeVal = document.documentElement.classList.contains('light-theme');
@@ -3150,21 +3173,6 @@ export default function SketchCanvas() {
             }}
             onPointerDown={(e) => startDragShape(e, shape)}
           >
-            {/* Image rendering */}
-            {shape.type === 'image' && shape.imageUrl && (
-              <img
-                src={shape.imageUrl}
-                alt="Imported drawing"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
-                  pointerEvents: 'none',
-                  userSelect: 'none'
-                }}
-              />
-            )}
-
             {/* Resize handle */}
             {(selectedShapeId === shape.id || (selectedElementIds.includes(shape.id) && currentTool === 'select')) && (
               <div 
