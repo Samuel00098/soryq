@@ -619,3 +619,43 @@ input:focus {
   -webkit-backdrop-filter: none;
 }
 
+/* Smooth global transitions for interactive elements */
+button,
+a,
+input,
+select,
+textarea,
+.bento-card,
+.file-node,
+.room-card,
+.ambient-switch-btn,
+.minimized-room,
+.room-action,
+.svt-btn {
+  transition: 
+    background-color 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    color 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  .bento-card,
+  .file-node,
+  .room-card,
+  .ambient-switch-btn,
+  .minimized-room,
+  .room-action,
+  .svt-btn {
+    transition: none !important;
+  }
+}
+
