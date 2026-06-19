@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { activeProjectId, activeProject } from '$lib/stores/workspace';
 import { showToast } from '$lib/stores/notification';
@@ -315,6 +315,22 @@ export default function ReviewPanel() {
   useEffect(() => {
     localStorage.setItem('soryq_diff_mode', diffMode);
   }, [diffMode]);
+
+  const handleNativeWheel = useCallback((e: WheelEvent) => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      e.preventDefault();
+      const reviewBody = (e.currentTarget as HTMLElement).closest('.review-body');
+      if (reviewBody) {
+        reviewBody.scrollTop += e.deltaY;
+      }
+    }
+  }, []);
+
+  const cardBodyRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      node.addEventListener('wheel', handleNativeWheel, { passive: false });
+    }
+  }, [handleNativeWheel]);
 
   // Mutable refs mirror the Svelte module-level generation counters — they
   // exist purely to dedupe/cancel stale async work and must not trigger
@@ -765,7 +781,7 @@ export default function ReviewPanel() {
 
                   {/* Card Body / Expanded Diff */}
                   {isExpanded && (
-                    <div className="file-card-body">
+                    <div className="file-card-body" ref={cardBodyRef}>
                       {isLoadingDiff ? (
                         <div className="diff-loading">
                           <svg className="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
