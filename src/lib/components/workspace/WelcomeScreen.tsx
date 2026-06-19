@@ -233,49 +233,59 @@ export default function WelcomeScreen() {
 
   return (
     <div className={`welcome${isLight ? ' light' : ''}`}>
-      <header className="welcome-header">
-        <div className="welcome-identity">
-          <div className="logo-wrap">
-            {!iconError ? (
-              <img src={iconSrc} alt="Soryq" className="logo-img" onError={() => setIconError(true)} />
-            ) : (
-              <svg width="36" height="36" viewBox="0 0 36 36" fill="none" className="logo-fallback">
-                <rect width="36" height="36" rx="8" fill="#2f343b" />
-                <polyline points="6,22 10,18 6,14" fill="none" stroke="#aeb6c2" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                <rect x="12" y="16.5" width="11" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)" />
-                <rect x="12" y="21" width="8" height="2" rx="1" fill="rgba(255,255,255,0.2)" />
-              </svg>
-            )}
+      <div className="welcome-layout">
+        
+        {/* Left Side: Brand & Quick Action Hero Panel */}
+        <aside className="brand-hero-panel">
+          <div className="brand-header">
+            <div className="logo-outer">
+              <div className="logo-wrap">
+                {!iconError ? (
+                  <img src={iconSrc} alt="Soryq" className="logo-img" onError={() => setIconError(true)} />
+                ) : (
+                  <svg width="36" height="36" viewBox="0 0 36 36" fill="none" className="logo-fallback">
+                    <rect width="36" height="36" rx="8" fill="#2f343b" />
+                    <polyline points="6,22 10,18 6,14" fill="none" stroke="#aeb6c2" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                    <rect x="12" y="16.5" width="11" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)" />
+                    <rect x="12" y="21" width="8" height="2" rx="1" fill="rgba(255,255,255,0.2)" />
+                  </svg>
+                )}
+              </div>
+            </div>
+            <div className="brand-text">
+              <span className="welcome-kicker">{greeting}</span>
+              <h1 className="app-name">Soryq</h1>
+              <p className="app-tagline">{dateString}</p>
+              <p className="app-clock">{timeString}</p>
+            </div>
           </div>
-          <div className="header-text">
-            <span className="welcome-kicker">{greeting}</span>
-            <h1 className="app-name">Soryq</h1>
-            <p className="app-tagline">{dateString} - {timeString}</p>
-          </div>
-        </div>
-        <div className="welcome-rhythm" aria-label="Workspace overview">
-          <div className="rhythm-card">
-            <span>Workspaces</span>
-            <strong>{workspaceCount}</strong>
-          </div>
-          <div className="rhythm-card">
-            <span>Projects</span>
-            <strong>{projectCount}</strong>
-          </div>
-          <div className="rhythm-card wide">
-            <span>Theme</span>
-            <strong>{activeThemeName}</strong>
-          </div>
-          <div className="rhythm-card">
-            <span>Version</span>
-            <strong>{packageJson.version}</strong>
-          </div>
-        </div>
-      </header>
 
-      <div className="welcome-content">
-        <div className="welcome-col left-col">
-          <div className="action-group bento-card welcome-card launchpad-card">
+          <div className="hero-divider" />
+
+          {/* Stats Overview */}
+          <div className="welcome-stats" aria-label="Workspace stats">
+            <div className="stat-pill">
+              <span className="stat-label">Workspaces</span>
+              <strong className="stat-value">{workspaceCount}</strong>
+            </div>
+            <div className="stat-pill">
+              <span className="stat-label">Projects</span>
+              <strong className="stat-value">{projectCount}</strong>
+            </div>
+            <div className="stat-pill theme">
+              <span className="stat-label">Theme</span>
+              <strong className="stat-value" title={activeThemeName}>{activeThemeName}</strong>
+            </div>
+            <div className="stat-pill">
+              <span className="stat-label">Version</span>
+              <strong className="stat-value">v{packageJson.version}</strong>
+            </div>
+          </div>
+
+          <div className="hero-divider" />
+
+          {/* Launchpad Quick Actions */}
+          <div className="launchpad-actions">
             <span className="section-label">Launchpad</span>
             <button className="action-btn primary" onClick={() => newWorkspacePromptOpen.set(true)}>
               <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
@@ -293,15 +303,23 @@ export default function WelcomeScreen() {
               <kbd>Ctrl+,</kbd>
             </button>
           </div>
+        </aside>
 
-          <div className="recents bento-card welcome-card">
-            <div className="recents-header">
-              <span className="section-label">Recent Workspaces</span>
+        {/* Right Side: Main Workspace & Activity Hub */}
+        <main className="dashboard-hub">
+          
+          {/* Top section: Recent Workspaces */}
+          <section className="dashboard-block recents-block">
+            <div className="block-header">
+              <div className="header-title-group">
+                <span className="section-label">Recent Workspaces</span>
+                {search && <span className="search-pill">Filtered by: "{search}"</span>}
+              </div>
               {workspaces.length > 0 && <button className="text-btn danger" onClick={clearAllApplicationState}>Clear all</button>}
             </div>
 
             {filteredWorkspaces.length > 0 ? (
-              <div className="recent-list scrollable">
+              <div className="recent-grid-layout scrollable">
                 {filteredWorkspaces.map((workspace) => (
                   <RecentWorkspaceRow
                     key={workspace.id}
@@ -321,64 +339,69 @@ export default function WelcomeScreen() {
             ) : (
               <div className="empty-state">
                 <p>No Recent Workspaces</p>
+                <span>Workspaces you open will appear here.</span>
               </div>
             )}
-          </div>
-        </div>
+          </section>
 
-        <div className="welcome-col right-col">
-          <FeedSection title="Hacker News top stories" loading={loadingHn} onRefresh={() => void loadHnStories()}>
-            {hnStories.filter(Boolean).map((story) => (
-              <button key={story.id} className="feed-item" onClick={() => void openUrl(story.url)}>
-                <span className="feed-main">
-                  <span className="feed-title">{story.title}</span>
-                  <span className="feed-meta"><span>{story.score || 0} points</span><span className="dot">.</span><span>by {story.by}</span></span>
-                </span>
-                {story.kids && (
-                  <span className="comments-btn" onClick={(event) => { event.stopPropagation(); void openUrl(`https://news.ycombinator.com/item?id=${story.id}`); }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                    {story.kids.length}
+          {/* Bottom section: Developer Feeds (Side-by-side) */}
+          <div className="feeds-container">
+            <FeedSection title="Hacker News top stories" loading={loadingHn} onRefresh={() => void loadHnStories()}>
+              {hnStories.filter(Boolean).map((story) => (
+                <button key={story.id} className="feed-item" onClick={() => void openUrl(story.url)}>
+                  <span className="feed-main">
+                    <span className="feed-title">{story.title}</span>
+                    <span className="feed-meta"><span>{story.score || 0} pts</span><span className="dot">.</span><span>by {story.by}</span></span>
                   </span>
-                )}
-              </button>
-            ))}
-          </FeedSection>
+                  {story.kids && (
+                    <span className="comments-btn" onClick={(event) => { event.stopPropagation(); void openUrl(`https://news.ycombinator.com/item?id=${story.id}`); }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                      {story.kids.length}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </FeedSection>
 
-          <FeedSection title="Popular GitHub Repositories" loading={loadingGh} onRefresh={() => void loadGhRepos()}>
-            {ghRepos.map((repo) => (
-              <button key={repo.full_name} className="feed-item" onClick={() => void openUrl(repo.html_url)}>
-                <span className="feed-main">
-                  <span className="feed-title repo-name"><FolderIcon size={11} /><span className="repo-text">{repo.full_name}</span></span>
-                  <span className="repo-desc">{repo.description || 'No description provided.'}</span>
-                  <span className="feed-meta">
-                    {repo.language && <span className="repo-lang badge">{repo.language}</span>}
-                    <span className="repo-stars">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-                      {Math.round(repo.stargazers_count / 100) / 10}k
+            <FeedSection title="Popular GitHub Repositories" loading={loadingGh} onRefresh={() => void loadGhRepos()}>
+              {ghRepos.map((repo) => (
+                <button key={repo.full_name} className="feed-item" onClick={() => void openUrl(repo.html_url)}>
+                  <span className="feed-main">
+                    <span className="feed-title repo-name"><FolderIcon size={11} /><span className="repo-text">{repo.full_name}</span></span>
+                    <span className="repo-desc">{repo.description || 'No description provided.'}</span>
+                    <span className="feed-meta">
+                      {repo.language && <span className="repo-lang badge">{repo.language}</span>}
+                      <span className="repo-stars">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                        {Math.round(repo.stargazers_count / 100) / 10}k
+                      </span>
                     </span>
                   </span>
-                </span>
-              </button>
-            ))}
-          </FeedSection>
-
-          <div className="shortcuts-row bento-card welcome-card">
-            <span className="section-label">Quick shortcuts</span>
-            <div className="shortcut-grid">
-              {[
-                ['Command palette', 'Ctrl+Shift+P'],
-                ['Toggle sidebar', 'Ctrl+B'],
-                ['Focus terminal', 'Ctrl+`'],
-                ['Open preview', 'Ctrl+Alt+P'],
-              ].map(([label, keys]) => (
-                <div className="shortcut-item" key={label}>
-                  <span>{label}</span>
-                  <kbd>{keys}</kbd>
-                </div>
+                </button>
               ))}
-            </div>
+            </FeedSection>
           </div>
-        </div>
+
+          {/* Consolidated Sleek Shortcuts Row at bottom */}
+          <footer className="dashboard-footer">
+            <div className="shortcuts-bar">
+              <span className="shortcuts-label">Quick shortcuts:</span>
+              <div className="shortcuts-inline">
+                {[
+                  ['Command palette', 'Ctrl+Shift+P'],
+                  ['Focus terminal', 'Ctrl+`'],
+                  ['Open preview', 'Ctrl+Alt+P'],
+                ].map(([label, keys]) => (
+                  <div className="shortcut-pill" key={label}>
+                    <span className="shortcut-key-label">{label}</span>
+                    <kbd>{keys}</kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </footer>
+
+        </main>
       </div>
     </div>
   );
@@ -417,7 +440,9 @@ function RecentWorkspaceRow({
 
   return (
     <button className="recent-item" onClick={onOpen}>
-      <span className="recent-avatar" style={avatarStyle}><FolderIcon /></span>
+      <span className="recent-avatar" style={avatarStyle}>
+        {workspace.name ? workspace.name.charAt(0).toUpperCase() : <FolderIcon />}
+      </span>
       <span className="recent-info">
         {renaming ? (
           <input
@@ -451,7 +476,7 @@ function RecentWorkspaceRow({
 
 function FeedSection({ title, loading, onRefresh, children }: { title: string; loading: boolean; onRefresh: () => void; children: React.ReactNode }) {
   return (
-    <div className="feed-section bento-card welcome-card">
+    <div className="feed-card dashboard-block">
       <div className="feed-header">
         <span className="section-label">{title}</span>
         <button className="icon-btn" onClick={onRefresh} disabled={loading} title={`Refresh ${title}`}><RefreshIcon /></button>
