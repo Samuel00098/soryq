@@ -1040,7 +1040,7 @@
   left: 20px;
   top: 88px;
   width: 230px;
-  max-height: calc(100% - 110px);
+  max-height: calc(100% - 160px);
   background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.72);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);

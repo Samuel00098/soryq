@@ -7,6 +7,8 @@ import { useStore } from '$lib/react/useStore';
 import { appearance, matchShortcut, userShortcuts } from '$lib/stores/settings';
 import './SketchCanvas.css';
 
+const imageElementCache: { [url: string]: HTMLImageElement } = {};
+
 interface Point {
   x: number;
   y: number;
@@ -42,7 +44,8 @@ interface SketchText {
 
 interface SketchShape {
   id: string;
-  type: 'rectangle' | 'circle' | 'diamond';
+  type: 'rectangle' | 'circle' | 'diamond' | 'image';
+  imageUrl?: string;
   x: number;
   y: number;
   width: number;
@@ -294,6 +297,7 @@ export default function SketchCanvas() {
   const shapeTextInputRef = useRef<HTMLTextAreaElement | null>(null);
   const colorPickerRef = useRef<HTMLInputElement | null>(null);
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   // Interaction Refs (to avoid stale closures in window listeners)
   const drawingRef = useRef(false);
@@ -735,6 +739,27 @@ export default function SketchCanvas() {
     const rand = createSeededRandom(shape.id);
     ctx.save();
     ctx.globalAlpha = shape.opacity;
+
+    if (shape.type === 'image') {
+      if (shape.imageUrl) {
+        let img = imageElementCache[shape.imageUrl];
+        if (!img) {
+          img = new Image();
+          img.src = shape.imageUrl;
+          img.onload = () => {
+            imageElementCache[shape.imageUrl!] = img;
+            redraw();
+          };
+          imageElementCache[shape.imageUrl] = img;
+        }
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, x, y, w, h);
+        }
+      }
+      ctx.restore();
+      return;
+    }
+
     ctx.strokeStyle = shape.color;
     ctx.lineWidth = borderW;
     ctx.lineCap = 'round';
@@ -1213,6 +1238,69 @@ export default function SketchCanvas() {
     input.value = '';
   }
 
+  // Import an image onto the canvas as an image shape
+  function handleImageImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      if (!dataUrl) return;
+
+      const img = new Image();
+      img.src = dataUrl;
+      img.onload = () => {
+        const viewport = viewportRef.current;
+        const rect = viewport ? viewport.getBoundingClientRect() : { width: 800, height: 600 };
+        const centerWorldX = (-panOffset.x + rect.width / 2) / zoomScale;
+        const centerWorldY = (-panOffset.y + rect.height / 2) / zoomScale;
+
+        let w = img.naturalWidth || 300;
+        let h = img.naturalHeight || 200;
+        const maxDim = 400;
+        if (w > maxDim || h > maxDim) {
+          const ratio = w / h;
+          if (w > h) {
+            w = maxDim;
+            h = maxDim / ratio;
+          } else {
+            h = maxDim;
+            w = maxDim * ratio;
+          }
+        }
+
+        const newImageShape: SketchShape = {
+          id: `image-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          type: 'image',
+          x: centerWorldX - w / 2,
+          y: centerWorldY - h / 2,
+          width: w,
+          height: h,
+          color: '#ffffff',
+          fillColor: 'transparent',
+          borderStyle: 'none',
+          borderRadius: 0,
+          opacity: 1.0,
+          text: '',
+          imageUrl: dataUrl
+        };
+
+        setSketchShapes(prev => [...prev, newImageShape]);
+        setSelectedElementIds([newImageShape.id]);
+        setSelectedShapeId(newImageShape.id);
+        setCurrentTool('select');
+
+        if (imageInputRef.current) {
+          imageInputRef.current.value = '';
+        }
+
+        setTimeout(() => saveState(), 10);
+      };
+    };
+    reader.readAsDataURL(file);
+  }
+
   // Commit text inputs into floating draggable divs
   function commitText(projectId: string | null | undefined = resolveStorageProjectId()) {
     if (!activeTextInput) return;
@@ -1255,6 +1343,7 @@ export default function SketchCanvas() {
       setSelectedShapeId(null);
       setSelectedTextId(null);
       setSelectedArrowId(null);
+      setSelectedElementIds([]);
     }
 
     if (e.button === 1 || e.button === 2 || currentTool === 'pan' || spacePressed) {
@@ -2432,6 +2521,11 @@ export default function SketchCanvas() {
 
   // Wheel listener (touchpad gestures + mouse wheel zoom)
   function handleWheel(e: WheelEvent) {
+    const target = e.target as HTMLElement;
+    if (target && target.closest('.sketch-style-panel')) {
+      return; // Let standard scroll behavior happen inside properties panel
+    }
+
     e.preventDefault();
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -2814,6 +2908,7 @@ export default function SketchCanvas() {
         else if (e.key.toLowerCase() === 'a' || e.key === '7') { commitText(); setCurrentTool('connector'); }
         else if (e.key.toLowerCase() === 'p' || e.key === '8') { commitText(); setCurrentTool('pen'); }
         else if (e.key.toLowerCase() === 't' || e.key === '9') { commitText(); setCurrentTool('text'); }
+        else if (e.key.toLowerCase() === 'i') { commitText(); imageInputRef.current?.click(); }
         else if (e.key.toLowerCase() === 'e' || e.key === '0') { commitText(); setCurrentTool('eraser'); }
         else if (canvasZoomInShortcut && matchShortcut(e, canvasZoomInShortcut.keys)) {
           e.preventDefault();
@@ -3031,23 +3126,45 @@ export default function SketchCanvas() {
               top: `${shape.y * zoomScale + panOffset.y}px`,
               width: `${shape.width * zoomScale}px`,
               height: `${shape.height * zoomScale}px`,
-              border: shape.borderStyle === 'none' ? 'none' : `${Math.max(1, 2 * zoomScale)}px ${shape.borderStyle} ${shape.color}`,
-              borderRadius: shape.type === 'circle' ? '50%' : (shape.type === 'diamond' ? '0' : `${shape.borderRadius * zoomScale}px`),
-              backgroundColor: shape.fillColor === 'glass'
-                ? (isLightTheme ? 'rgba(255, 255, 255, 0.45)' : 'rgba(24, 24, 30, 0.45)')
-                : (shape.fillColor === 'transparent'
-                  ? 'transparent'
-                  : (shape.fillColor === 'tint' || shape.fillColor.endsWith('22')
-                    ? shape.color + '22'
-                    : shape.fillColor)
+              border: shape.type === 'image'
+                ? ((selectedElementIds.includes(shape.id) || selectedShapeId === shape.id) && currentTool === 'select' ? `1px dashed var(--accent)` : 'none')
+                : (shape.borderStyle === 'none' ? 'none' : `${Math.max(1, 2 * zoomScale)}px ${shape.borderStyle} ${shape.color}`),
+              borderRadius: shape.type === 'image'
+                ? '0'
+                : (shape.type === 'circle' ? '50%' : (shape.type === 'diamond' ? '0' : `${shape.borderRadius * zoomScale}px`)),
+              backgroundColor: shape.type === 'image'
+                ? 'transparent'
+                : (shape.fillColor === 'glass'
+                  ? (isLightTheme ? 'rgba(255, 255, 255, 0.45)' : 'rgba(24, 24, 30, 0.45)')
+                  : (shape.fillColor === 'transparent'
+                    ? 'transparent'
+                    : (shape.fillColor === 'tint' || shape.fillColor.endsWith('22')
+                      ? shape.color + '22'
+                      : shape.fillColor)
+                    )
                   ),
-              backdropFilter: shape.fillColor === 'glass' ? 'blur(8px)' : 'none',
-              WebkitBackdropFilter: shape.fillColor === 'glass' ? 'blur(8px)' : 'none',
+              backdropFilter: shape.type !== 'image' && shape.fillColor === 'glass' ? 'blur(8px)' : 'none',
+              WebkitBackdropFilter: shape.type !== 'image' && shape.fillColor === 'glass' ? 'blur(8px)' : 'none',
               opacity: shape.opacity,
               cursor: currentTool === 'eraser' ? 'pointer' : (currentTool === 'select' ? 'move' : 'inherit')
             }}
             onPointerDown={(e) => startDragShape(e, shape)}
           >
+            {/* Image rendering */}
+            {shape.type === 'image' && shape.imageUrl && (
+              <img
+                src={shape.imageUrl}
+                alt="Imported drawing"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  pointerEvents: 'none',
+                  userSelect: 'none'
+                }}
+              />
+            )}
+
             {/* Resize handle */}
             {(selectedShapeId === shape.id || (selectedElementIds.includes(shape.id) && currentTool === 'select')) && (
               <div 
@@ -3069,7 +3186,7 @@ export default function SketchCanvas() {
             )}
 
             {/* Text container / textarea inside shape */}
-            {activeShapeTextInput && activeShapeTextInput.id === shape.id ? (
+            {shape.type !== 'image' && (activeShapeTextInput && activeShapeTextInput.id === shape.id ? (
               <textarea
                 ref={shapeTextInputRef}
                 value={activeShapeTextInput.value}
@@ -3097,14 +3214,14 @@ export default function SketchCanvas() {
               >
                 {shape.text}
               </div>
-            )}
+            ))}
           </div>
         ))}
 
         {/* Floating left style settings panel */}
         {showToolbar && (
           <div 
-            className="sketch-style-panel"
+            className="sketch-style-panel scrollable"
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
@@ -3616,6 +3733,20 @@ export default function SketchCanvas() {
                 </svg>
               </button>
               <button
+                className="tool-btn"
+                onClick={() => {
+                  commitText();
+                  imageInputRef.current?.click();
+                }}
+                title="Import Image (I)"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+              </button>
+              <button
                 className={`tool-btn${currentTool === 'eraser' ? ' active' : ''}`}
                 onClick={() => { commitText(); setCurrentTool('eraser'); }}
                 title="Erase lines, text, or shapes (E / 0)"
@@ -3891,6 +4022,13 @@ export default function SketchCanvas() {
         accept=".json"
         style={{ display: 'none' }}
         onChange={handleJSONImport}
+      />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleImageImport}
       />
     </div>
   );
