@@ -1,8 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useState } from 'react';
 import packageJson from '../../../../package.json';
 import {
-  addFolderToWorkspace,
   clearAllApplicationState,
   newWorkspacePromptOpen,
   openProject,
@@ -14,37 +12,9 @@ import { search as paletteSearch } from '$lib/stores/commandpalette';
 import { useWorkspaceStore } from '$lib/stores/zustand/workspace';
 import { useThemeStore } from '$lib/stores/zustand/theme';
 import { openSettings } from '$lib/stores/layout';
-import { openFile } from '$lib/stores/editor';
 import { useStore } from '$lib/react/useStore';
-import { isTauriRuntime } from '$lib/utils/tauri';
 import type { Workspace } from '$lib/types/workspace';
 import './WelcomeScreen.css';
-
-type HnStory = {
-  id: number;
-  title: string;
-  url?: string;
-  score?: number;
-  by?: string;
-  kids?: number[];
-};
-
-type GithubRepo = {
-  full_name: string;
-  description?: string | null;
-  html_url: string;
-  language?: string | null;
-  stargazers_count: number;
-};
-
-type DailyNote = {
-  project_path: string;
-  project_name: string;
-  filepath: string;
-  date: string;
-  focus: string[];
-  done: string[];
-};
 
 const iconSrc = `/icon.png?v=${packageJson.version}`;
 
@@ -52,14 +22,6 @@ function FolderIcon({ size = 12 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function RefreshIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-      <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
     </svg>
   );
 }
@@ -94,27 +56,6 @@ function projectHue(name: string) {
   return Math.abs(h) % 360;
 }
 
-async function fetchCorsFree(url: string, headers: Record<string, string> = {}): Promise<any> {
-  const requestHeaders = {
-    'User-Agent': 'Soryq-Developer-Workspace/1.0',
-    ...headers,
-  };
-
-  if (!isTauriRuntime()) {
-    const response = await fetch(url, { headers });
-    if (!response.ok) throw new Error(`Request failed with ${response.status}`);
-    return response.json();
-  }
-
-  const payload = await invoke<{ body: string }>('http_send_request', {
-    method: 'GET',
-    url,
-    headers: requestHeaders,
-    body: null,
-  });
-  return JSON.parse(payload.body);
-}
-
 export default function WelcomeScreen() {
   const workspaces = useWorkspaceStore((s) => s.recentWorkspaces);
   const search = useStore(paletteSearch);
@@ -125,18 +66,10 @@ export default function WelcomeScreen() {
   const [renamingName, setRenamingName] = useState('');
   const [timeString, setTimeString] = useState('');
   const [dateString, setDateString] = useState('');
-  const [hnStories, setHnStories] = useState<HnStory[]>([]);
-  const [loadingHn, setLoadingHn] = useState(false);
-  const [ghRepos, setGhRepos] = useState<GithubRepo[]>([]);
-  const [loadingGh, setLoadingGh] = useState(false);
-
 
   const isLight = theme?.type === 'light';
-  const workspaceCount = workspaces.length;
-  const projectCount = workspaces.reduce((total, workspace) => total + (workspace.project_paths?.length ?? 0), 0);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  const activeThemeName = theme?.name ?? 'Custom theme';
   const filteredWorkspaces = useMemo(() => {
     const list = workspaces || [];
     if (!search) return list;
@@ -147,55 +80,11 @@ export default function WelcomeScreen() {
     );
   }, [search, workspaces]);
 
-
   function updateTime() {
     const now = new Date();
     setTimeString(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     setDateString(now.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }));
   }
-
-  async function loadHnStories() {
-    setLoadingHn(true);
-    try {
-      const ids = await fetchCorsFree('https://hacker-news.firebaseio.com/v0/topstories.json');
-      const topIds = ids.slice(0, 6);
-      const stories = await Promise.all(topIds.map((id: number) => fetchCorsFree(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)));
-      setHnStories(stories);
-    } catch (err) {
-      console.error('Failed to load HN stories:', err);
-    } finally {
-      setLoadingHn(false);
-    }
-  }
-
-  async function loadGhRepos() {
-    setLoadingGh(true);
-    try {
-      const data = await fetchCorsFree('https://api.github.com/search/repositories?q=stars:>15000+language:rust+language:typescript+language:python&sort=stars&order=desc&per_page=5');
-      setGhRepos(data.items || []);
-    } catch (err) {
-      console.error('Failed to load GitHub trending:', err);
-    } finally {
-      setLoadingGh(false);
-    }
-  }
-
-
-
-  async function openUrl(url?: string) {
-    if (!url) return;
-    if (!isTauriRuntime()) {
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    try {
-      await invoke('preview_open_in_browser', { url });
-    } catch (err) {
-      console.error('Failed to open URL:', err);
-    }
-  }
-
-
 
   function removeRecent(event: React.MouseEvent, id: string) {
     event.stopPropagation();
@@ -226,8 +115,6 @@ export default function WelcomeScreen() {
   useEffect(() => {
     updateTime();
     const timer = window.setInterval(updateTime, 1000);
-    void loadHnStories();
-    void loadGhRepos();
     return () => window.clearInterval(timer);
   }, []);
 
@@ -260,28 +147,9 @@ export default function WelcomeScreen() {
             <span className="app-clock">{timeString}</span>
           </div>
         </div>
-        
-        <div className="welcome-stats" aria-label="Workspace stats">
-          <div className="stat-pill">
-            <span className="stat-label">Workspaces</span>
-            <strong className="stat-value">{workspaceCount}</strong>
-          </div>
-          <div className="stat-pill">
-            <span className="stat-label">Projects</span>
-            <strong className="stat-value">{projectCount}</strong>
-          </div>
-          <div className="stat-pill theme">
-            <span className="stat-label">Theme</span>
-            <strong className="stat-value" title={activeThemeName}>{activeThemeName}</strong>
-          </div>
-          <div className="stat-pill">
-            <span className="stat-label">Version</span>
-            <strong className="stat-value">v{packageJson.version}</strong>
-          </div>
-        </div>
       </header>
 
-      {/* Main 3-Column Bento Grid Content */}
+      {/* Main 2-Column Bento Grid Content */}
       <div className="welcome-content-grid">
         
         {/* Column 1: Launchpad & Quick Shortcuts */}
@@ -330,7 +198,7 @@ export default function WelcomeScreen() {
 
         </div>
 
-        {/* Column 2: Recent Workspaces */}
+        {/* Column 2: Recent Workspaces (Wide) */}
         <div className="dashboard-col col-recents">
           <section className="dashboard-block recents-block">
             <div className="block-header">
@@ -366,44 +234,6 @@ export default function WelcomeScreen() {
               </div>
             )}
           </section>
-        </div>
-
-        {/* Column 3: Developer Feeds */}
-        <div className="dashboard-col col-feeds">
-          <FeedSection title="Hacker News top stories" loading={loadingHn} onRefresh={() => void loadHnStories()}>
-            {hnStories.filter(Boolean).map((story) => (
-              <button key={story.id} className="feed-item" onClick={() => void openUrl(story.url)}>
-                <span className="feed-main">
-                  <span className="feed-title">{story.title}</span>
-                  <span className="feed-meta"><span>{story.score || 0} pts</span><span className="dot">.</span><span>by {story.by}</span></span>
-                </span>
-                {story.kids && (
-                  <span className="comments-btn" onClick={(event) => { event.stopPropagation(); void openUrl(`https://news.ycombinator.com/item?id=${story.id}`); }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                    {story.kids.length}
-                  </span>
-                )}
-              </button>
-            ))}
-          </FeedSection>
-
-          <FeedSection title="Popular GitHub Repositories" loading={loadingGh} onRefresh={() => void loadGhRepos()}>
-            {ghRepos.map((repo) => (
-              <button key={repo.full_name} className="feed-item" onClick={() => void openUrl(repo.html_url)}>
-                <span className="feed-main">
-                  <span className="feed-title repo-name"><FolderIcon size={11} /><span className="repo-text">{repo.full_name}</span></span>
-                  <span className="repo-desc">{repo.description || 'No description provided.'}</span>
-                  <span className="feed-meta">
-                    {repo.language && <span className="repo-lang badge">{repo.language}</span>}
-                    <span className="repo-stars">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-                      {Math.round(repo.stargazers_count / 100) / 10}k
-                    </span>
-                  </span>
-                </span>
-              </button>
-            ))}
-          </FeedSection>
         </div>
 
       </div>
@@ -477,19 +307,3 @@ function RecentWorkspaceRow({
     </button>
   );
 }
-
-function FeedSection({ title, loading, onRefresh, children }: { title: string; loading: boolean; onRefresh: () => void; children: React.ReactNode }) {
-  return (
-    <div className="feed-card dashboard-block">
-      <div className="feed-header">
-        <span className="section-label">{title}</span>
-        <button className="icon-btn" onClick={onRefresh} disabled={loading} title={`Refresh ${title}`}><RefreshIcon /></button>
-      </div>
-      <div className="feed-list scrollable">
-        {loading ? <div className="shimmer-feed"><div className="shimmer-item" /><div className="shimmer-item" /><div className="shimmer-item" /></div> : children}
-      </div>
-    </div>
-  );
-}
-
-
