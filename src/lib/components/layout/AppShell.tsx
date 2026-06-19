@@ -65,6 +65,7 @@ import {
   setActiveSession,
   sessions as terminalSessions,
   writeToSession,
+  commandHistory,
 } from '$lib/stores/terminal';
 import { agentCenterOpen } from '$lib/stores/orchestrator';
 import { useUpdaterStore } from '$lib/stores/zustand/updater';
@@ -334,6 +335,7 @@ export default function AppShell() {
   const lastLayoutCommandNonce = useRef(0);
   const allTerminalSessions = useStore(terminalSessions);
   const terminalPaneAssignments = useStore(paneAssignments);
+  const history = useStore(commandHistory);
 
   useEffect(() => () => {
     if (layoutSwitchTimerRef.current !== null) window.clearTimeout(layoutSwitchTimerRef.current);
@@ -1381,25 +1383,62 @@ export default function AppShell() {
 
   function getRoomPreview(id: RoomId) {
     if (id === 'editor') {
+      const editorStore = useEditorStore.getState();
+      const fileEntry = activeFile ? editorStore.fileCache.get(activeFile) : null;
+      const fileLines = fileEntry?.kind === 'text' && fileEntry.content
+        ? fileEntry.content.split('\n').filter(line => line.trim().length > 0).slice(0, 3)
+        : [];
       return (
         <div className="room-card-preview">
-          {activeFile ? activeFile.split(/[/\\]/).pop() : 'No active file'}
+          {fileLines.length > 0 ? (
+            <pre className="room-card-code-snippet">
+              {fileLines.join('\n')}
+            </pre>
+          ) : (
+            <span className="room-card-empty-snippet">
+              {activeFile ? activeFile.split(/[/\\]/).pop() : 'No active file'}
+            </span>
+          )}
         </div>
       );
     }
     if (id === 'terminal') {
+      const lastCommands = (history || []).slice(0, 2);
       return (
         <div className="room-card-preview">
-          {allTerminalSessions.length > 0
-            ? `${allTerminalSessions.length} active session${allTerminalSessions.length > 1 ? 's' : ''}`
-            : 'No active shells'}
+          {lastCommands.length > 0 ? (
+            <div className="room-card-terminal-snippet">
+              {lastCommands.map((cmd, i) => (
+                <div key={i} className="terminal-cmd-line">
+                  <span className="terminal-prompt">$</span> {cmd}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <span className="room-card-empty-snippet">
+              {allTerminalSessions.length > 0
+                ? `${allTerminalSessions.length} active session${allTerminalSessions.length > 1 ? 's' : ''}`
+                : 'No active shells'}
+            </span>
+          )}
         </div>
       );
     }
     if (id === 'workspace') {
+      const openFilesList = useEditorStore.getState().openFiles || [];
+      const openFilesPreview = openFilesList.slice(0, 2);
       return (
         <div className="room-card-preview">
-          {project ? project.name : 'Empty workspace'}
+          <div className="room-card-workspace-snippet">
+            <div className="workspace-project-title">{project ? project.name : 'Empty workspace'}</div>
+            {openFilesPreview.length > 0 && (
+              <div className="workspace-open-files">
+                {openFilesPreview.map(f => (
+                  <div key={f} className="workspace-file-item">• {f.split(/[/\\]/).pop()}</div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       );
     }
