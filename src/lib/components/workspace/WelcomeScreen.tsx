@@ -233,93 +233,116 @@ export default function WelcomeScreen() {
 
   return (
     <div className={`welcome${isLight ? ' light' : ''}`}>
-      <div className="welcome-layout">
+      
+      {/* Top Horizontal Brand Header */}
+      <header className="welcome-header">
+        <div className="welcome-identity">
+          <div className="brand-title-row">
+            <div className="logo-wrap">
+              {!iconError ? (
+                <img src={iconSrc} alt="Soryq" className="logo-img" onError={() => setIconError(true)} />
+              ) : (
+                <svg width="36" height="36" viewBox="0 0 36 36" fill="none" className="logo-fallback">
+                  <rect width="36" height="36" rx="8" fill="#2f343b" />
+                  <polyline points="6,22 10,18 6,14" fill="none" stroke="#aeb6c2" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                  <rect x="12" y="16.5" width="11" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)" />
+                  <rect x="12" y="21" width="8" height="2" rx="1" fill="rgba(255,255,255,0.2)" />
+                </svg>
+              )}
+            </div>
+            <h1 className="app-name">Soryq</h1>
+          </div>
+          <div className="brand-subtitle-row">
+            <span className="welcome-kicker">{greeting}</span>
+            <span className="subtitle-divider">•</span>
+            <span className="app-tagline">{dateString}</span>
+            <span className="subtitle-divider">•</span>
+            <span className="app-clock">{timeString}</span>
+          </div>
+        </div>
         
-        {/* Left Side: Brand & Quick Action Hero Panel */}
-        <aside className="brand-hero-panel">
-          <div className="brand-header">
-            <div className="logo-outer">
-              <div className="logo-wrap">
-                {!iconError ? (
-                  <img src={iconSrc} alt="Soryq" className="logo-img" onError={() => setIconError(true)} />
-                ) : (
-                  <svg width="36" height="36" viewBox="0 0 36 36" fill="none" className="logo-fallback">
-                    <rect width="36" height="36" rx="8" fill="#2f343b" />
-                    <polyline points="6,22 10,18 6,14" fill="none" stroke="#aeb6c2" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                    <rect x="12" y="16.5" width="11" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)" />
-                    <rect x="12" y="21" width="8" height="2" rx="1" fill="rgba(255,255,255,0.2)" />
-                  </svg>
-                )}
-              </div>
-            </div>
-            <div className="brand-text">
-              <span className="welcome-kicker">{greeting}</span>
-              <h1 className="app-name">Soryq</h1>
-              <p className="app-tagline">{dateString}</p>
-              <p className="app-clock">{timeString}</p>
-            </div>
+        <div className="welcome-stats" aria-label="Workspace stats">
+          <div className="stat-pill">
+            <span className="stat-label">Workspaces</span>
+            <strong className="stat-value">{workspaceCount}</strong>
           </div>
-
-          <div className="hero-divider" />
-
-          {/* Stats Overview */}
-          <div className="welcome-stats" aria-label="Workspace stats">
-            <div className="stat-pill">
-              <span className="stat-label">Workspaces</span>
-              <strong className="stat-value">{workspaceCount}</strong>
-            </div>
-            <div className="stat-pill">
-              <span className="stat-label">Projects</span>
-              <strong className="stat-value">{projectCount}</strong>
-            </div>
-            <div className="stat-pill theme">
-              <span className="stat-label">Theme</span>
-              <strong className="stat-value" title={activeThemeName}>{activeThemeName}</strong>
-            </div>
-            <div className="stat-pill">
-              <span className="stat-label">Version</span>
-              <strong className="stat-value">v{packageJson.version}</strong>
-            </div>
+          <div className="stat-pill">
+            <span className="stat-label">Projects</span>
+            <strong className="stat-value">{projectCount}</strong>
           </div>
-
-          <div className="hero-divider" />
-
-          {/* Launchpad Quick Actions */}
-          <div className="launchpad-actions">
-            <span className="section-label">Launchpad</span>
-            <button className="action-btn primary" onClick={() => newWorkspacePromptOpen.set(true)}>
-              <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
-              <span className="action-label">New Workspace</span>
-              <kbd>Ctrl+N</kbd>
-            </button>
-            <button className="action-btn secondary" onClick={() => void openProject()}>
-              <span className="action-icon"><FolderIcon size={15} /></span>
-              <span className="action-label">Open Folder</span>
-              <kbd>Ctrl+O</kbd>
-            </button>
-            <button className="action-btn secondary" onClick={openSettings}>
-              <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg></span>
-              <span className="action-label">Settings</span>
-              <kbd>Ctrl+,</kbd>
-            </button>
+          <div className="stat-pill theme">
+            <span className="stat-label">Theme</span>
+            <strong className="stat-value" title={activeThemeName}>{activeThemeName}</strong>
           </div>
-        </aside>
+          <div className="stat-pill">
+            <span className="stat-label">Version</span>
+            <strong className="stat-value">v{packageJson.version}</strong>
+          </div>
+        </div>
+      </header>
 
-        {/* Right Side: Main Workspace & Activity Hub */}
-        <main className="dashboard-hub">
+      {/* Main 3-Column Bento Grid Content */}
+      <div className="welcome-content-grid">
+        
+        {/* Column 1: Launchpad & Quick Shortcuts */}
+        <div className="dashboard-col col-sidebar">
           
-          {/* Top section: Recent Workspaces */}
+          <div className="dashboard-block launchpad-block">
+            <span className="section-label">Launchpad</span>
+            <div className="launchpad-buttons">
+              <button className="action-btn primary" onClick={() => newWorkspacePromptOpen.set(true)}>
+                <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
+                <span className="action-label">New Workspace</span>
+                <kbd>Ctrl+N</kbd>
+              </button>
+              <button className="action-btn secondary" onClick={() => void openProject()}>
+                <span className="action-icon"><FolderIcon size={15} /></span>
+                <span className="action-label">Open Folder</span>
+                <kbd>Ctrl+O</kbd>
+              </button>
+              <button className="action-btn secondary" onClick={openSettings}>
+                <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg></span>
+                <span className="action-label">Settings</span>
+                <kbd>Ctrl+,</kbd>
+              </button>
+            </div>
+          </div>
+
+          <div className="dashboard-block shortcuts-block">
+            <span className="section-label">Quick shortcuts</span>
+            <div className="shortcut-list">
+              {[
+                ['New workspace', 'Ctrl+N'],
+                ['Open folder', 'Ctrl+O'],
+                ['Open settings', 'Ctrl+,'],
+                ['Command palette', 'Ctrl+Shift+P'],
+                ['Zoom in', 'Ctrl+='],
+                ['Zoom out', 'Ctrl+-'],
+                ['Reset zoom', 'Ctrl+0'],
+              ].map(([label, keys]) => (
+                <div className="shortcut-pill" key={label}>
+                  <span className="shortcut-key-label">{label}</span>
+                  <kbd>{keys}</kbd>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Column 2: Recent Workspaces */}
+        <div className="dashboard-col col-recents">
           <section className="dashboard-block recents-block">
             <div className="block-header">
               <div className="header-title-group">
                 <span className="section-label">Recent Workspaces</span>
-                {search && <span className="search-pill">Filtered by: "{search}"</span>}
+                {search && <span className="search-pill">Filtered: "{search}"</span>}
               </div>
               {workspaces.length > 0 && <button className="text-btn danger" onClick={clearAllApplicationState}>Clear all</button>}
             </div>
 
             {filteredWorkspaces.length > 0 ? (
-              <div className="recent-grid-layout scrollable">
+              <div className="recent-list-layout scrollable">
                 {filteredWorkspaces.map((workspace) => (
                   <RecentWorkspaceRow
                     key={workspace.id}
@@ -339,69 +362,50 @@ export default function WelcomeScreen() {
             ) : (
               <div className="empty-state">
                 <p>No Recent Workspaces</p>
-                <span>Workspaces you open will appear here.</span>
+                <span>Open a workspace to get started</span>
               </div>
             )}
           </section>
+        </div>
 
-          {/* Bottom section: Developer Feeds (Side-by-side) */}
-          <div className="feeds-container">
-            <FeedSection title="Hacker News top stories" loading={loadingHn} onRefresh={() => void loadHnStories()}>
-              {hnStories.filter(Boolean).map((story) => (
-                <button key={story.id} className="feed-item" onClick={() => void openUrl(story.url)}>
-                  <span className="feed-main">
-                    <span className="feed-title">{story.title}</span>
-                    <span className="feed-meta"><span>{story.score || 0} pts</span><span className="dot">.</span><span>by {story.by}</span></span>
+        {/* Column 3: Developer Feeds */}
+        <div className="dashboard-col col-feeds">
+          <FeedSection title="Hacker News top stories" loading={loadingHn} onRefresh={() => void loadHnStories()}>
+            {hnStories.filter(Boolean).map((story) => (
+              <button key={story.id} className="feed-item" onClick={() => void openUrl(story.url)}>
+                <span className="feed-main">
+                  <span className="feed-title">{story.title}</span>
+                  <span className="feed-meta"><span>{story.score || 0} pts</span><span className="dot">.</span><span>by {story.by}</span></span>
+                </span>
+                {story.kids && (
+                  <span className="comments-btn" onClick={(event) => { event.stopPropagation(); void openUrl(`https://news.ycombinator.com/item?id=${story.id}`); }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                    {story.kids.length}
                   </span>
-                  {story.kids && (
-                    <span className="comments-btn" onClick={(event) => { event.stopPropagation(); void openUrl(`https://news.ycombinator.com/item?id=${story.id}`); }}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                      {story.kids.length}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </FeedSection>
+                )}
+              </button>
+            ))}
+          </FeedSection>
 
-            <FeedSection title="Popular GitHub Repositories" loading={loadingGh} onRefresh={() => void loadGhRepos()}>
-              {ghRepos.map((repo) => (
-                <button key={repo.full_name} className="feed-item" onClick={() => void openUrl(repo.html_url)}>
-                  <span className="feed-main">
-                    <span className="feed-title repo-name"><FolderIcon size={11} /><span className="repo-text">{repo.full_name}</span></span>
-                    <span className="repo-desc">{repo.description || 'No description provided.'}</span>
-                    <span className="feed-meta">
-                      {repo.language && <span className="repo-lang badge">{repo.language}</span>}
-                      <span className="repo-stars">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-                        {Math.round(repo.stargazers_count / 100) / 10}k
-                      </span>
+          <FeedSection title="Popular GitHub Repositories" loading={loadingGh} onRefresh={() => void loadGhRepos()}>
+            {ghRepos.map((repo) => (
+              <button key={repo.full_name} className="feed-item" onClick={() => void openUrl(repo.html_url)}>
+                <span className="feed-main">
+                  <span className="feed-title repo-name"><FolderIcon size={11} /><span className="repo-text">{repo.full_name}</span></span>
+                  <span className="repo-desc">{repo.description || 'No description provided.'}</span>
+                  <span className="feed-meta">
+                    {repo.language && <span className="repo-lang badge">{repo.language}</span>}
+                    <span className="repo-stars">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                      {Math.round(repo.stargazers_count / 100) / 10}k
                     </span>
                   </span>
-                </button>
-              ))}
-            </FeedSection>
-          </div>
+                </span>
+              </button>
+            ))}
+          </FeedSection>
+        </div>
 
-          {/* Consolidated Sleek Shortcuts Row at bottom */}
-          <footer className="dashboard-footer">
-            <div className="shortcuts-bar">
-              <span className="shortcuts-label">Quick shortcuts:</span>
-              <div className="shortcuts-inline">
-                {[
-                  ['Command palette', 'Ctrl+Shift+P'],
-                  ['Focus terminal', 'Ctrl+`'],
-                  ['Open preview', 'Ctrl+Alt+P'],
-                ].map(([label, keys]) => (
-                  <div className="shortcut-pill" key={label}>
-                    <span className="shortcut-key-label">{label}</span>
-                    <kbd>{keys}</kbd>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </footer>
-
-        </main>
       </div>
     </div>
   );
