@@ -55,7 +55,7 @@
 }
 
 .rooms-table.ambient-focus {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 480px);
 }
 
 .rooms-table.ambient-split {
