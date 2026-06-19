@@ -148,12 +148,12 @@
   font-style: normal;
 }
 
-/* Body */
 .review-body {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overscroll-behavior: none;
   background: transparent;
 }
 
@@ -161,7 +161,7 @@
   display: flex;
   flex-direction: column;
   padding: 12px;
-  padding-bottom: 50vh;
+  padding-bottom: 24px;
 }
 
 /* File Card */
@@ -291,52 +291,114 @@
   border-radius: 0 0 6px 6px;
 }
 
-.diff-lines-container {
-  display: flex;
-  flex-direction: column;
-  padding: 6px 0;
+/* Table Layout for Diffs */
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
   font-family: var(--editor-font-family, monospace);
   font-size: 11.5px;
   line-height: 1.5;
 }
 
-.diff-row {
-  display: flex;
-  width: 100%;
-  min-width: fit-content;
+.diff-table.split-diff {
+  min-width: 900px; /* Ensure Split view doesn't squeeze and instead overflows horizontally */
+  table-layout: fixed;
 }
 
-.diff-num-col {
-  width: 36px;
-  min-width: 36px;
+.diff-tr {
+  vertical-align: top;
+}
+
+/* Columns */
+.diff-table .ln {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
   text-align: right;
   padding-right: 8px;
   color: var(--text-muted);
   user-select: none;
   border-right: 1px solid var(--border);
-  margin-right: 6px;
+  vertical-align: top;
+  white-space: nowrap;
 }
 
-.diff-marker-col {
-  width: 12px;
-  min-width: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  user-select: none;
-  font-weight: bold;
-  margin-right: 4px;
-}
-
-.diff-text-col {
-  flex: 1;
+.diff-table .code-cell {
+  padding-left: 10px;
+  padding-right: 10px;
   white-space: pre;
+  word-wrap: normal;
+  overflow-x: visible;
+  vertical-align: top;
 }
 
-/* Hunk Decorations */
-.hunk-decor-row {
-  display: flex;
-  align-items: center;
+/* Inline Diff styling */
+.diff-tr.normal {
+  background: transparent;
+}
+
+.diff-tr.addition {
+  background: rgba(34, 197, 94, 0.08);
+}
+.diff-tr.addition .code-cell {
+  color: var(--success);
+}
+.diff-tr.addition .ln {
+  color: color-mix(in srgb, var(--success) 60%, var(--text-muted));
+}
+
+.diff-tr.deletion {
+  background: rgba(239, 68, 68, 0.08);
+}
+.diff-tr.deletion .code-cell {
+  color: var(--error);
+}
+.diff-tr.deletion .ln {
+  color: color-mix(in srgb, var(--error) 60%, var(--text-muted));
+}
+
+/* Split Diff Styling */
+.diff-table.split-diff td {
+  width: 50%;
+}
+.diff-table.split-diff td.ln {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+}
+
+/* Left side deleted cell */
+.del-code {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--error);
+}
+.del-ln {
+  background: rgba(239, 68, 68, 0.04);
+  color: color-mix(in srgb, var(--error) 60%, var(--text-muted));
+}
+
+/* Right side added cell */
+.add-code {
+  background: rgba(34, 197, 94, 0.08);
+  color: var(--success);
+}
+.add-ln {
+  background: rgba(34, 197, 94, 0.04);
+  color: color-mix(in srgb, var(--success) 60%, var(--text-muted));
+}
+
+/* Empty placeholder styling */
+.empty-code {
+  background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.2);
+  user-select: none;
+}
+.empty-ln {
+  background: rgba(var(--bg-secondary-rgb, 18, 18, 22), 0.2);
+  user-select: none;
+}
+
+/* Hunk Headers in Table */
+.hunk-decor-cell {
   padding: 4px 10px;
   color: var(--text-muted);
   background: var(--bg-secondary);
@@ -344,28 +406,54 @@
   border-bottom: 1px solid var(--border);
   user-select: none;
   font-size: 11px;
-  font-family: var(--editor-font-family, monospace);
+  text-align: left;
 }
 
-/* Colors and Backgrounds */
-.diff-row.deletion {
-  background: rgba(239, 68, 68, 0.08);
-}
-.diff-row.deletion .diff-text-col {
-  color: var(--error);
-}
-.diff-row.deletion .diff-marker-col {
-  color: var(--error);
+.hunk-decor-cell.hunk-decor-end {
+  border-bottom: none;
+  padding: 4px 10px;
+  display: table-cell;
 }
 
-.diff-row.addition {
-  background: rgba(34, 197, 94, 0.08);
+/* Diff Mode Toggle */
+.diff-mode-toggle {
+  display: flex;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px;
 }
-.diff-row.addition .diff-text-col {
-  color: var(--success);
+
+.diff-mode-toggle .toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
 }
-.diff-row.addition .diff-marker-col {
-  color: var(--success);
+
+.diff-mode-toggle .toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+.diff-mode-toggle .toggle-btn.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
 }
 
 .diff-loading {
