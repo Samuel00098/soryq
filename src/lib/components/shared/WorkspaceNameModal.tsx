@@ -14,10 +14,28 @@ export default function WorkspaceNameModal() {
 
   function withTransition(action: () => void) {
     const startViewTransition = (document as any).startViewTransition;
-    if (startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      startViewTransition.call(document, () => {
-        flushSync(action);
-      });
+    if (
+      startViewTransition &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+      !(window as any).__soryq_transitioning
+    ) {
+      (window as any).__soryq_transitioning = true;
+      try {
+        const transition = startViewTransition.call(document, () => {
+          flushSync(action);
+        });
+        transition.finished?.finally(() => {
+          (window as any).__soryq_transitioning = false;
+        }).catch(() => {
+          (window as any).__soryq_transitioning = false;
+        });
+        setTimeout(() => {
+          (window as any).__soryq_transitioning = false;
+        }, 1000);
+      } catch (e) {
+        (window as any).__soryq_transitioning = false;
+        action();
+      }
     } else {
       action();
     }

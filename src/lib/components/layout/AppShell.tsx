@@ -41,6 +41,8 @@ import {
   toggleDbVisible,
   toggleContainersVisible,
   toggleToolboxVisible,
+  toggleOrchestratorVisible,
+  togglePetVisible,
   openQuickCapture,
   openEnvManager,
 } from '$lib/stores/layout';
@@ -244,10 +246,28 @@ export default function AppShell() {
       startViewTransition?: (callback: () => void) => { finished?: Promise<unknown> };
     }).startViewTransition;
 
-    if (startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      startViewTransition.call(document, () => {
-        flushSync(action);
-      });
+    if (
+      startViewTransition &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+      !(window as any).__soryq_transitioning
+    ) {
+      (window as any).__soryq_transitioning = true;
+      try {
+        const transition = startViewTransition.call(document, () => {
+          flushSync(action);
+        });
+        transition.finished?.finally(() => {
+          (window as any).__soryq_transitioning = false;
+        }).catch(() => {
+          (window as any).__soryq_transitioning = false;
+        });
+        setTimeout(() => {
+          (window as any).__soryq_transitioning = false;
+        }, 1000);
+      } catch (e) {
+        (window as any).__soryq_transitioning = false;
+        action();
+      }
     } else {
       action();
     }
@@ -664,6 +684,30 @@ export default function AppShell() {
         case 'goToPreview':
           setActiveView('preview');
           setFocusedRoom('preview');
+          break;
+        case 'goToOrchestrator':
+          toggleOrchestratorVisible();
+          break;
+        case 'goToReview':
+          toggleReviewVisible();
+          break;
+        case 'goToHttp':
+          toggleHttpVisible();
+          break;
+        case 'goToTasks':
+          toggleTasksVisible();
+          break;
+        case 'goToDb':
+          toggleDbVisible();
+          break;
+        case 'goToContainers':
+          toggleContainersVisible();
+          break;
+        case 'goToToolbox':
+          toggleToolboxVisible();
+          break;
+        case 'goToPet':
+          togglePetVisible();
           break;
         case 'toggleSidebar':
           toggleSidebar();
@@ -1394,11 +1438,12 @@ export default function AppShell() {
       startViewTransition?: (callback: () => void) => { finished?: Promise<unknown> };
     }).startViewTransition;
 
-    const hasViewTransition = !!startViewTransition && !prefersReducedMotion;
+    const isInsideTransition = !!(window as any).__soryq_transitioning;
+    const hasViewTransition = !!startViewTransition && !prefersReducedMotion && !isInsideTransition;
 
     const applyLayout = () => {
       flushSync(() => {
-        setLayoutSwitching(!prefersReducedMotion && !hasViewTransition);
+        setLayoutSwitching(!prefersReducedMotion && !hasViewTransition && !isInsideTransition);
         setAmbientLayout(nextLayout);
       });
     };
@@ -1409,8 +1454,27 @@ export default function AppShell() {
       return;
     }
 
+    if (isInsideTransition) {
+      applyLayout();
+      return;
+    }
+
     if (hasViewTransition) {
-      startViewTransition.call(document, applyLayout);
+      (window as any).__soryq_transitioning = true;
+      try {
+        const transition = startViewTransition.call(document, applyLayout);
+        transition.finished?.finally(() => {
+          (window as any).__soryq_transitioning = false;
+        }).catch(() => {
+          (window as any).__soryq_transitioning = false;
+        });
+        setTimeout(() => {
+          (window as any).__soryq_transitioning = false;
+        }, 1000);
+      } catch (e) {
+        (window as any).__soryq_transitioning = false;
+        applyLayout();
+      }
       return;
     }
 
