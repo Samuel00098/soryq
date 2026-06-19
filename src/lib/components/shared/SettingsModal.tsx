@@ -42,6 +42,7 @@ import {
   setVoiceConversationTtsVoice,
   setVoiceInputModel,
   showHidden,
+  showSnapshotsTab,
   tabSize,
   terminalCursorStyle,
   terminalFontSize,
@@ -479,6 +480,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const currentVimMode = useStore(vimMode);
   const currentEnableLsp = useStore(enableLsp);
   const currentShowHidden = useStore(showHidden);
+  const currentShowSnapshotsTab = useStore(showSnapshotsTab);
   const currentNotifications = useStore(notificationsEnabled);
   const currentCloseBehavior = useStore(closeBehavior);
   const currentZoom = useStore(uiZoom);
@@ -976,6 +978,9 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                 <Section title="Workspace">
                   <SettingRow title="Show hidden files" detail="Include dot-prefixed files in the explorer">
                     <Toggle label="Toggle hidden files" checked={currentShowHidden} onChange={showHidden.set} />
+                  </SettingRow>
+                  <SettingRow title="Show Workspace Snapshots" detail="Show snapshots tab in the sidebar activity bar">
+                    <Toggle label="Toggle workspace snapshots" checked={currentShowSnapshotsTab} onChange={showSnapshotsTab.set} />
                   </SettingRow>
                   <SettingRow title="Notifications" detail="System alerts for agent activity and process exits">
                     <Toggle

@@ -101,6 +101,7 @@ export const enableLsp = persistentWritable('enableLsp', true);
 
 // Explorer
 export const showHidden = persistentWritable('showHidden', false);
+export const showSnapshotsTab = persistentWritable('showSnapshotsTab', false);
 
 // Notifications
 export const notificationsEnabled = persistentWritable('notificationsEnabled', true);

@@ -174,6 +174,7 @@ function createSettingsState() {
     terminalScrollback: persistentValue('terminalScrollback', 5000),
     terminalFontSize: persistentValue('terminalFontSize', 13),
     terminalRenderer: persistentValue<'canvas' | 'dom'>('terminalRenderer', 'dom'),
+    showSnapshotsTab: persistentValue('showSnapshotsTab', false),
   };
 }
 
@@ -260,6 +261,7 @@ const defaults: SettingsValues = {
   terminalScrollback: 5000,
   terminalFontSize: 13,
   terminalRenderer: 'dom',
+  showSnapshotsTab: false,
 };
 
 export const useSettingsStore = create<SettingsState>((set, getState) => ({
@@ -311,6 +313,7 @@ export const useSettingsStore = create<SettingsState>((set, getState) => ({
       terminalShell: 'terminalShell',
       terminalFontSize: 'terminalFontSize',
       terminalRenderer: 'terminalRenderer',
+      showSnapshotsTab: 'showSnapshotsTab',
     };
     const stateKey = setters[key];
     if (stateKey) {

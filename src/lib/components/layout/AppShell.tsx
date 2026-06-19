@@ -249,6 +249,13 @@ export default function AppShell() {
     activeSessionIdRef.current = currentActiveSessionId;
   }, [currentActiveSessionId]);
   const zoom = useSettingsStore((s) => s.uiZoom);
+  const showSnapshotsTab = useSettingsStore((s) => s.showSnapshotsTab);
+
+  useEffect(() => {
+    if (!showSnapshotsTab && layoutState.sidebarTab === 'snapshots') {
+      toggleSidebarTab('files');
+    }
+  }, [showSnapshotsTab, layoutState.sidebarTab]);
   const sketchOpen = useStore(sketchCanvasOpen);
   const centerOpen = useStore(agentCenterOpen);
   const activeFile = useEditorStore((s) => s.activeFile);
@@ -946,13 +953,17 @@ export default function AppShell() {
       onClick: () => { toggleSidebarTab('git'); setFocusedRoom('workspace'); },
       icon: <Icon><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 15V9a4 4 0 0 0-4-4H9" /><line x1="6" y1="9" x2="6" y2="15" /></Icon>,
     },
-    {
-      id: 'snapshots',
-      title: 'Workspace Snapshots',
-      active: layoutState.sidebarVisible && layoutState.sidebarTab === 'snapshots',
-      onClick: () => { toggleSidebarTab('snapshots'); setFocusedRoom('workspace'); },
-      icon: <Icon><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /><circle cx="12" cy="10" r="3" /></Icon>,
-    },
+    ...(showSnapshotsTab
+      ? [
+          {
+            id: 'snapshots',
+            title: 'Workspace Snapshots',
+            active: layoutState.sidebarVisible && layoutState.sidebarTab === 'snapshots',
+            onClick: () => { toggleSidebarTab('snapshots'); setFocusedRoom('workspace'); },
+            icon: <Icon><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /><circle cx="12" cy="10" r="3" /></Icon>,
+          },
+        ]
+      : []),
     {
       id: 'snippets',
       title: 'Shell Snippets',
