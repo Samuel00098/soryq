@@ -512,8 +512,16 @@ export function getTtsVoiceOptions(provider: AiProviderId): TtsVoiceOption[] {
 
 export function getTtsVoiceOptionsForModel(provider: AiProviderId, modelId: string): TtsVoiceOption[] {
   switch (provider) {
-    case 'openrouter':
-      return openRouterTtsModelOptions.find((model) => model.id === modelId)?.voices ?? openAiTtsVoiceOptions;
+    case 'openrouter': {
+      const match = openRouterTtsModelOptions.find((model) => model.id === modelId);
+      if (match) return match.voices;
+      const idLc = modelId.toLowerCase();
+      if (idLc.includes('kokoro')) return kokoroVoiceOptions;
+      if (idLc.includes('voxtral')) return voxtralTtsVoiceOptions;
+      if (idLc.includes('orpheus')) return orpheusVoiceOptions;
+      if (idLc.includes('gemini') || idLc.includes('google')) return googleTtsVoiceOptions;
+      return openAiTtsVoiceOptions;
+    }
     case 'groq':
       return groqTtsVoiceOptions;
     case 'openai':
@@ -863,16 +871,22 @@ export const shortcutActions: ShortcutAction[] = [
   { id: 'commandPalette', label: 'Command Palette', category: 'View' },
   { id: 'openSettings',    label: 'Open Settings',   category: 'View' },
   { id: 'newWorkspace',   label: 'New Workspace',   category: 'Workspace' },
-  { id: 'goToTerminal',   label: 'Go to Terminal',  category: 'View' },
-  { id: 'goToEditor',     label: 'Go to Editor',    category: 'View' },
-  { id: 'goToPreview',    label: 'Go to Preview',   category: 'View' },
-  { id: 'toggleSidebar',  label: 'Toggle Sidebar',  category: 'View' },
+  { id: 'goToTerminal',   label: 'Go to Terminal',     category: 'View' },
+  { id: 'goToEditor',     label: 'Go to Editor',       category: 'View' },
+  { id: 'goToPreview',    label: 'Go to Preview',      category: 'View' },
+  { id: 'goToOrchestrator', label: 'Go to Orchestrator', category: 'View' },
+  { id: 'goToReview',     label: 'Go to Code Review',  category: 'View' },
+  { id: 'goToHttp',       label: 'Go to HTTP Client',  category: 'View' },
+  { id: 'goToTasks',      label: 'Go to Tasks',        category: 'View' },
+  { id: 'goToDb',         label: 'Go to Database Explorer', category: 'View' },
+  { id: 'goToContainers', label: 'Go to Containers',   category: 'View' },
+  { id: 'goToToolbox',    label: 'Go to Dev Toolbox',  category: 'View' },
+  { id: 'goToPet',        label: 'Go to DevPet',       category: 'View' },
   { id: 'openSearch',     label: 'Search in Files', category: 'View' },
   { id: 'openEnvManager', label: 'Environment Manager', category: 'Workspace' },
   { id: 'saveFile',       label: 'Save File',       category: 'File' },
   { id: 'openFolder',     label: 'Open Folder',     category: 'Workspace' },
   { id: 'newTerminal',    label: 'New Terminal Tab',category: 'Terminal' },
-  { id: 'splitPreview',   label: 'Toggle Editor + Preview Split', category: 'Editor' },
   { id: 'formatDocument', label: 'Format Document',       category: 'Editor' },
   { id: 'startProxy',     label: 'Start Preview Proxy', category: 'Preview' },
   { id: 'stopProxy',      label: 'Stop Preview Proxy', category: 'Preview' },
@@ -882,7 +896,6 @@ export const shortcutActions: ShortcutAction[] = [
   { id: 'quickCapture',  label: 'Quick Capture',     category: 'Workspace' },
   { id: 'openDailyNote', label: 'Open Daily Note',   category: 'Workspace' },
   { id: 'toggleSketch',   label: 'Toggle Sketch Canvas', category: 'View' },
-  { id: 'openPromptBar',  label: 'Open Floating Bar', category: 'View' },
   { id: 'launchVoiceMode', label: 'Launch Voice Mode', category: 'Voice' },
   { id: 'canvasZoomIn',   label: 'Canvas Zoom In', category: 'Canvas' },
   { id: 'canvasZoomOut',  label: 'Canvas Zoom Out', category: 'Canvas' },
@@ -893,16 +906,22 @@ export const defaultShortcuts: KeyboardShortcut[] = [
   { id: 'commandPalette', label: 'Command Palette', keys: 'Ctrl+Shift+P' },
   { id: 'openSettings',    label: 'Open Settings',   keys: 'Ctrl+,' },
   { id: 'newWorkspace',   label: 'New Workspace',   keys: 'Ctrl+N' },
-  { id: 'goToTerminal',   label: 'Go to Terminal',  keys: 'Ctrl+`' },
-  { id: 'goToEditor',     label: 'Go to Editor',    keys: 'Ctrl+E' },
-  { id: 'goToPreview',    label: 'Go to Preview',   keys: 'Ctrl+Shift+V' },
-  { id: 'toggleSidebar',  label: 'Toggle Sidebar',  keys: 'Ctrl+B' },
+  { id: 'goToTerminal',   label: 'Go to Terminal',     keys: 'Ctrl+`' },
+  { id: 'goToEditor',     label: 'Go to Editor',       keys: 'Ctrl+E' },
+  { id: 'goToPreview',    label: 'Go to Preview',      keys: 'Ctrl+Shift+V' },
+  { id: 'goToOrchestrator', label: 'Go to Orchestrator', keys: 'Ctrl+Shift+O' },
+  { id: 'goToReview',     label: 'Go to Code Review',  keys: 'Ctrl+Shift+R' },
+  { id: 'goToHttp',       label: 'Go to HTTP Client',  keys: 'Ctrl+Shift+H' },
+  { id: 'goToTasks',      label: 'Go to Tasks',        keys: 'Ctrl+Shift+T' },
+  { id: 'goToDb',         label: 'Go to Database Explorer', keys: 'Ctrl+Shift+B' },
+  { id: 'goToContainers', label: 'Go to Containers',   keys: 'Ctrl+Shift+C' },
+  { id: 'goToToolbox',    label: 'Go to Dev Toolbox',  keys: 'Ctrl+Shift+X' },
+  { id: 'goToPet',        label: 'Go to DevPet',       keys: 'Ctrl+Shift+Z' },
   { id: 'openSearch',     label: 'Search in Files', keys: 'Ctrl+Shift+F' },
   { id: 'openEnvManager', label: 'Environment Manager', keys: 'Ctrl+Shift+E' },
   { id: 'saveFile',       label: 'Save File',       keys: 'Ctrl+S' },
   { id: 'openFolder',     label: 'Open Folder',     keys: 'Ctrl+O' },
   { id: 'newTerminal',    label: 'New Terminal Tab',keys: 'Ctrl+Shift+`' },
-  { id: 'splitPreview',   label: 'Toggle Editor + Preview Split', keys: 'Ctrl+\\' },
   { id: 'formatDocument', label: 'Format Document',       keys: 'Alt+Shift+F' },
   { id: 'startProxy',     label: 'Start Preview Proxy', keys: 'Ctrl+Alt+P' },
   { id: 'stopProxy',      label: 'Stop Preview Proxy', keys: 'Ctrl+Alt+O' },
@@ -912,7 +931,6 @@ export const defaultShortcuts: KeyboardShortcut[] = [
   { id: 'quickCapture',  label: 'Quick Capture',     keys: 'Ctrl+Shift+Space' },
   { id: 'openDailyNote', label: 'Open Daily Note',   keys: 'Ctrl+Shift+D' },
   { id: 'toggleSketch',   label: 'Toggle Sketch Canvas', keys: 'Ctrl+Shift+N' },
-  { id: 'openPromptBar',  label: 'Open Floating Bar', keys: 'Ctrl+Shift+L' },
   { id: 'launchVoiceMode', label: 'Launch Voice Mode', keys: 'Ctrl+Shift+M' },
   { id: 'canvasZoomIn',   label: 'Canvas Zoom In', keys: 'Alt+=' },
   { id: 'canvasZoomOut',  label: 'Canvas Zoom Out', keys: 'Alt+-' },

@@ -88,7 +88,7 @@ import { chooseBackgroundImage, removeBackgroundImage, backgroundImagePresent } 
 import { getAvailableShells, type ShellInfo } from '$lib/services/pty-bridge';
 import './SettingsModal.css';
 
-type Tab = 'general' | 'appearance' | 'models' | 'voice' | 'terminal' | 'shortcuts' | 'about';
+type Tab = 'general' | 'appearance' | 'models' | 'voice' | 'terminal' | 'agents' | 'shortcuts' | 'about';
 
 type SettingsModalProps = {
   onclose: () => void;
@@ -100,6 +100,7 @@ const tabs: { id: Tab; label: string; kicker: string }[] = [
   { id: 'models', label: 'AI Models', kicker: 'Providers and keys' },
   { id: 'voice', label: 'Voice', kicker: 'Input, reply, TTS' },
   { id: 'terminal', label: 'Terminal', kicker: 'Shell and rendering' },
+  { id: 'agents', label: 'Agents', kicker: 'Coding CLI tools' },
   { id: 'shortcuts', label: 'Shortcuts', kicker: 'Keyboard map' },
   { id: 'about', label: 'About', kicker: 'Version and reset' },
 ];
@@ -560,11 +561,54 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const completionDef = getProviderDef(completionProvider);
   const completionModels = completionLiveModels[completionProvider] ?? completionDef.models;
   const completionModel = completionModelMap[completionProvider] || completionDef.defaultModel;
-  const voiceInputModels = getVoiceInputModelOptions(voiceInput);
-  const refinementModels = getProviderDef(refinementProvider).models;
-  const conversationModels = getProviderDef(conversationProvider).models;
-  const ttsModels = getTtsModelOptions(conversationProvider);
-  const ttsVoices = getTtsVoiceOptionsForModel(conversationProvider, ttsModel);
+  const liveInputModels = providerLiveModels[voiceInput as AiProviderId];
+  const voiceInputModels = useMemo(() => {
+    if (liveInputModels && liveInputModels.length > 0) {
+      if (voiceInput === 'ollama' || voiceInput === 'lmstudio') {
+        return liveInputModels;
+      }
+      const filtered = liveInputModels.filter((m) =>
+        /whisper|transcribe|speech|asr|chirp|voxtral|mai-transcribe|parakeet|qwen3-asr/i.test(m.id) ||
+        /whisper|transcribe|speech|asr|chirp|voxtral|mai-transcribe|parakeet|qwen3-asr/i.test(m.label)
+      );
+      if (filtered.length > 0) return filtered;
+    }
+    return getVoiceInputModelOptions(voiceInput);
+  }, [voiceInput, liveInputModels]);
+
+  const refinementModels = useMemo(() => {
+    return providerLiveModels[refinementProvider] ?? getProviderDef(refinementProvider).models;
+  }, [refinementProvider, providerLiveModels]);
+
+  const conversationModels = useMemo(() => {
+    return providerLiveModels[conversationProvider] ?? getProviderDef(conversationProvider).models;
+  }, [conversationProvider, providerLiveModels]);
+
+  const liveTtsModels = providerLiveModels[conversationProvider];
+  const ttsModels = useMemo(() => {
+    if (liveTtsModels && liveTtsModels.length > 0) {
+      const filtered = liveTtsModels.filter((m) =>
+        /tts|voice|speech|voxtral|kokoro|zonos|csm|orpheus/i.test(m.id) ||
+        /tts|voice|speech|voxtral|kokoro|zonos|csm|orpheus/i.test(m.label)
+      );
+      if (filtered.length > 0) {
+        return filtered.map((m) => {
+          const curated = getTtsModelOptions(conversationProvider).find((d) => d.id === m.id);
+          return {
+            id: m.id,
+            label: curated?.label ?? m.label ?? m.id,
+            description: curated?.description ?? m.description ?? '',
+            voices: getTtsVoiceOptionsForModel(conversationProvider, m.id),
+          };
+        });
+      }
+    }
+    return getTtsModelOptions(conversationProvider);
+  }, [conversationProvider, liveTtsModels]);
+
+  const ttsVoices = useMemo(() => {
+    return getTtsVoiceOptionsForModel(conversationProvider, ttsModel);
+  }, [conversationProvider, ttsModel]);
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent) {
@@ -710,6 +754,22 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
       active = false;
     };
   }, [completionProvider, loadCompletionLiveModels]);
+
+  useEffect(() => {
+    if (activeTab !== 'voice') return;
+    const loadVoiceProvider = async (prov: string) => {
+      const isLocal = isLocalProvider(prov as AiProviderId);
+      const hasKey = isLocal ? true : await providerApiKeyExists(prov as AiProviderId).catch(() => false);
+      if (hasKey) {
+        void loadLiveModels(prov as AiProviderId);
+      }
+    };
+    if (refinementProvider) void loadVoiceProvider(refinementProvider);
+    if (conversationProvider) void loadVoiceProvider(conversationProvider);
+    if (voiceInput && voiceInput !== 'webspeech') {
+      void loadVoiceProvider(voiceInput);
+    }
+  }, [activeTab, refinementProvider, conversationProvider, voiceInput, loadLiveModels]);
 
   useEffect(() => {
     setLocalUrlInput(getProviderBaseUrl(provider, baseUrls) || '');
@@ -1436,6 +1496,46 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   <p className="shell-hint">Changes apply to new sessions. Active terminal sessions will automatically restart using the new shell.</p>
                 </Section>
 
+                <Section title="Appearance">
+                  <SettingRow title="Font size" detail={`${termFontSize}px`}>
+                    <div className="num-control">
+                      <button className="num-btn" onClick={() => terminalFontSize.set(Math.max(9, termFontSize - 1))}>−</button>
+                      <span className="num-val">{termFontSize}</span>
+                      <button className="num-btn" onClick={() => terminalFontSize.set(Math.min(28, termFontSize + 1))}>+</button>
+                    </div>
+                  </SettingRow>
+                  <SettingRow title="Cursor">
+                    <SelectField
+                      value={cursorStyle}
+                      options={[
+                        { id: 'bar', label: 'Bar' },
+                        { id: 'block', label: 'Block' },
+                        { id: 'underline', label: 'Underline' },
+                      ]}
+                      onChange={terminalCursorStyle.set}
+                      ariaLabel="Terminal cursor"
+                    />
+                  </SettingRow>
+                  <SettingRow title="Canvas renderer" detail="Faster GPU rendering; disable if terminal glitches">
+                    <Toggle
+                      label="Toggle canvas renderer"
+                      checked={renderer === 'canvas'}
+                      onChange={(on) => terminalRenderer.set(on ? 'canvas' : 'dom')}
+                    />
+                  </SettingRow>
+                  <SettingRow title="Scrollback" detail={`${scrollback.toLocaleString()} lines`}>
+                    <div className="num-control">
+                      <button className="num-btn" onClick={() => terminalScrollback.set(Math.max(100, scrollback - 1000))}>−</button>
+                      <span className="num-val" style={{ minWidth: 54 }}>{scrollback.toLocaleString()}</span>
+                      <button className="num-btn" onClick={() => terminalScrollback.set(Math.min(100000, scrollback + 1000))}>+</button>
+                    </div>
+                  </SettingRow>
+                </Section>
+              </>
+            )}
+
+            {activeTab === 'agents' && (
+              <>
                 <Section title="Coding CLI agents">
                   <p className="shell-hint" style={{ marginTop: '-2px', marginBottom: '12px', marginLeft: 0 }}>
                     Add your own agent CLI alongside the built-ins (Claude Code, Codex…). It appears in the
@@ -1554,42 +1654,6 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                       </div>
                     </div>
                   )}
-                </Section>
-
-                <Section title="Appearance">
-                  <SettingRow title="Font size" detail={`${termFontSize}px`}>
-                    <div className="num-control">
-                      <button className="num-btn" onClick={() => terminalFontSize.set(Math.max(9, termFontSize - 1))}>−</button>
-                      <span className="num-val">{termFontSize}</span>
-                      <button className="num-btn" onClick={() => terminalFontSize.set(Math.min(28, termFontSize + 1))}>+</button>
-                    </div>
-                  </SettingRow>
-                  <SettingRow title="Cursor">
-                    <SelectField
-                      value={cursorStyle}
-                      options={[
-                        { id: 'bar', label: 'Bar' },
-                        { id: 'block', label: 'Block' },
-                        { id: 'underline', label: 'Underline' },
-                      ]}
-                      onChange={terminalCursorStyle.set}
-                      ariaLabel="Terminal cursor"
-                    />
-                  </SettingRow>
-                  <SettingRow title="Canvas renderer" detail="Faster GPU rendering; disable if terminal glitches">
-                    <Toggle
-                      label="Toggle canvas renderer"
-                      checked={renderer === 'canvas'}
-                      onChange={(on) => terminalRenderer.set(on ? 'canvas' : 'dom')}
-                    />
-                  </SettingRow>
-                  <SettingRow title="Scrollback" detail={`${scrollback.toLocaleString()} lines`}>
-                    <div className="num-control">
-                      <button className="num-btn" onClick={() => terminalScrollback.set(Math.max(100, scrollback - 1000))}>−</button>
-                      <span className="num-val" style={{ minWidth: 54 }}>{scrollback.toLocaleString()}</span>
-                      <button className="num-btn" onClick={() => terminalScrollback.set(Math.min(100000, scrollback + 1000))}>+</button>
-                    </div>
-                  </SettingRow>
                 </Section>
               </>
             )}
