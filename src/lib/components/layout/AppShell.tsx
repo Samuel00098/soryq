@@ -1390,9 +1390,15 @@ export default function AppShell() {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (layoutSwitchTimerRef.current !== null) window.clearTimeout(layoutSwitchTimerRef.current);
 
+    const startViewTransition = (document as Document & {
+      startViewTransition?: (callback: () => void) => { finished?: Promise<unknown> };
+    }).startViewTransition;
+
+    const hasViewTransition = !!startViewTransition && !prefersReducedMotion;
+
     const applyLayout = () => {
       flushSync(() => {
-        setLayoutSwitching(!prefersReducedMotion);
+        setLayoutSwitching(!prefersReducedMotion && !hasViewTransition);
         setAmbientLayout(nextLayout);
       });
     };
@@ -1403,18 +1409,12 @@ export default function AppShell() {
       return;
     }
 
-    layoutSwitchTimerRef.current = window.setTimeout(finishLayoutSwitch, 560);
-
-    const startViewTransition = (document as Document & {
-      startViewTransition?: (callback: () => void) => { finished?: Promise<unknown> };
-    }).startViewTransition;
-
-    if (startViewTransition) {
-      const transition = startViewTransition.call(document, applyLayout);
-      transition.finished?.finally(finishLayoutSwitch);
+    if (hasViewTransition) {
+      startViewTransition.call(document, applyLayout);
       return;
     }
 
+    layoutSwitchTimerRef.current = window.setTimeout(finishLayoutSwitch, 560);
     applyLayout();
   }
 
