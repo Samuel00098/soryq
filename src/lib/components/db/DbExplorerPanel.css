@@ -389,6 +389,8 @@
   cursor: pointer;
   border: none;
   transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .action-btn.primary {
