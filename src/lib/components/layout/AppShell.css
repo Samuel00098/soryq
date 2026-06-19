@@ -850,6 +850,9 @@
 }
 
 .room-dock {
+  /* Own view-transition group so the dock is lifted out of the root snapshot and
+     stays visually fixed while the rooms morph between layouts. */
+  view-transition-name: soryq-room-dock;
   min-height: 50px;
   width: min(100%, 1040px);
   align-self: center;
@@ -1117,42 +1120,65 @@
   100% { transform: scale(1) rotate(0); }
 }
 
+/* The root layer is everything that isn't an individually-named group (the
+   background, title bar, gaps). During a mode switch the rooms morph on their
+   own — so the root should barely move. Keep it a gentle opacity settle with no
+   scale and no full-screen blur: the old blur(2px) on the whole snapshot was
+   costly and made a simple layout change flash the entire UI. */
 @keyframes soryq-view-old {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
-  }
-  100% {
-    opacity: 0.2;
-    transform: scale(0.992);
-    filter: blur(2px);
-  }
+  0% { opacity: 1; }
+  100% { opacity: 0.55; }
 }
 
 @keyframes soryq-view-new {
-  0% {
-    opacity: 0.2;
-    transform: scale(1.008);
-    filter: blur(2px);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
-  }
+  0% { opacity: 0.55; }
+  100% { opacity: 1; }
 }
 
 ::view-transition-group(*) {
-  animation-duration: 0.38s;
+  animation-duration: 0.44s;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Default crossfade for morphing elements (room panels changing layout). Keep it
+   opacity-only: the group above already animates position + size, so adding a
+   transform here compounded into a visible wobble/double-scale while rooms
+   resized between Focus / Split / Gallery. The new image fades in over roughly
+   the morph duration so content settles together with the box. */
 ::view-transition-old(*) {
-  animation: panel-fade-out 0.22s cubic-bezier(0.4, 0, 1, 1) both;
+  animation: panel-fade-out 0.2s ease both;
 }
 ::view-transition-new(*) {
-  animation: panel-fade-in 0.28s cubic-bezier(0, 0, 0.2, 1) both;
+  animation: panel-fade-in 0.34s ease both;
+}
+
+/* Modals appear/disappear rather than morphing between two layouts, so a gentle
+   scale pop reads better than a flat fade. */
+::view-transition-new(soryq-settings-modal),
+::view-transition-new(soryq-env-modal),
+::view-transition-new(soryq-command-palette),
+::view-transition-new(soryq-quick-capture-card),
+::view-transition-new(soryq-workspace-modal),
+::view-transition-new(soryq-mic-dialog) {
+  animation: modal-pop-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+::view-transition-old(soryq-settings-modal),
+::view-transition-old(soryq-env-modal),
+::view-transition-old(soryq-command-palette),
+::view-transition-old(soryq-quick-capture-card),
+::view-transition-old(soryq-workspace-modal),
+::view-transition-old(soryq-mic-dialog) {
+  animation: modal-pop-out 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+/* Persistent chrome doesn't change between modes — skip the crossfade so it
+   stays perfectly steady (no faint opacity dip) while rooms morph around it. */
+::view-transition-old(soryq-room-dock),
+::view-transition-new(soryq-room-dock),
+::view-transition-old(soryq-composer),
+::view-transition-new(soryq-composer) {
+  animation: none;
+  mix-blend-mode: normal;
 }
 
 ::view-transition-old(root) {
@@ -1164,13 +1190,23 @@
 }
 
 @keyframes panel-fade-out {
-  from { opacity: 1; transform: scale(1); }
-  to { opacity: 0; transform: scale(0.96); }
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 @keyframes panel-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-pop-in {
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes modal-pop-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.97); }
 }
 
 
@@ -1207,6 +1243,9 @@
 }
 
 .composer-strip {
+  /* Kept out of the root snapshot so the prompt bar holds still during mode
+     switches instead of fading with the background. */
+  view-transition-name: soryq-composer;
   flex-shrink: 0;
   padding: 8px 18px 10px;
   border-top: none;
