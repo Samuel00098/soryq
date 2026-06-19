@@ -73,6 +73,15 @@ import { checkForUpdate, installUpdate, pendingUpdate, updateChecking, updateDow
 import { get } from '$lib/stores/storeCompat';
 import { useStore } from '$lib/react/useStore';
 import { isTauriRuntime } from '$lib/utils/tauri';
+import {
+  customAgents,
+  addCustomAgent,
+  updateCustomAgent,
+  deleteCustomAgent,
+  removedPresetAgents,
+  removePresetAgent,
+  restorePresetAgent,
+} from '$lib/stores/customAgents';
 import { activeTheme, switchPresetTheme, saveTheme, importTheme, themeColorFields } from '$lib/stores/theme';
 import { presetThemes } from '$lib/stores/presetThemes';
 import { chooseBackgroundImage, removeBackgroundImage, backgroundImagePresent } from '$lib/stores/background';
@@ -433,8 +442,32 @@ function ShortcutEditor({
   );
 }
 
+interface PresetAgent {
+  name: string;
+  command: string;
+  readsRulesFile: boolean;
+}
+
+const PRESET_AGENTS: PresetAgent[] = [
+  { name: 'Codex CLI', command: 'codex', readsRulesFile: true },
+  { name: 'Claude Code', command: 'claude', readsRulesFile: true },
+  { name: 'Antigravity', command: 'agy', readsRulesFile: true },
+  { name: 'OpenCode', command: 'opencode', readsRulesFile: true },
+  { name: 'Pi AI Agent', command: 'pi', readsRulesFile: false },
+  { name: 'Oh My Pi', command: 'omp', readsRulesFile: false },
+  { name: 'Cursor', command: 'agent', readsRulesFile: true },
+];
+
 export default function SettingsModal({ onclose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('general');
+  const $customAgents = useStore(customAgents);
+  const $removedPresetAgents = useStore(removedPresetAgents);
+
+  const [newAgentName, setNewAgentName] = useState('');
+  const [newAgentCommand, setNewAgentCommand] = useState('');
+  const [newAgentReadsRules, setNewAgentReadsRules] = useState(true);
+  const [agentFormError, setAgentFormError] = useState('');
+
   const [customLabel, setCustomLabel] = useState('');
   const [customKeys, setCustomKeys] = useState('');
   const [customCommand, setCustomCommand] = useState('');
@@ -824,6 +857,40 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   function handleDeleteShortcut(id: string) {
     userShortcuts.set(shortcuts.filter((s) => s && s.id !== id));
     showToast('Shortcut deleted.', 'info');
+  }
+
+  function handleAddCustomAgent() {
+    const name = newAgentName.trim();
+    const command = newAgentCommand.trim();
+    if (!name || !command) {
+      setAgentFormError('Give the agent a name and a launch command.');
+      return;
+    }
+    const created = addCustomAgent({ name, command, readsRulesFile: newAgentReadsRules });
+    if (!created) {
+      setAgentFormError('An agent with that launch command already exists.');
+      return;
+    }
+    setNewAgentName('');
+    setNewAgentCommand('');
+    setNewAgentReadsRules(true);
+    setAgentFormError('');
+    showToast(`Added "${created.name}" — it's now in the spawn picker.`, 'success');
+  }
+
+  function handleRemoveCustomAgent(id: string, name: string) {
+    deleteCustomAgent(id);
+    showToast(`Removed "${name}".`, 'info');
+  }
+
+  function handleRemovePresetAgent(command: string, name: string) {
+    removePresetAgent(command);
+    showToast(`Hidden built-in agent "${name}".`, 'info');
+  }
+
+  function handleRestorePresetAgent(command: string, name: string) {
+    restorePresetAgent(command);
+    showToast(`Restored built-in agent "${name}".`, 'success');
   }
 
   async function handleImportTheme() {
@@ -1367,6 +1434,126 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                     )}
                   </div>
                   <p className="shell-hint">Changes apply to new sessions. Active terminal sessions will automatically restart using the new shell.</p>
+                </Section>
+
+                <Section title="Coding CLI agents">
+                  <p className="shell-hint" style={{ marginTop: '-2px', marginBottom: '12px', marginLeft: 0 }}>
+                    Add your own agent CLI alongside the built-ins (Claude Code, Codex…). It appears in the
+                    spawn picker, panes running it show its name, and typing its command in any shell is
+                    recognized as that agent. Agents that read a <code>CLAUDE.md</code> / <code>AGENTS.md</code>
+                    rules file are briefed automatically.
+                  </p>
+
+                  <div className="agent-list">
+                    {/* Preset/Built-in Agents */}
+                    {PRESET_AGENTS.filter(agent => !$removedPresetAgents.includes(agent.command)).map((agent) => (
+                      <div className="agent-row built-in" key={agent.command}>
+                        <div className="agent-meta">
+                          <div className="agent-name-row">
+                            <span className="agent-name">{agent.name}</span>
+                            <span className="agent-badge">Built-in</span>
+                          </div>
+                          <code className="agent-cmd">{agent.command}</code>
+                        </div>
+                        <label className="agent-rules-toggle disabled" title="Reads a CLAUDE.md / AGENTS.md rules file at startup">
+                          <input
+                            type="checkbox"
+                            checked={agent.readsRulesFile}
+                            disabled
+                          />
+                          <span>Rules file</span>
+                        </label>
+                        <button
+                          type="button"
+                          className="agent-remove"
+                          onClick={() => handleRemovePresetAgent(agent.command, agent.name)}
+                          aria-label={`Remove ${agent.name}`}
+                          title={`Hide ${agent.name}`}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4h8v2m-1 0v14H9V6"/></svg>
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Custom Agents */}
+                    {$customAgents.map((agent) => (
+                      <div className="agent-row" key={agent.id}>
+                        <div className="agent-meta">
+                          <span className="agent-name">{agent.name}</span>
+                          <code className="agent-cmd">{agent.command}</code>
+                        </div>
+                        <label className="agent-rules-toggle" title="Reads a CLAUDE.md / AGENTS.md rules file at startup">
+                          <input
+                            type="checkbox"
+                            checked={agent.readsRulesFile}
+                            onChange={(e) => updateCustomAgent(agent.id, { readsRulesFile: e.target.checked })}
+                          />
+                          <span>Rules file</span>
+                        </label>
+                        <button
+                          type="button"
+                          className="agent-remove"
+                          onClick={() => handleRemoveCustomAgent(agent.id, agent.name)}
+                          aria-label={`Remove ${agent.name}`}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4h8v2m-1 0v14H9V6"/></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add Agent Form */}
+                  <div className="agent-add">
+                    <input
+                      className="agent-input"
+                      type="text"
+                      placeholder="Name (e.g. Aider)"
+                      value={newAgentName}
+                      onChange={(e) => setNewAgentName(e.target.value)}
+                      maxLength={40}
+                    />
+                    <input
+                      className="agent-input agent-input-cmd"
+                      type="text"
+                      placeholder="Launch command (e.g. aider --no-auto-commits)"
+                      value={newAgentCommand}
+                      onChange={(e) => setNewAgentCommand(e.target.value)}
+                      maxLength={200}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddCustomAgent(); }}
+                    />
+                    <button className="agent-add-btn" type="button" onClick={handleAddCustomAgent}>Add agent</button>
+                  </div>
+                  <label className="agent-rules-row">
+                    <input
+                      type="checkbox"
+                      checked={newAgentReadsRules}
+                      onChange={(e) => setNewAgentReadsRules(e.target.checked)}
+                    />
+                    <span>This CLI reads a <code>CLAUDE.md</code> / <code>AGENTS.md</code> rules file at startup</span>
+                  </label>
+                  {agentFormError && (
+                    <p className="agent-error">{agentFormError}</p>
+                  )}
+
+                  {/* Hidden Built-ins restore section */}
+                  {PRESET_AGENTS.filter(agent => $removedPresetAgents.includes(agent.command)).length > 0 && (
+                    <div className="restore-presets-row">
+                      <span className="restore-presets-label">Hidden built-ins:</span>
+                      <div className="restore-presets-pills">
+                        {PRESET_AGENTS.filter(agent => $removedPresetAgents.includes(agent.command)).map(agent => (
+                          <button
+                            key={agent.command}
+                            type="button"
+                            className="restore-preset-pill"
+                            onClick={() => handleRestorePresetAgent(agent.command, agent.name)}
+                            title={`Restore ${agent.name}`}
+                          >
+                            + {agent.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </Section>
 
                 <Section title="Appearance">

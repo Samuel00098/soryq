@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { loadJson } from '$lib/utils/storage';
 
 /**
@@ -99,3 +99,29 @@ export function updateCustomAgent(
 export function deleteCustomAgent(id: string): void {
   customAgents.update((all) => all.filter((a) => a.id !== id));
 }
+
+const REMOVED_PRESETS_KEY = 'soryq_removed_preset_agents';
+
+export const removedPresetAgents = writable<string[]>(loadJson<string[]>(REMOVED_PRESETS_KEY, []));
+
+removedPresetAgents.subscribe((val) => {
+  try {
+    localStorage.setItem(REMOVED_PRESETS_KEY, JSON.stringify(val));
+  } catch {}
+});
+
+export function getRemovedPresetAgents(): string[] {
+  return get(removedPresetAgents);
+}
+
+export function removePresetAgent(command: string): void {
+  removedPresetAgents.update((all) => {
+    if (all.includes(command)) return all;
+    return [...all, command];
+  });
+}
+
+export function restorePresetAgent(command: string): void {
+  removedPresetAgents.update((all) => all.filter((cmd) => cmd !== command));
+}
+

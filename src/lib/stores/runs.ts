@@ -1,6 +1,6 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived } from '$lib/stores/storeCompat';
 import { loadJson } from '$lib/utils/storage';
-import { getCustomAgents } from '$lib/stores/customAgents';
+import { getCustomAgents, getRemovedPresetAgents } from '$lib/stores/customAgents';
 
 export interface QuickRun {
   id: string;
@@ -35,14 +35,17 @@ const AI_AGENT_PRESETS: Omit<QuickRun, 'id' | 'projectId'>[] = [
 
 export function getPresetRuns(projectId: string): QuickRun[] {
   if (!projectId) return [];
-  const builtins: QuickRun[] = AI_AGENT_PRESETS.map((preset) => ({
-    id: `preset:${projectId}:${preset.command}`,
-    projectId,
-    name: preset.name,
-    command: preset.command,
-    isPreset: true,
-    isAgent: preset.isAgent,
-  }));
+  const removed = getRemovedPresetAgents();
+  const builtins: QuickRun[] = AI_AGENT_PRESETS
+    .filter((preset) => !preset.isAgent || !removed.includes(preset.command))
+    .map((preset) => ({
+      id: `preset:${projectId}:${preset.command}`,
+      projectId,
+      name: preset.name,
+      command: preset.command,
+      isPreset: true,
+      isAgent: preset.isAgent,
+    }));
   // User-defined coding CLI agents are first-class presets too.
   const custom: QuickRun[] = getCustomAgents().map((agent) => ({
     id: `custom:${projectId}:${agent.id}`,

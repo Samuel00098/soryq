@@ -1,16 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 import {
   customAgents,
   addCustomAgent,
   updateCustomAgent,
   deleteCustomAgent,
   getCustomAgents,
+  removedPresetAgents,
+  removePresetAgent,
+  restorePresetAgent,
+  getRemovedPresetAgents,
 } from './customAgents';
 
 describe('customAgents store', () => {
   beforeEach(() => {
     customAgents.set([]);
+    removedPresetAgents.set([]);
   });
 
   it('adds an agent with trimmed fields', () => {
@@ -63,5 +68,13 @@ describe('customAgents store', () => {
     const remaining = getCustomAgents();
     expect(remaining).toHaveLength(1);
     expect(remaining[0].command).toBe('b');
+  });
+
+  it('hides and restores preset agents', () => {
+    expect(getRemovedPresetAgents()).toHaveLength(0);
+    removePresetAgent('claude');
+    expect(getRemovedPresetAgents()).toContain('claude');
+    restorePresetAgent('claude');
+    expect(getRemovedPresetAgents()).not.toContain('claude');
   });
 });
