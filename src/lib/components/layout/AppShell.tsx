@@ -1120,6 +1120,16 @@ export default function AppShell() {
       const session = getAgentSessionForRoom(id);
       return session ? getSessionPromptTargetLabel(session, allTerminalSessions) : 'Agent';
     }
+    if (id === 'workspace') {
+      const tab = layoutState.sidebarTab;
+      if (tab === 'git') return 'Source Control';
+      if (tab === 'files') return 'Explorer';
+      if (tab === 'search') return 'Search';
+      if (tab === 'snapshots') return 'Snapshots';
+      if (tab === 'history') return 'History';
+      if (tab === 'snippets') return 'Snippets';
+      return 'Explorer';
+    }
     return ROOM_TITLES[id];
   }
 
