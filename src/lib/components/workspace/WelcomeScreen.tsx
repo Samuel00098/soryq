@@ -120,10 +120,10 @@ export default function WelcomeScreen() {
 
   return (
     <div className={`welcome${isLight ? ' light' : ''}`}>
-      
-      {/* Top Horizontal Brand Header */}
-      <header className="welcome-header">
-        <div className="welcome-identity">
+      <div className="welcome-centered-container">
+        
+        {/* Top Horizontal Brand Header */}
+        <header className="welcome-header">
           <div className="brand-title-row">
             <div className="logo-wrap">
               {!iconError ? (
@@ -146,39 +146,67 @@ export default function WelcomeScreen() {
             <span className="subtitle-divider">•</span>
             <span className="app-clock">{timeString}</span>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main 2-Column Bento Grid Content */}
-      <div className="welcome-content-grid">
-        
-        {/* Column 1: Launchpad & Quick Shortcuts */}
-        <div className="dashboard-col col-sidebar">
-          
-          <div className="dashboard-block launchpad-block">
-            <span className="section-label">Launchpad</span>
-            <div className="launchpad-buttons">
-              <button className="action-btn primary" onClick={() => newWorkspacePromptOpen.set(true)}>
-                <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
-                <span className="action-label">New Workspace</span>
-                <kbd>Ctrl+N</kbd>
-              </button>
-              <button className="action-btn secondary" onClick={() => void openProject()}>
-                <span className="action-icon"><FolderIcon size={15} /></span>
-                <span className="action-label">Open Folder</span>
-                <kbd>Ctrl+O</kbd>
-              </button>
-              <button className="action-btn secondary" onClick={openSettings}>
-                <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg></span>
-                <span className="action-label">Settings</span>
-                <kbd>Ctrl+,</kbd>
-              </button>
+        {/* Centralized Launchpad Row */}
+        <div className="launchpad-row">
+          <button className="action-btn primary" onClick={() => newWorkspacePromptOpen.set(true)}>
+            <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
+            <span className="action-label">New Workspace</span>
+            <kbd>Ctrl+N</kbd>
+          </button>
+          <button className="action-btn secondary" onClick={() => void openProject()}>
+            <span className="action-icon"><FolderIcon size={15} /></span>
+            <span className="action-label">Open Folder</span>
+            <kbd>Ctrl+O</kbd>
+          </button>
+          <button className="action-btn secondary" onClick={openSettings}>
+            <span className="action-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg></span>
+            <span className="action-label">Settings</span>
+            <kbd>Ctrl+,</kbd>
+          </button>
+        </div>
+
+        {/* Centralized Recent Workspaces Card */}
+        <section className="dashboard-block recents-block">
+          <div className="block-header">
+            <div className="header-title-group">
+              <span className="section-label">Recent Workspaces</span>
+              {search && <span className="search-pill">Filtered: "{search}"</span>}
             </div>
+            {workspaces.length > 0 && <button className="text-btn danger" onClick={clearAllApplicationState}>Clear all</button>}
           </div>
 
-          <div className="dashboard-block shortcuts-block">
-            <span className="section-label">Quick shortcuts</span>
-            <div className="shortcut-list">
+          {filteredWorkspaces.length > 0 ? (
+            <div className="recent-list-layout scrollable">
+              {filteredWorkspaces.map((workspace) => (
+                <RecentWorkspaceRow
+                  key={workspace.id}
+                  workspace={workspace}
+                  isLight={isLight}
+                  renaming={renamingId === workspace.id}
+                  renamingName={renamingName}
+                  onOpen={() => void openWorkspace(workspace.id)}
+                  onRenameChange={setRenamingName}
+                  onRenameKey={(event) => handleRenameKey(event, workspace.id)}
+                  onRenameBlur={() => saveRename(workspace.id)}
+                  onStartRename={(event) => startRename(event, workspace.id, workspace.name)}
+                  onRemove={(event) => removeRecent(event, workspace.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p>No Recent Workspaces</p>
+              <span>Open a workspace to get started</span>
+            </div>
+          )}
+        </section>
+
+        {/* Consolidated Shortcuts Footer */}
+        <footer className="welcome-footer">
+          <div className="shortcuts-bar">
+            <div className="shortcuts-inline">
               {[
                 ['New workspace', 'Ctrl+N'],
                 ['Open folder', 'Ctrl+O'],
@@ -195,46 +223,7 @@ export default function WelcomeScreen() {
               ))}
             </div>
           </div>
-
-        </div>
-
-        {/* Column 2: Recent Workspaces (Wide) */}
-        <div className="dashboard-col col-recents">
-          <section className="dashboard-block recents-block">
-            <div className="block-header">
-              <div className="header-title-group">
-                <span className="section-label">Recent Workspaces</span>
-                {search && <span className="search-pill">Filtered: "{search}"</span>}
-              </div>
-              {workspaces.length > 0 && <button className="text-btn danger" onClick={clearAllApplicationState}>Clear all</button>}
-            </div>
-
-            {filteredWorkspaces.length > 0 ? (
-              <div className="recent-list-layout scrollable">
-                {filteredWorkspaces.map((workspace) => (
-                  <RecentWorkspaceRow
-                    key={workspace.id}
-                    workspace={workspace}
-                    isLight={isLight}
-                    renaming={renamingId === workspace.id}
-                    renamingName={renamingName}
-                    onOpen={() => void openWorkspace(workspace.id)}
-                    onRenameChange={setRenamingName}
-                    onRenameKey={(event) => handleRenameKey(event, workspace.id)}
-                    onRenameBlur={() => saveRename(workspace.id)}
-                    onStartRename={(event) => startRename(event, workspace.id, workspace.name)}
-                    onRemove={(event) => removeRecent(event, workspace.id)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">
-                <p>No Recent Workspaces</p>
-                <span>Open a workspace to get started</span>
-              </div>
-            )}
-          </section>
-        </div>
+        </footer>
 
       </div>
     </div>
