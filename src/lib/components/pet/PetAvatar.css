@@ -1,0 +1,252 @@
+/* Styles for PetAvatar.tsx — extracted verbatim from the original CSS. All pet
+   animations are CSS-driven off the `.type-*` / `.status-*` wrapper classes. */
+
+.pet-avatar-wrapper {
+  --pet-glow-color: var(--accent);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  isolation: isolate;
+}
+
+.type-cat {
+  --accent: #f59e0b;
+  --pet-glow-color: #fbbf24;
+}
+
+.type-slime {
+  --accent: #14b8a6;
+  --pet-glow-color: #5eead4;
+}
+
+.type-robo {
+  --accent: #60a5fa;
+  --pet-glow-color: #a78bfa;
+}
+
+.pet-glow {
+  position: absolute;
+  inset: 16%;
+  z-index: -1;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 42% 34%, rgba(255, 255, 255, 0.5), transparent 28%),
+    radial-gradient(circle, color-mix(in srgb, var(--pet-glow-color) 42%, transparent), transparent 68%);
+  filter: blur(10px);
+  opacity: 0.68;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.pet-svg {
+  display: block;
+  max-width: 150px;
+  max-height: 150px;
+  overflow: visible;
+  filter: drop-shadow(0 13px 18px rgba(0, 0, 0, 0.16));
+  will-change: transform;
+}
+
+.pet-ground-shadow {
+  fill: rgba(0, 0, 0, 0.16);
+}
+
+.status-happy .pet-glow,
+.status-commit .pet-glow {
+  animation: glow-pulse 0.9s ease-in-out infinite alternate;
+  opacity: 0.9;
+}
+
+.status-typing .pet-glow {
+  opacity: 0.78;
+  filter: blur(8px);
+}
+
+.status-sleep .pet-glow {
+  opacity: 0.34;
+}
+
+@keyframes glow-pulse {
+  from { transform: translateY(9px) scale(0.96); }
+  to { transform: translateY(6px) scale(1.08); }
+}
+
+/* ─── Shared keyframes ────────────────── */
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes breathing {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50% { transform: scale(1.02, 0.98) translateY(1px); }
+}
+
+@keyframes intense-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-8px) scale(0.96, 1.04); }
+}
+
+@keyframes spin-jump {
+  0% { transform: translateY(0) rotate(0deg); }
+  30% { transform: translateY(-20px) rotate(180deg); }
+  60% { transform: translateY(-20px) rotate(360deg); }
+  100% { transform: translateY(0) rotate(360deg); }
+}
+
+@keyframes tail-wag {
+  0%, 100% { transform: rotate(0); }
+  50% { transform: rotate(15deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes type-paw {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* ─── State Animation Mapping ────────── */
+
+/* Slime State Animations */
+.slime-body {
+  transform-origin: bottom center;
+}
+.status-idle .slime-body {
+  animation: breathing 2s ease-in-out infinite;
+}
+.status-typing .slime-body {
+  animation: intense-bounce 0.25s ease-in-out infinite;
+}
+.status-sleep .slime-body {
+  animation: breathing 3.5s ease-in-out infinite;
+  opacity: 0.85;
+}
+.status-commit .slime-svg,
+.status-happy .slime-svg {
+  animation: spin-jump 0.8s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+.status-eating .slime-body {
+  animation: breathing 0.8s ease-in-out infinite;
+}
+
+/* Cat State Animations */
+.cat-head, .cat-body, .cat-tail {
+  transform-origin: bottom center;
+}
+.status-idle .cat-head {
+  animation: bounce 2.5s ease-in-out infinite;
+}
+.status-idle .cat-tail {
+  animation: tail-wag 1.5s ease-in-out infinite;
+}
+.status-typing .cat-head {
+  animation: bounce 0.4s ease-in-out infinite;
+}
+.status-typing .paw-left {
+  animation: type-paw 0.15s ease-in-out infinite alternate;
+}
+.status-typing .paw-right {
+  animation: type-paw 0.15s ease-in-out infinite alternate-reverse;
+}
+.status-sleep .cat-head, .status-sleep .cat-body {
+  animation: breathing 4s ease-in-out infinite;
+  opacity: 0.8;
+}
+.status-commit .cat-svg,
+.status-happy .cat-svg {
+  animation: intense-bounce 0.55s ease-in-out infinite;
+}
+
+/* Robo State Animations */
+.robo-body {
+  transform-origin: bottom center;
+}
+.status-idle .robo-svg {
+  animation: float 2.5s ease-in-out infinite;
+}
+.status-typing .robo-svg {
+  animation: float 0.8s ease-in-out infinite;
+}
+.status-typing .typing-symbols {
+  animation: bounce 0.3s ease infinite;
+}
+.status-sleep .robo-svg {
+  animation: float 4.5s ease-in-out infinite;
+  opacity: 0.75;
+}
+.status-commit .robo-body,
+.status-happy .robo-body {
+  animation: spin-jump 0.8s cubic-bezier(0.25, 1, 0.5, 1) 1;
+}
+
+/* Accessories follow head/body transforms */
+.pet-accessory {
+  transform-origin: bottom center;
+}
+
+/* Floating Zzz animations */
+.zzz-container {
+  position: absolute;
+  top: 10px;
+  right: 25px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.zzz {
+  font-family: 'Outfit', sans-serif;
+  font-weight: bold;
+  color: var(--text-muted);
+  font-size: 10px;
+  opacity: 0;
+  animation: zzz-float 3s infinite linear;
+}
+
+.z1 { animation-delay: 0s; }
+.z2 { animation-delay: 1s; font-size: 13px; }
+.z3 { animation-delay: 2s; }
+
+@keyframes zzz-float {
+  0% { transform: translate(0, 10px) scale(0.8); opacity: 0; }
+  20% { opacity: 0.7; }
+  80% { opacity: 0.5; }
+  100% { transform: translate(15px, -20px) scale(1.2); opacity: 0; }
+}
+
+/* Food particles */
+@keyframes food-fall {
+  0% { transform: translateY(-20px); opacity: 1; }
+  100% { transform: translateY(35px); opacity: 0; }
+}
+.food-particle {
+  animation: food-fall 1s linear infinite;
+}
+.cat-food {
+  animation: food-fall 0.8s linear infinite;
+  transform-origin: center;
+}
+
+/* Binary symbols */
+@keyframes binary-rise {
+  0% { transform: translateY(15px); opacity: 0; }
+  20% { opacity: 0.8; }
+  80% { opacity: 0.8; }
+  100% { transform: translateY(-15px); opacity: 0; }
+}
+.robo-binary {
+  animation: binary-rise 1.2s ease-in-out infinite;
+  opacity: 0;
+}
+.b1 { animation-delay: 0s; }
+.b2 { animation-delay: 0.3s; }
+.b3 { animation-delay: 0.6s; }
+.b4 { animation-delay: 0.9s; }

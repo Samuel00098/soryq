@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 
 export interface DevPetState {
   name: string;
@@ -61,6 +61,7 @@ let typeTimestamps: { time: number; chars: number }[] = [];
 let typingTimeoutId: any = null;
 let sleepTimeoutId: any = null;
 let statusRestoreTimeoutId: any = null;
+let petCooldownActive = false;
 
 // Helper to calculate XP needed for a given level
 function calculateXpToNext(level: number): number {
@@ -215,7 +216,21 @@ export const devpet = {
   },
 
   pet() {
+    const currentState = get(devPetStore);
+
+    // If already happy, just extend the restore timer without re-triggering
+    // the state update (avoids restarting CSS animations mid-play).
+    if (currentState.status === 'happy' && petCooldownActive) {
+      if (statusRestoreTimeoutId) clearTimeout(statusRestoreTimeoutId);
+      statusRestoreTimeoutId = setTimeout(() => {
+        devPetStore.update((s) => (s.status === 'happy' ? { ...s, status: 'idle' } : s));
+        petCooldownActive = false;
+      }, 3000);
+      return;
+    }
+
     if (statusRestoreTimeoutId) clearTimeout(statusRestoreTimeoutId);
+    petCooldownActive = true;
 
     devPetStore.update((s) => {
       // Petting is free, gives happy state
@@ -232,6 +247,7 @@ export const devpet = {
 
     statusRestoreTimeoutId = setTimeout(() => {
       devPetStore.update((s) => (s.status === 'happy' ? { ...s, status: 'idle' } : s));
+      petCooldownActive = false;
     }, 3000);
   },
 
