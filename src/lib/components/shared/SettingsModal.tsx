@@ -1310,13 +1310,17 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                     </SettingRow>
                   )}
                   <SettingRow title="Personality">
-                    <SelectField
-                      value={currentPersonality}
-                      options={voicePersonalities.map((p) => ({ id: p.id, label: p.label }))}
-                      onChange={voicePersonality.set}
-                      ariaLabel="Voice personality"
-                    />
-                    <p className="setting-hint">{getVoicePersonalityDef(currentPersonality).description}</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', alignItems: 'stretch' }}>
+                      <SelectField
+                        value={currentPersonality}
+                        options={voicePersonalities.map((p) => ({ id: p.id, label: p.label }))}
+                        onChange={voicePersonality.set}
+                        ariaLabel="Voice personality"
+                      />
+                      <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                        {getVoicePersonalityDef(currentPersonality).description}
+                      </p>
+                    </div>
                   </SettingRow>
                 </Section>
               </>
