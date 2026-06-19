@@ -108,6 +108,7 @@
   grid-template-columns: 240px minmax(0, 1fr);
   min-height: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 /* ── Tab Sidebar ── */
@@ -168,6 +169,7 @@
 /* ── Settings Panel ── */
 .settings-panel {
   min-width: 0;
+  min-height: 0;
   padding: 24px;
   overflow-y: auto;
   overscroll-behavior: contain;
