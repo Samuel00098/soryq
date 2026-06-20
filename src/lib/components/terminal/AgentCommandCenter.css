@@ -1,0 +1,491 @@
+/* ── Panel shell ─────────────────────────────────────────────────────────── */
+/* The orchestrator now lives inside a workspace room, so it fills its container
+   rather than floating; the room frame provides the surface, border, and chrome. */
+.orc {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: inherit;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.orc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 8%, var(--border));
+  background: color-mix(in srgb, var(--bg-secondary) 40%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  flex-shrink: 0;
+  user-select: none;
+  z-index: 2;
+}
+
+.orc-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.orc-title-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success, #4ade80);
+  box-shadow: 0 0 8px var(--success, #4ade80);
+  animation: orc-pulse 2s infinite alternate;
+}
+
+@keyframes orc-pulse {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.15);
+    box-shadow: 0 0 12px var(--success, #4ade80);
+  }
+}
+
+.orc-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+  cursor: default;
+}
+
+.orc-reset-btn {
+  font-size: 9.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+}
+
+.orc-reset-btn:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.orc-reset-btn:active {
+  transform: translateY(0.5px);
+}
+
+.orc-icon-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.orc-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.orc-icon-btn.close:hover {
+  background: color-mix(in srgb, var(--error) 14%, var(--bg-primary));
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+/* ── Lock banner ─────────────────────────────────────────────────────────── */
+.orc-lock-banner {
+  padding: 6px 12px;
+  font-size: 10.5px;
+  color: var(--warning, #fbbf24);
+  background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 20%, var(--border));
+  flex-shrink: 0;
+}
+
+/* ── Scroll body ─────────────────────────────────────────────────────────── */
+.orc-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(128,128,128,0.2)) transparent;
+  user-select: text;
+  padding: 14px 16px;
+  gap: 12px;
+  background: radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 2%, transparent), transparent 45%);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.orc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 36px 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.6;
+  margin: auto;
+  max-width: 290px;
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--accent) 3%, transparent), transparent 75%);
+  border-radius: 16px;
+}
+
+.orc-empty svg {
+  color: var(--accent);
+  opacity: 0.45;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 30%, transparent));
+  animation: orc-float 4s ease-in-out infinite;
+}
+
+@keyframes orc-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.orc-empty span {
+  font-weight: 450;
+  color: var(--text-secondary);
+  letter-spacing: -0.01em;
+}
+
+/* ── Chat bubbles ────────────────────────────────────────────────────────── */
+.orc-msg {
+  display: flex;
+  animation: orc-msg-slide 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+.orc-msg.user {
+  justify-content: flex-end;
+}
+
+.orc-msg.assistant {
+  justify-content: flex-start;
+}
+
+@keyframes orc-msg-slide {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.orc-bubble {
+  max-width: 88%;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px 13px;
+  border-radius: 12px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.orc-msg.user .orc-bubble {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, var(--bg-primary)), color-mix(in srgb, var(--accent) 12%, var(--bg-primary)));
+  color: var(--text-primary);
+  border-radius: 16px 16px 4px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.orc-msg.assistant .orc-bubble {
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 16px 16px 16px 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.orc-msg.assistant .orc-bubble.completion-bubble {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  padding: 0;
+  max-width: 95%;
+  box-shadow: none;
+}
+
+/* ── Typing dots ─────────────────────────────────────────────────────────── */
+.orc-typing {
+  display: inline-flex;
+  gap: 3px;
+  padding: 2px 0;
+}
+
+.orc-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: orc-dot 1.2s ease-in-out infinite;
+}
+
+.orc-typing span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.orc-typing span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes orc-dot {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* ── Recon summary ───────────────────────────────────────────────────────── */
+.orc-recon {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 6px 9px;
+  margin-bottom: 6px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ── Completion cards ────────────────────────────────────────────────────── */
+.orc-completion {
+  --cc: var(--success, #4ade80);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cc) 6%, color-mix(in srgb, var(--bg-secondary) 80%, transparent));
+  border: 1px solid color-mix(in srgb, var(--cc) 20%, var(--border));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px color-mix(in srgb, var(--cc) 15%, transparent);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.orc-completion:hover {
+  border-color: color-mix(in srgb, var(--cc) 35%, var(--border));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 3px color-mix(in srgb, var(--cc) 25%, transparent);
+}
+
+.orc-completion-failed {
+  --cc: var(--error, #f87171);
+}
+
+.orc-completion-blocked {
+  --cc: var(--warning, #fbbf24);
+}
+
+.orc-comp-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.orc-comp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.orc-comp-headline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.orc-comp-status {
+  color: var(--cc);
+}
+
+.orc-comp-time {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.orc-comp-task {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.orc-comp-reason {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.orc-comp-summary {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.orc-comp-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.orc-typing-sm {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.orc-typing-sm span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: orc-dot 1.2s ease-in-out infinite;
+}
+
+.orc-typing-sm span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.orc-typing-sm span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* ── Dispatch chips ──────────────────────────────────────────────────────── */
+.orc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.orc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--c, var(--accent)) 6%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 22%, var(--border));
+  border-radius: 8px;
+  padding: 4px 9px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.orc-chip:hover {
+  border-color: color-mix(in srgb, var(--c, var(--accent)) 40%, var(--border));
+  color: var(--text-primary);
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c, var(--accent));
+  flex-shrink: 0;
+}
+
+/* ── Resize handle ───────────────────────────────────────────────────────── */
+.orc-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  cursor: se-resize;
+  touch-action: none;
+  background: linear-gradient(
+    135deg,
+    transparent 40%,
+    color-mix(in srgb, var(--border) 60%, transparent) 41%,
+    color-mix(in srgb, var(--border) 60%, transparent) 43%,
+    transparent 44%,
+    transparent 57%,
+    color-mix(in srgb, var(--border) 60%, transparent) 58%,
+    color-mix(in srgb, var(--border) 60%, transparent) 60%,
+    transparent 61%,
+    transparent 74%,
+    color-mix(in srgb, var(--border) 60%, transparent) 75%,
+    color-mix(in srgb, var(--border) 60%, transparent) 77%,
+    transparent 78%
+  );
+  border-bottom-right-radius: 16px;
+  z-index: 5;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.orc-resize-handle:hover {
+  opacity: 1;
+}
