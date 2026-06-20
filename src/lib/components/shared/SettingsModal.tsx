@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import packageJson from '../../../../package.json';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
   aiBaseUrlByProvider,
   aiCompletionModelByProvider,
@@ -108,9 +110,11 @@ const tabs: { id: Tab; label: string; kicker: string }[] = [
 const voiceInputProviders: { id: VoiceInputProviderId; label: string }[] = [
   { id: 'webspeech', label: 'System speech' },
   { id: 'google', label: 'Google Gemini' },
+  { id: 'openai', label: 'OpenAI' },
   { id: 'openrouter', label: 'OpenRouter' },
   { id: 'ollama', label: 'Ollama' },
   { id: 'lmstudio', label: 'LM Studio' },
+  { id: 'local', label: 'Local Offline (Whisper/Parakeet)' },
 ];
 
 function classNames(...parts: Array<string | false | null | undefined>) {
@@ -461,6 +465,102 @@ const PRESET_AGENTS: PresetAgent[] = [
 
 export default function SettingsModal({ onclose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('general');
+
+  // Local models downloader state
+  const [localModels, setLocalModels] = useState<any[]>([]);
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, { progress: number; phase: string }>>({});
+  const [localModelsLoading, setLocalModelsLoading] = useState(false);
+
+  const loadLocalModels = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    setLocalModelsLoading(true);
+    try {
+      const models = await invoke<any[]>('list_downloadable_models');
+      setLocalModels(models);
+    } catch (err) {
+      showToast(String(err), 'error');
+    } finally {
+      setLocalModelsLoading(false);
+    }
+  }, []);
+
+  const handleDownloadModel = useCallback(async (modelId: string) => {
+    if (!isTauriRuntime()) return;
+    setDownloadProgress(prev => ({ ...prev, [modelId]: { progress: 0, phase: 'initiating' } }));
+    try {
+      await invoke('download_model', { modelId });
+      showToast('Download started in background', 'info');
+    } catch (err) {
+      setDownloadProgress(prev => {
+        const next = { ...prev };
+        delete next[modelId];
+        return next;
+      });
+      showToast(String(err), 'error');
+    }
+  }, []);
+
+  const handleDeleteModel = useCallback(async (modelId: string) => {
+    if (!window.confirm('Are you sure you want to delete this model?')) return;
+    try {
+      await invoke('delete_model', { modelId });
+      showToast('Model deleted successfully', 'success');
+      void loadLocalModels();
+    } catch (err) {
+      showToast(String(err), 'error');
+    }
+  }, [loadLocalModels]);
+
+  useEffect(() => {
+    if (activeTab === 'models') {
+      void loadLocalModels();
+    }
+  }, [activeTab, loadLocalModels]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    
+    let unlistenProgress: (() => void) | undefined;
+    let unlistenError: (() => void) | undefined;
+    
+    const setupListeners = async () => {
+      unlistenProgress = await listen<any>('download-progress', (event) => {
+        const { model_id, progress, phase } = event.payload;
+        setDownloadProgress((prev) => ({
+          ...prev,
+          [model_id]: { progress, phase },
+        }));
+        
+        if (phase === 'done') {
+          void loadLocalModels();
+          setDownloadProgress((prev) => {
+            const next = { ...prev };
+            delete next[model_id];
+            return next;
+          });
+          showToast(`Model downloaded successfully`, 'success');
+        }
+      });
+
+      unlistenError = await listen<any>('download-error', (event) => {
+        const { model_id, error } = event.payload;
+        setDownloadProgress((prev) => {
+          const next = { ...prev };
+          delete next[model_id];
+          return next;
+        });
+        showToast(`Failed to download model: ${error}`, 'error');
+      });
+    };
+    
+    void setupListeners();
+    
+    return () => {
+      if (unlistenProgress) unlistenProgress();
+      if (unlistenError) unlistenError();
+    };
+  }, [loadLocalModels]);
+
   const $customAgents = useStore(customAgents);
   const $removedPresetAgents = useStore(removedPresetAgents);
 
@@ -564,13 +664,20 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const completionDef = getProviderDef(completionProvider);
   const completionModels = completionLiveModels[completionProvider] ?? completionDef.models;
   const completionModel = completionModelMap[completionProvider] || completionDef.defaultModel;
-  const liveSttModels = providerSttModels[voiceInput as AiProviderId];
   const voiceInputModels = useMemo(() => {
-    if (liveSttModels && liveSttModels.length > 0) {
-      return liveSttModels;
+    const curated = getVoiceInputModelOptions(voiceInput);
+    const live = providerSttModels[voiceInput as AiProviderId];
+    if (!live || live.length === 0) return curated;
+    const seen = new Set(curated.map((m) => m.id));
+    const merged = [...curated];
+    for (const m of live) {
+      if (!seen.has(m.id)) {
+        merged.push(m);
+        seen.add(m.id);
+      }
     }
-    return getVoiceInputModelOptions(voiceInput);
-  }, [voiceInput, liveSttModels]);
+    return merged;
+  }, [voiceInput, providerSttModels]);
 
   const refinementModels = useMemo(() => {
     return providerLiveModels[refinementProvider] ?? getProviderDef(refinementProvider).models;
@@ -1388,6 +1495,118 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                       label="Completion model"
                     />
                   </SettingRow>
+                </Section>
+
+                <Section title="Local Speech-to-Text (STT)">
+                  <div className="local-models-info">
+                    Download Speech-to-Text models to enable 100% private, offline voice typing in Soryq.
+                  </div>
+                  <div className="local-models-list">
+                    {localModelsLoading && localModels.length === 0 ? (
+                      <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading catalog...</div>
+                    ) : (
+                      localModels.filter(m => m.category === 'stt').map(model => {
+                        const progressInfo = downloadProgress[model.id];
+                        return (
+                          <div key={model.id} className="local-model-card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong>{model.name} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>({model.size})</span></strong>
+                              {model.downloaded ? (
+                                <span style={{ background: 'rgba(78, 201, 176, 0.1)', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Ready / Offline</span>
+                              ) : progressInfo ? (
+                                <span style={{ color: 'var(--accent)', fontSize: '11px', fontWeight: 600 }}>Downloading...</span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Not installed</span>
+                              )}
+                            </div>
+                            <p>{model.description}</p>
+                            {progressInfo && (
+                              <div style={{ width: '100%', marginTop: '4px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                  <span>Phase: {progressInfo.phase === 'main' ? 'Main Model' : progressInfo.phase === 'voices' ? 'Voices Package' : 'Initializing'}</span>
+                                  <span>{Math.round(progressInfo.progress)}%</span>
+                                </div>
+                                <div style={{ height: '6px', width: '100%', background: 'var(--bg-active)', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${progressInfo.progress}%`, background: 'var(--accent)', transition: 'width 0.15s ease' }} />
+                                </div>
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                              {model.downloaded ? (
+                                <button type="button" className="settings-danger" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', width: 'auto' }} onClick={() => handleDeleteModel(model.id)}>Delete</button>
+                              ) : progressInfo ? (
+                                <button type="button" className="settings-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', width: 'auto' }} disabled>Downloading...</button>
+                              ) : (
+                                <button type="button" className="settings-primary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', width: 'auto' }} onClick={() => handleDownloadModel(model.id)}>Download</button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </Section>
+
+                <Section title="Local Text-to-Speech (TTS)">
+                  <div className="local-models-info">
+                    Download Text-to-Speech models to hear natural-sounding local speech synthesis completely offline.
+                  </div>
+                  <div className="local-models-list">
+                    {localModelsLoading && localModels.length === 0 ? (
+                      <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading catalog...</div>
+                    ) : (
+                      localModels.filter(m => m.category === 'tts').map(model => {
+                        const progressInfo = downloadProgress[model.id];
+                        return (
+                          <div key={model.id} className="local-model-card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong>{model.name} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>({model.size})</span></strong>
+                              {model.downloaded ? (
+                                <span style={{ background: 'rgba(78, 201, 176, 0.1)', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Ready / Offline</span>
+                              ) : progressInfo ? (
+                                <span style={{ color: 'var(--accent)', fontSize: '11px', fontWeight: 600 }}>Downloading...</span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Not installed</span>
+                              )}
+                            </div>
+                            <p>{model.description}</p>
+                            
+                            <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>List of voices</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                                {getTtsVoiceOptionsForModel('local', model.id).map((v) => (
+                                  <span key={v.id} style={{ fontSize: '10px', background: 'var(--bg-active)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                                    {v.label}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {progressInfo && (
+                              <div style={{ width: '100%', marginTop: '4px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                  <span>Phase: {progressInfo.phase === 'main' ? 'ONNX Model' : progressInfo.phase === 'voices' ? 'Voices (voices.bin)' : 'Initializing'}</span>
+                                  <span>{Math.round(progressInfo.progress)}%</span>
+                                </div>
+                                <div style={{ height: '6px', width: '100%', background: 'var(--bg-active)', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${progressInfo.progress}%`, background: 'var(--accent)', transition: 'width 0.15s ease' }} />
+                                </div>
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                              {model.downloaded ? (
+                                <button type="button" className="settings-danger" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', width: 'auto' }} onClick={() => handleDeleteModel(model.id)}>Delete</button>
+                              ) : progressInfo ? (
+                                <button type="button" className="settings-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', width: 'auto' }} disabled>Downloading...</button>
+                              ) : (
+                                <button type="button" className="settings-primary" style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', width: 'auto' }} onClick={() => handleDownloadModel(model.id)}>Download</button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </Section>
               </>
             )}

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 import {
   currentVoiceConversationTtsModel,
   currentVoiceConversationTtsVoice,
@@ -119,6 +119,9 @@ function resolveTtsConfig(options?: SpeakOptions) {
 
 export function getVoiceReplyConfigError(options?: SpeakOptions): string | null {
   const { provider, providerDef, local, hasApiKey, baseUrl } = resolveTtsConfig(options);
+  if (provider === 'local') {
+    return null;
+  }
   if (!providerSupportsReplyTts(provider)) {
     return `${providerDef.label} does not support spoken replies in Soryq yet. Choose OpenRouter, Groq, OpenAI, Google, or a local provider with an OpenAI-compatible speech endpoint.`;
   }
@@ -197,6 +200,7 @@ function playBytes(payload: TtsAudioPayload, token: number): Promise<void> {
 export async function speak(text: string, options?: SpeakOptions): Promise<void> {
   cleanup();
 
+  const config = resolveTtsConfig(options);
   const configError = getVoiceReplyConfigError(options);
   if (configError) {
     throw new Error(configError);
@@ -205,11 +209,18 @@ export async function speak(text: string, options?: SpeakOptions): Promise<void>
   const chunks = splitIntoChunks(text);
   if (chunks.length === 0) return;
 
-  const { provider, model, voice, baseUrl } = resolveTtsConfig(options);
+  const { provider, model, voice, baseUrl } = config;
   const token = ++speakToken;
 
-  const generate = (chunk: string) =>
-    invoke<TtsAudioPayload>('tts_speak', {
+  const generate = (chunk: string) => {
+    if (provider === 'local') {
+      return invoke<TtsAudioPayload>('local_tts_speak', {
+        text: chunk,
+        modelId: model,
+        voice,
+      });
+    }
+    return invoke<TtsAudioPayload>('tts_speak', {
       text: chunk,
       provider,
       model,
@@ -217,23 +228,22 @@ export async function speak(text: string, options?: SpeakOptions): Promise<void>
       apiKey: '',
       baseUrl: baseUrl || undefined,
     });
+  };
 
-  // Pipeline: synthesise the next chunk while the current one is playing so the
-  // model's generation latency overlaps playback instead of stacking before it.
   let nextGen: Promise<TtsAudioPayload> | null = generate(chunks[0]);
   try {
     for (let i = 0; i < chunks.length; i++) {
       const payload = await nextGen!;
-      if (token !== speakToken) return; // superseded or stopped
+      if (token !== speakToken) return;
       nextGen = i + 1 < chunks.length ? generate(chunks[i + 1]) : null;
       if (payload.bytes.length) {
         await playBytes(payload, token);
-        if (token !== speakToken) return;
+      } else {
+        console.warn('[tts] Zero-byte chunk received, skipping silently');
       }
+      if (token !== speakToken) return;
     }
   } finally {
-    // Swallow errors from an abandoned prefetch so a cancelled run never surfaces
-    // an unhandled rejection.
     if (nextGen) nextGen.catch(() => {});
   }
 }

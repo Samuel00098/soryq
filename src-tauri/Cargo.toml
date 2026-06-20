@@ -1,7 +1,7 @@
 [package]
 name = "soryq"
 version = "0.4.3"
-description = "A lightweight developer workspace built with Tauri 2, Rust, and Svelte 5"
+description = "A lightweight developer workspace built with Tauri 2, Rust, and React"
 authors = ["samue"]
 edition = "2021"
 license = "UNLICENSED"
@@ -42,6 +42,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 ignore = "0.4"
 regex = "1"
+# whisper-rs = "0.14"
 
 
 [dev-dependencies]

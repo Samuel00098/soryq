@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 import {
   currentVoiceInputModel,
   getDefaultVoiceInputModel,
@@ -63,7 +63,7 @@ function getAudioContextCtor(): AudioContextCtor | null {
 
 function getPreferredSpeechLanguage() {
   if (typeof navigator === 'undefined') return 'en-US';
-  return navigator.languages?.find(Boolean) || navigator.language || 'en-US';
+  return navigator.languages?.[0] || navigator.language || 'en-US';
 }
 
 type SpeechRecognitionAlternativeLike = {
@@ -213,8 +213,8 @@ async function requestMicrophoneStream(): Promise<MediaStream | string> {
         return 'Microphone access denied. Enable microphone permissions and try again.';
       }
       if (status.state === 'prompt') {
-        const { requestPermission } = await import('$lib/stores/permissions');
-        const granted = await requestPermission('microphone');
+        const { usePermissionsStore } = await import('$lib/stores/zustand/permissions');
+        const granted = await usePermissionsStore.getState().requestPermission('microphone');
         if (!granted) {
           return 'Microphone access was not allowed.';
         }
@@ -356,30 +356,40 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
 
     try {
       const provider = get(voiceInputProvider);
-      const providerId = (provider === 'webspeech' ? 'google' : provider) as AiProviderId;
-      const providerDef = getProviderDef(providerId);
-      const local = isLocalProvider(providerId);
-      const hasApiKey = local || isProviderApiKeyConfiguredLocal(providerDef.id);
-      const baseUrl = local ? getProviderBaseUrl(providerId) : '';
-      if (!hasApiKey) {
-        throw new Error(`${providerDef.label} API key is missing. Add it in Settings to use voice mode.`);
+      let transcript = '';
+      if (provider === 'local') {
+        callbacks.onProcessingStart?.('Transcribing locally…');
+        const model = get(currentVoiceInputModel) || getDefaultVoiceInputModel(provider);
+        transcript = await invoke<string>('local_stt_transcribe', {
+          audioBytes: Array.from(bytes),
+          modelId: model,
+        });
+      } else {
+        const providerId = (provider === 'webspeech' ? 'google' : provider) as AiProviderId;
+        const providerDef = getProviderDef(providerId);
+        const local = isLocalProvider(providerId);
+        const hasApiKey = local || isProviderApiKeyConfiguredLocal(providerDef.id);
+        const baseUrl = local ? getProviderBaseUrl(providerId) : '';
+        if (!hasApiKey) {
+          throw new Error(`${providerDef.label} API key is missing. Add it in Settings to use voice mode.`);
+        }
+        if (local && !baseUrl) {
+          throw new Error(`${providerDef.label} server URL is missing. Add it in Settings to use voice mode.`);
+        }
+        const model = get(currentVoiceInputModel) || getDefaultVoiceInputModel(provider);
+        transcript = await invoke<string>('ai_transcribe_audio', {
+          audioBytes: Array.from(bytes),
+          mimeType: 'audio/wav',
+          provider,
+          model,
+          apiKey: '',
+          baseUrl: baseUrl || undefined,
+        });
       }
-      if (local && !baseUrl) {
-        throw new Error(`${providerDef.label} server URL is missing. Add it in Settings to use voice mode.`);
-      }
-      const model = get(currentVoiceInputModel) || getDefaultVoiceInputModel(provider);
-      const transcript = await invoke<string>('ai_transcribe_audio', {
-        audioBytes: Array.from(bytes),
-        mimeType: 'audio/wav',
-        provider,
-        model,
-        apiKey: '',
-        baseUrl: baseUrl || undefined,
-      });
       callbacks.onResult(transcript.trim());
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      callbacks.onError?.(message || 'Google transcription failed.');
+      callbacks.onError?.(message || 'Transcription failed.');
     } finally {
       transcriptionPending = false;
       stopRequested = false;
