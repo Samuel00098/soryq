@@ -70,25 +70,6 @@ const MIN_ROWS = 3;
 const isWindowsHost = typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows');
 
 let cachedWindowsBuild: number | null = null;
-if (isWindowsHost) {
-  invoke<number>('terminal_get_windows_build')
-    .then((build) => {
-      cachedWindowsBuild = build;
-    })
-    .catch((err) => {
-      console.error('Failed to pre-fetch Windows build number:', err);
-    });
-}
-
-const windowsPty = isWindowsHost
-  ? {
-      backend: 'conpty' as const,
-      get buildNumber() {
-        return cachedWindowsBuild ?? 22000;
-      },
-    }
-  : undefined;
-
 let hasCheckedPowerShell7 = false;
 
 // Build process detection — fires once per pane session.
@@ -201,6 +182,16 @@ export default function TerminalPane({
   const [currentShellCwd, setCurrentShellCwd] = useState<string | null>(null);
   const [rolePickerOpen, setRolePickerOpen] = useState(false);
   const [customRoleInput, setCustomRoleInput] = useState('');
+
+  const [windowsBuild, setWindowsBuild] = useState<number | null>(cachedWindowsBuild);
+
+  const windowsPty = useMemo(() => {
+    if (!isWindowsHost) return undefined;
+    return {
+      backend: 'conpty' as const,
+      buildNumber: windowsBuild ?? 22000,
+    };
+  }, [windowsBuild]);
 
   const sessionInfo = allSessions.find((s) => s.id === sessionId);
 
@@ -586,26 +577,40 @@ export default function TerminalPane({
   }
 
   useEffect(() => {
-    if (isWindowsHost && !hasCheckedPowerShell7) {
-      hasCheckedPowerShell7 = true;
-      invoke<any[]>('terminal_list_shells')
-        .then((shells) => {
-          const hasPwsh = shells.some((s) =>
-            s.program.toLowerCase().includes('pwsh')
-          );
-          if (!hasPwsh) {
-            showToast(
-              'PowerShell 7 (pwsh) is not installed. For the best terminal experience and to avoid resizing display bugs, please install PowerShell 7.',
-              'warning',
-              8000
+    if (isWindowsHost) {
+      if (!hasCheckedPowerShell7) {
+        hasCheckedPowerShell7 = true;
+        invoke<any[]>('terminal_list_shells')
+          .then((shells) => {
+            const hasPwsh = shells.some((s) =>
+              s.program.toLowerCase().includes('pwsh')
             );
-          }
-        })
-        .catch((err) => {
-          console.error('Failed to query available shells on startup:', err);
-        });
+            if (!hasPwsh) {
+              showToast(
+                'PowerShell 7 (pwsh) is not installed. For the best terminal experience and to avoid resizing display bugs, please install PowerShell 7.',
+                'warning',
+                8000
+              );
+            }
+          })
+          .catch((err) => {
+            console.error('Failed to query available shells on startup:', err);
+          });
+      }
+
+      if (windowsBuild === null) {
+        invoke<number>('terminal_get_windows_build')
+          .then((build) => {
+            cachedWindowsBuild = build;
+            setWindowsBuild(build);
+          })
+          .catch((err) => {
+            console.error('Failed to fetch Windows build number:', err);
+            setWindowsBuild(22000);
+          });
+      }
     }
-  }, []);
+  }, [windowsBuild]);
 
   // Mount xterm once per session. Mirrors mount/unmount lifecycle:
   // create the Terminal, wire PTY callbacks, observers and listeners, then tear
@@ -678,7 +683,6 @@ export default function TerminalPane({
         },
       ),
     );
-    applyTerminalRenderer();
 
     let disposed = false;
     let executingTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -695,6 +699,7 @@ export default function TerminalPane({
       if (disposed) return;
 
       term.open(container);
+      applyTerminalRenderer();
       container.addEventListener('mousedown', handleTerminalLinkMouseDown, true);
       container.addEventListener('mouseup', handleTerminalLinkMouseUp, true);
 
@@ -895,7 +900,7 @@ export default function TerminalPane({
       scheduleFit();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fontFamily, fontSize, cursorStyle, scrollback]);
+  }, [fontFamily, fontSize, cursorStyle, scrollback, windowsPty]);
 
   useEffect(() => {
     if (termRef.current) {
