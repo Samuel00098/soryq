@@ -2559,7 +2559,7 @@ export default function SketchCanvas() {
 
     if (e.ctrlKey) {
       // Touchpad Pinch gesture or Ctrl + Mouse Wheel
-      const zoomFactor = 1 - e.deltaY * 0.01;
+      const zoomFactor = Math.exp(-e.deltaY * 0.0015);
       
       const beforeZoomX = (mouseX - currentPan.x) / currentZoom;
       const beforeZoomY = (mouseY - currentPan.y) / currentZoom;
@@ -2572,10 +2572,13 @@ export default function SketchCanvas() {
       });
       setZoomScale(nextZoom);
     } else {
-      // Two-finger scroll panning
+      // Two-finger scroll panning / scroll-wheel panning
+      // e.shiftKey for horizontal panning (mapping vertical wheel deltaY to horizontal offset)
+      const dx = e.shiftKey ? e.deltaY : e.deltaX;
+      const dy = e.shiftKey ? 0 : e.deltaY;
       setPanOffset({
-        x: currentPan.x - e.deltaX / cssZoom,
-        y: currentPan.y - e.deltaY / cssZoom
+        x: currentPan.x - dx / cssZoom,
+        y: currentPan.y - dy / cssZoom
       });
     }
   }
@@ -3102,6 +3105,7 @@ export default function SketchCanvas() {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onContextMenu={(e) => e.preventDefault()}
       >
         {/* 1. Background Grid Canvas */}
         <canvas
