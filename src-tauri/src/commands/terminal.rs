@@ -158,3 +158,38 @@ pub fn terminal_close(id: u32, state: State<AppState>) -> Result<(), String> {
 pub fn terminal_list(state: State<AppState>) -> Result<Vec<u32>, String> {
     Ok(state.pty_manager.list_ids())
 }
+
+#[tauri::command]
+pub fn terminal_get_windows_build() -> Result<u32, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let output = Command::new("cmd")
+            .args(&["/c", "ver"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // ver output looks like: Microsoft Windows [Version 10.0.19045.4412]
+        if let Some(start) = stdout.find("[Version ") {
+            let version_str = &stdout[start + 9..];
+            if let Some(end) = version_str.find(']') {
+                let version_num_str = &version_str[..end]; // "10.0.19045.4412"
+                let parts: Vec<&str> = version_num_str.split('.').collect();
+                if parts.len() >= 3 {
+                    if let Ok(build) = parts[2].parse::<u32>() {
+                        return Ok(build);
+                    }
+                }
+            }
+        }
+        
+        // Fallback if parsing fails but we are on Windows
+        Ok(22000)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Not a Windows host".to_string())
+    }
+}
+

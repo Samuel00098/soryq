@@ -50,6 +50,29 @@ pub fn run() {
                 if window_vibrancy::apply_acrylic(&window, Some((15, 15, 20, 10))).is_err() {
                     let _ = window_vibrancy::apply_mica(&window, None);
                 }
+
+                // Turn off WebView2's built-in pinch-zoom and swipe-navigation.
+                // Otherwise the runtime swallows trackpad pinch to scale the whole
+                // view (so the sketch canvas never receives the ctrl+wheel it uses
+                // to zoom) and a two-finger horizontal swipe triggers back/forward.
+                let _ = window.with_webview(|webview| {
+                    use webview2_com::Microsoft::Web::WebView2::Win32::{
+                        ICoreWebView2Settings5, ICoreWebView2Settings6,
+                    };
+                    use windows::core::Interface;
+                    unsafe {
+                        if let Ok(core) = webview.controller().CoreWebView2() {
+                            if let Ok(settings) = core.Settings() {
+                                if let Ok(s5) = settings.cast::<ICoreWebView2Settings5>() {
+                                    let _ = s5.SetIsPinchZoomEnabled(false.into());
+                                }
+                                if let Ok(s6) = settings.cast::<ICoreWebView2Settings6>() {
+                                    let _ = s6.SetIsSwipeNavigationEnabled(false.into());
+                                }
+                            }
+                        }
+                    }
+                });
             }
 
             Ok(())
@@ -81,6 +104,9 @@ pub fn run() {
             commands::models::get_model_path,
             commands::models::local_stt_transcribe,
             commands::models::local_tts_speak,
+            commands::models::read_tts_model_bytes,
+            commands::models::read_tts_voices_bytes,
+            commands::models::read_model_file_bytes,
             commands::http::http_send_request,
             commands::notification::notification_show,
             commands::workspace::workspace_open_project,
@@ -136,6 +162,7 @@ pub fn run() {
             commands::terminal::terminal_close,
             commands::terminal::terminal_list,
             commands::terminal::terminal_list_shells,
+            commands::terminal::terminal_get_windows_build,
             commands::lsp::lsp_check_server,
             commands::lsp::lsp_start,
             commands::lsp::lsp_install_server,
