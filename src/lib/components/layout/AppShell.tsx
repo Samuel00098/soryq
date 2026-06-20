@@ -308,7 +308,15 @@ export default function AppShell() {
   const [auxEditorHeight, setAuxEditorHeight] = useState(layoutState.auxEditorHeight);
   const [focusedRoom, setFocusedRoom] = useState<RoomId | null>('terminal');
   const [minimizedRooms, setMinimizedRooms] = useState<Set<RoomId>>(() => new Set());
-  const [ambientLayout, setAmbientLayout] = useState<AmbientLayout>('focus');
+  const [ambientLayout, setAmbientLayout] = useState<AmbientLayout>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('soryq_ambient_layout');
+      if (saved === 'focus' || saved === 'split' || saved === 'gallery') {
+        return saved;
+      }
+    }
+    return 'gallery';
+  });
   const [layoutSwitching, setLayoutSwitching] = useState(false);
   const [terminalRoomOpen, setTerminalRoomOpen] = useState(true);
   const [roomOrder, setRoomOrder] = useState<RoomId[]>(['workspace', 'terminal']);
@@ -1852,6 +1860,7 @@ export default function AppShell() {
     flushSync(() => {
       setLayoutSwitching(!prefersReducedMotion);
       setAmbientLayout(nextLayout);
+      localStorage.setItem('soryq_ambient_layout', nextLayout);
     });
 
     if (prefersReducedMotion) {
