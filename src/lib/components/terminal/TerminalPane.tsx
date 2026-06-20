@@ -89,6 +89,8 @@ const windowsPty = isWindowsHost
     }
   : undefined;
 
+let hasCheckedPowerShell7 = false;
+
 // Build process detection — fires once per pane session.
 // Matches common build tool output across webpack, Vite, Rollup, esbuild, tsc,
 // Cargo, Maven, Gradle, Next.js, and generic "compiling/bundling" messages.
@@ -582,6 +584,28 @@ export default function TerminalPane({
       } catch {}
     }
   }
+
+  useEffect(() => {
+    if (isWindowsHost && !hasCheckedPowerShell7) {
+      hasCheckedPowerShell7 = true;
+      invoke<any[]>('terminal_list_shells')
+        .then((shells) => {
+          const hasPwsh = shells.some((s) =>
+            s.program.toLowerCase().includes('pwsh')
+          );
+          if (!hasPwsh) {
+            showToast(
+              'PowerShell 7 (pwsh) is not installed. For the best terminal experience and to avoid resizing display bugs, please install PowerShell 7.',
+              'warning',
+              8000
+            );
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to query available shells on startup:', err);
+        });
+    }
+  }, []);
 
   // Mount xterm once per session. Mirrors mount/unmount lifecycle:
   // create the Terminal, wire PTY callbacks, observers and listeners, then tear
