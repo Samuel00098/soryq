@@ -285,6 +285,7 @@ export default function AppShell() {
     activeSessionIdRef.current = currentActiveSessionId;
   }, [currentActiveSessionId]);
   const zoom = useSettingsStore((s) => s.uiZoom);
+  const swipeNavEnabled = useSettingsStore((s) => s.swipeNavigationEnabled);
   const showSnapshotsTab = useSettingsStore((s) => s.showSnapshotsTab);
 
   useEffect(() => {
@@ -315,7 +316,63 @@ export default function AppShell() {
   const [resizingRoom, setResizingRoom] = useState<RoomId | null>(null);
   const [secondaryRoom, setSecondaryRoom] = useState<RoomId | null>(null);
   const [galleryScrollRoom, setGalleryScrollRoom] = useState<RoomId | null>(null);
-  const [gallerySizes, setGallerySizes] = useState<Record<string, GallerySize>>({});
+  const [gallerySizes, setGallerySizes] = useState<Record<string, GallerySize>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('soryq_gallery_sizes');
+        return saved ? JSON.parse(saved) : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  });
+
+  const [galleryPositions, setGalleryPositions] = useState<Record<string, { x: number; y: number }>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('soryq_gallery_positions');
+        return saved ? JSON.parse(saved) : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  });
+
+  const [pan, setPan] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('soryq_gallery_pan');
+        return saved ? JSON.parse(saved) : { x: 0, y: 0 };
+      } catch {
+        return { x: 0, y: 0 };
+      }
+    }
+    return { x: 0, y: 0 };
+  });
+
+  const [canvasZoom, setCanvasZoom] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('soryq_gallery_zoom');
+        return saved ? parseFloat(saved) : 1;
+      } catch {
+        return 1;
+      }
+    }
+    return 1;
+  });
+
+  const [snapToGrid, setSnapToGrid] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('soryq_gallery_snap') === 'true';
+    }
+    return false;
+  });
+
+  const [draggingRoomId, setDraggingRoomId] = useState<RoomId | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
 
   const sidebarResizeRef = useRef({ startX: 0, startWidth: 0 });
   const auxResizeRef = useRef({ startX: 0, startWidth: 0 });
@@ -331,8 +388,125 @@ export default function AppShell() {
     nextHeight: number;
     rafId: number | null;
   } | null>(null);
+
+  const roomDragRef = useRef<{
+    room: RoomId;
+    startX: number;
+    startY: number;
+    roomX: number;
+    roomY: number;
+    nextX: number;
+    nextY: number;
+    rafId: number | null;
+  } | null>(null);
+
+  const dragHasMovedRef = useRef(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
+
+  const canvasZoomRef = useRef(canvasZoom);
+  const snapToGridRef = useRef(snapToGrid);
+
+  useEffect(() => {
+    canvasZoomRef.current = canvasZoom;
+  }, [canvasZoom]);
+
+  useEffect(() => {
+    snapToGridRef.current = snapToGrid;
+  }, [snapToGrid]);
+
+  useEffect(() => {
+    function handleRoomDragMove(event: MouseEvent) {
+      const drag = roomDragRef.current;
+      if (!drag) return;
+
+      const scale = canvasZoomRef.current;
+      const snap = snapToGridRef.current;
+
+      const deltaX = (event.clientX - drag.startX) / scale;
+      const deltaY = (event.clientY - drag.startY) / scale;
+
+      let nextX = drag.roomX + deltaX;
+      let nextY = drag.roomY + deltaY;
+
+      if (snap) {
+        nextX = Math.round(nextX / 20) * 20;
+        nextY = Math.round(nextY / 20) * 20;
+      }
+
+      drag.nextX = nextX;
+      drag.nextY = nextY;
+
+      const dist = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (dist > 5) {
+        dragHasMovedRef.current = true;
+      }
+
+      if (drag.rafId !== null) return;
+      drag.rafId = requestAnimationFrame(() => {
+        const latest = roomDragRef.current;
+        if (!latest) return;
+        latest.rafId = null;
+        const element = document.querySelector(`.room-panel[data-room-id="${latest.room}"]`);
+        if (element instanceof HTMLElement) {
+          element.style.left = `${latest.nextX}px`;
+          element.style.top = `${latest.nextY}px`;
+        }
+      });
+    }
+
+    function handleRoomDragEnd() {
+      const drag = roomDragRef.current;
+      if (!drag) return;
+
+      if (drag.rafId !== null) {
+        cancelAnimationFrame(drag.rafId);
+      }
+
+      setGalleryPositions((current) => {
+        const updated = {
+          ...current,
+          [drag.room]: { x: drag.nextX, y: drag.nextY },
+        };
+        localStorage.setItem('soryq_gallery_positions', JSON.stringify(updated));
+        return updated;
+      });
+
+      roomDragRef.current = null;
+      setDraggingRoomId(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      
+      setTimeout(() => {
+        dragHasMovedRef.current = false;
+      }, 50);
+    }
+
+    window.addEventListener('mousemove', handleRoomDragMove);
+    window.addEventListener('mouseup', handleRoomDragEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleRoomDragMove);
+      window.removeEventListener('mouseup', handleRoomDragEnd);
+    };
+  }, []);
+
   const layoutSwitchTimerRef = useRef<number | null>(null);
   const lastLayoutCommandNonce = useRef(0);
+
+  // Trackpad/mouse swipe-to-switch-mode state. A horizontal two-finger swipe (or
+  // shift + wheel) slides between the ambient layouts, deferring to any inner
+  // content that can still scroll horizontally so it only kicks in at the edge.
+  const roomsTableRef = useRef<HTMLElement | null>(null);
+  const swipeAccumRef = useRef(0);
+  const swipeCooldownRef = useRef(false);
+  const swipeResetTimerRef = useRef<number | null>(null);
+  const lastWheelTsRef = useRef(0);
+  const streamEligibleRef = useRef(true);
+  const swipeGestureRef = useRef<{
+    ambientLayout: AmbientLayout;
+    switchAmbientLayout: (next: AmbientLayout) => void;
+    sketchOpen: boolean;
+    swipeEnabled: boolean;
+  }>({ ambientLayout: 'focus', switchAmbientLayout: () => {}, sketchOpen: false, swipeEnabled: true });
   const allTerminalSessions = useStore(terminalSessions);
   const terminalPaneAssignments = useStore(paneAssignments);
   const history = useStore(commandHistory);
@@ -386,6 +560,27 @@ export default function AppShell() {
     () => roomOrder.filter((room) => visibleRooms.includes(room)),
     [roomOrder, visibleRooms],
   );
+
+  const resolvedPositions = useMemo(() => {
+    const positions = { ...galleryPositions };
+    orderedVisibleRooms.forEach((room, index) => {
+      if (!positions[room]) {
+        const col = index % 3;
+        const row = Math.floor(index / 3);
+        const gap = 24;
+        positions[room] = {
+          x: col * (GALLERY_DEFAULT_WIDTH + gap) + 40,
+          y: row * (GALLERY_DEFAULT_HEIGHT + gap) + 40,
+        };
+      }
+    });
+    return positions;
+  }, [orderedVisibleRooms, galleryPositions]);
+
+  const resolvedPositionsRef = useRef(resolvedPositions);
+  useEffect(() => {
+    resolvedPositionsRef.current = resolvedPositions;
+  }, [resolvedPositions]);
 
   const activeRoom = focusedRoom && visibleRooms.includes(focusedRoom)
     ? focusedRoom
@@ -539,7 +734,20 @@ export default function AppShell() {
     setGallerySizes((current) => {
       const open = new Set(openRooms);
       const next = Object.fromEntries(Object.entries(current).filter(([room]) => open.has(room as RoomId)));
-      return Object.keys(next).length === Object.keys(current).length ? current : next;
+      const changed = Object.keys(next).length !== Object.keys(current).length;
+      if (changed) {
+        localStorage.setItem('soryq_gallery_sizes', JSON.stringify(next));
+      }
+      return changed ? next : current;
+    });
+    setGalleryPositions((current) => {
+      const open = new Set(openRooms);
+      const next = Object.fromEntries(Object.entries(current).filter(([room]) => open.has(room as RoomId)));
+      const changed = Object.keys(next).length !== Object.keys(current).length;
+      if (changed) {
+        localStorage.setItem('soryq_gallery_positions', JSON.stringify(next));
+      }
+      return changed ? next : current;
     });
     setGalleryScrollRoom((current) => (current && openRooms.includes(current) ? current : null));
   }, [openRooms]);
@@ -548,8 +756,11 @@ export default function AppShell() {
     function handleGalleryResizeMove(event: MouseEvent) {
       const drag = galleryResizeRef.current;
       if (!drag) return;
-      drag.nextWidth = Math.max(GALLERY_MIN_WIDTH, drag.width + event.clientX - drag.startX);
-      drag.nextHeight = Math.max(GALLERY_MIN_HEIGHT, drag.height + event.clientY - drag.startY);
+      
+      const scale = canvasZoomRef.current;
+      
+      drag.nextWidth = Math.max(GALLERY_MIN_WIDTH, drag.width + (event.clientX - drag.startX) / scale);
+      drag.nextHeight = Math.max(GALLERY_MIN_HEIGHT, drag.height + (event.clientY - drag.startY) / scale);
 
       if (drag.rafId !== null) return;
       drag.rafId = requestAnimationFrame(() => {
@@ -569,10 +780,14 @@ export default function AppShell() {
       }
       drag.element.style.width = `${drag.nextWidth}px`;
       drag.element.style.height = `${drag.nextHeight}px`;
-      setGallerySizes((current) => ({
-        ...current,
-        [drag.room]: { width: drag.nextWidth, height: drag.nextHeight },
-      }));
+      setGallerySizes((current) => {
+        const updated = {
+          ...current,
+          [drag.room]: { width: drag.nextWidth, height: drag.nextHeight },
+        };
+        localStorage.setItem('soryq_gallery_sizes', JSON.stringify(updated));
+        return updated;
+      });
       galleryResizeRef.current = null;
       setResizingRoom(null);
       document.body.style.cursor = '';
@@ -870,10 +1085,19 @@ export default function AppShell() {
   }
 
   function activateGalleryPanel(id: RoomId) {
-    withTransition(() => {
-      focusRoom(id);
-      setGalleryScrollRoom(id);
+    // No view transition here. In gallery the panels live inside a scrollable,
+    // clipped grid; a page-wide view transition lifts every panel into the
+    // (unclipped) transition overlay, so partially-scrolled panels briefly
+    // render full-size over the title bar and past the bottom edge. Setting
+    // state directly just re-styles the active panel in place.
+    setMinimizedRooms((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
     });
+    if (id === 'terminal') setTerminalRoomOpen(true);
+    setFocusedRoom(id);
+    setGalleryScrollRoom(id);
   }
 
   function minimizeRoom(id: RoomId) {
@@ -901,15 +1125,25 @@ export default function AppShell() {
   }
 
   function focusRoomMode(id: RoomId) {
-    withTransition(() => {
-      focusRoom(id);
-      setAmbientLayout('focus');
+    // Maximizing a gallery panel into Focus: set the target room directly and
+    // let switchAmbientLayout drive the (overlay-free) settle animation, instead
+    // of a page-wide view transition that would un-clip the gallery panels.
+    setMinimizedRooms((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
     });
+    if (id === 'terminal') setTerminalRoomOpen(true);
+    setFocusedRoom(id);
+    switchAmbientLayout('focus');
   }
 
   function handleFocusModeClick(event: React.MouseEvent, id: RoomId) {
     event.preventDefault();
     event.stopPropagation();
+    if (dragHasMovedRef.current) {
+      return;
+    }
     focusRoomMode(id);
   }
 
@@ -939,47 +1173,138 @@ export default function AppShell() {
     });
   }
 
-  function reorderGalleryRoom(targetRoom: RoomId) {
-    if (!draggingRoom || draggingRoom === targetRoom) return;
-    setRoomOrder((current) => {
-      const withoutDragged = current.filter((room) => room !== draggingRoom);
-      const targetIndex = withoutDragged.indexOf(targetRoom);
-      if (targetIndex === -1) return current;
-      const next = [...withoutDragged];
-      next.splice(targetIndex, 0, draggingRoom);
+  function startRoomDrag(event: React.MouseEvent, room: RoomId) {
+    if (ambientLayout !== 'gallery') return;
+    if (event.button !== 0) return; // Only left click
+    if (
+      (event.target as HTMLElement).closest('.room-actions') || 
+      (event.target as HTMLElement).closest('.room-action')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const currentPos = resolvedPositions[room] || { x: 0, y: 0 };
+    roomDragRef.current = {
+      room,
+      startX: event.clientX,
+      startY: event.clientY,
+      roomX: currentPos.x,
+      roomY: currentPos.y,
+      nextX: currentPos.x,
+      nextY: currentPos.y,
+      rafId: null,
+    };
+
+    setDraggingRoomId(room);
+    focusRoom(room);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+  }
+
+  function handleMouseDown(e: React.MouseEvent) {
+    if (ambientLayout !== 'gallery') return;
+    const isBg = e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-background-grid');
+    const isMiddleClick = e.button === 1;
+
+    if (isBg || isMiddleClick) {
+      setIsPanning(true);
+      panStartRef.current = {
+        x: e.clientX - pan.x,
+        y: e.clientY - pan.y,
+      };
+      e.preventDefault();
+    }
+  }
+
+  function handleMouseMove(e: React.MouseEvent) {
+    if (!isPanning) return;
+    const newPan = {
+      x: e.clientX - panStartRef.current.x,
+      y: e.clientY - panStartRef.current.y,
+    };
+    setPan(newPan);
+    localStorage.setItem('soryq_gallery_pan', JSON.stringify(newPan));
+  }
+
+  function handleMouseUp() {
+    setIsPanning(false);
+  }
+
+  function handleWheel(e: React.WheelEvent) {
+    if (ambientLayout !== 'gallery') return;
+    const isOverBackground = e.target === e.currentTarget || 
+      (e.target as HTMLElement).classList.contains('ambient-room-grid') ||
+      (e.target as HTMLElement).classList.contains('canvas-background-grid');
+      
+    if (!isOverBackground && !e.ctrlKey && !e.metaKey) {
+      return;
+    }
+
+    e.preventDefault();
+
+    if (e.ctrlKey || e.metaKey) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      const cx = (mx - pan.x) / canvasZoom;
+      const cy = (my - pan.y) / canvasZoom;
+
+      const zoomFactor = 1.1;
+      let newZoom = e.deltaY < 0 ? canvasZoom * zoomFactor : canvasZoom / zoomFactor;
+      newZoom = Math.max(0.15, Math.min(newZoom, 3));
+
+      const newPanX = mx - cx * newZoom;
+      const newPanY = my - cy * newZoom;
+
+      setCanvasZoom(newZoom);
+      setPan({ x: newPanX, y: newPanY });
+      localStorage.setItem('soryq_gallery_zoom', newZoom.toString());
+      localStorage.setItem('soryq_gallery_pan', JSON.stringify({ x: newPanX, y: newPanY }));
+    } else {
+      const deltaX = e.shiftKey ? e.deltaY : e.deltaX;
+      const deltaY = e.shiftKey ? 0 : e.deltaY;
+      const newPan = {
+        x: pan.x - deltaX,
+        y: pan.y - deltaY,
+      };
+      setPan(newPan);
+      localStorage.setItem('soryq_gallery_pan', JSON.stringify(newPan));
+    }
+  }
+
+  function zoomInCanvas() {
+    setCanvasZoom((z) => {
+      const next = Math.min(3, z + 0.1);
+      localStorage.setItem('soryq_gallery_zoom', next.toString());
       return next;
     });
   }
 
-  function handleGalleryDragStart(event: React.DragEvent, room: RoomId) {
-    if (ambientLayout !== 'gallery') return;
-    setDraggingRoom(room);
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', room);
+  function zoomOutCanvas() {
+    setCanvasZoom((z) => {
+      const next = Math.max(0.15, z - 0.1);
+      localStorage.setItem('soryq_gallery_zoom', next.toString());
+      return next;
+    });
   }
 
-  function handleGalleryDragOver(event: React.DragEvent) {
-    if (ambientLayout !== 'gallery' || !draggingRoom) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
+  function resetCanvas() {
+    setCanvasZoom(1);
+    setPan({ x: 0, y: 0 });
+    localStorage.setItem('soryq_gallery_zoom', '1');
+    localStorage.setItem('soryq_gallery_pan', JSON.stringify({ x: 0, y: 0 }));
   }
 
-  function handleGalleryDrop(event: React.DragEvent, room: RoomId) {
-    if (ambientLayout !== 'gallery') return;
-    event.preventDefault();
-    reorderGalleryRoom(room);
-    setDraggingRoom(null);
-  }
-
-  function handleGalleryPanelWheelCapture(event: React.WheelEvent, room: RoomId) {
-    if (ambientLayout !== 'gallery' || galleryScrollRoom === room) return;
-    const board = (event.currentTarget as HTMLElement).closest('.ambient-room-grid');
-    if (!(board instanceof HTMLElement)) return;
-    const multiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? board.clientHeight : 1;
-    event.preventDefault();
-    event.stopPropagation();
-    board.scrollTop += event.deltaY * multiplier;
-    board.scrollLeft += event.deltaX * multiplier;
+  function toggleSnapToGrid() {
+    setSnapToGrid((prev) => {
+      const next = !prev;
+      localStorage.setItem('soryq_gallery_snap', next.toString());
+      return next;
+    });
   }
 
   function startGalleryResize(event: React.MouseEvent, room: RoomId) {
@@ -1311,30 +1636,24 @@ export default function AppShell() {
   // and terminal churn.
   function renderRoomFrame(id: RoomId, featured = false, arrangeable = false) {
     const title = roomTitle(id);
-    const gallerySize = arrangeable ? gallerySizes[id] : undefined;
-    const galleryStyle = gallerySize
-      ? {
-          width: `${gallerySize.width}px`,
-          height: `${gallerySize.height}px`,
-        } as React.CSSProperties
-      : undefined;
+    const pos = arrangeable ? resolvedPositions[id] : undefined;
+    const size = arrangeable ? (gallerySizes[id] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT }) : undefined;
     const roomStyle = {
-      ...(galleryStyle ?? {}),
+      ...(size ? { width: `${size.width}px`, height: `${size.height}px` } : {}),
+      ...(pos ? { left: `${pos.x}px`, top: `${pos.y}px` } : {}),
       viewTransitionName: `soryq-room-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
     } as React.CSSProperties;
     return (
       <section
         key={id}
-        className={`room-panel bento-card${featured ? ' featured active-glow' : ''}${arrangeable ? ' arrangeable' : ''}${draggingRoom === id ? ' dragging' : ''}${resizingRoom === id ? ' resizing' : ''}${galleryScrollRoom === id ? ' scroll-armed' : ''}`}
+        className={`room-panel bento-card${featured ? ' featured active-glow' : ''}${arrangeable ? ' arrangeable' : ''}${draggingRoomId === id ? ' dragging' : ''}${resizingRoom === id ? ' resizing' : ''}${galleryScrollRoom === id ? ' scroll-armed' : ''}`}
         data-room-id={id}
         style={roomStyle}
         onMouseDown={arrangeable ? () => activateGalleryPanel(id) : undefined}
-        onWheelCapture={arrangeable ? (event) => handleGalleryPanelWheelCapture(event, id) : undefined}
       >
-        <header className="room-header">
+        <header className="room-header" onMouseDown={arrangeable ? (e) => startRoomDrag(e, id) : undefined}>
           <button
             className="room-title"
-            onMouseDown={arrangeable ? (event) => event.stopPropagation() : undefined}
             onClick={(event) => (arrangeable ? handleFocusModeClick(event, id) : focusRoom(id))}
             title={arrangeable ? `Open ${title} in Focus` : `Focus ${title}`}
           >
@@ -1523,53 +1842,147 @@ export default function AppShell() {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (layoutSwitchTimerRef.current !== null) window.clearTimeout(layoutSwitchTimerRef.current);
 
-    const startViewTransition = (document as Document & {
-      startViewTransition?: (callback: () => void) => { finished?: Promise<unknown> };
-    }).startViewTransition;
-
-    const isInsideTransition = !!(window as any).__soryq_transitioning;
-    const hasViewTransition = !!startViewTransition && !prefersReducedMotion && !isInsideTransition;
-
-    const applyLayout = () => {
-      flushSync(() => {
-        setLayoutSwitching(!prefersReducedMotion && !hasViewTransition && !isInsideTransition);
-        setAmbientLayout(nextLayout);
-      });
-    };
+    // Animate the switch by letting the new (live) DOM settle in via the
+    // `.layout-switching` CSS pass, NOT the View Transition API. View
+    // transitions froze a bitmap of the previous layout; when a second switch
+    // landed while one was mid-flight — trivially easy now that you can swipe
+    // between modes — that frozen snapshot of the old panels stayed ghosting on
+    // screen. The settle pass only ever touches elements that are actually in
+    // the new layout, so nothing from the former mode can linger.
+    flushSync(() => {
+      setLayoutSwitching(!prefersReducedMotion);
+      setAmbientLayout(nextLayout);
+    });
 
     if (prefersReducedMotion) {
-      applyLayout();
       setLayoutSwitching(false);
       return;
     }
 
-    if (isInsideTransition) {
-      applyLayout();
-      return;
-    }
-
-    if (hasViewTransition) {
-      (window as any).__soryq_transitioning = true;
-      try {
-        const transition = startViewTransition.call(document, applyLayout);
-        transition.finished?.finally(() => {
-          (window as any).__soryq_transitioning = false;
-        }).catch(() => {
-          (window as any).__soryq_transitioning = false;
-        });
-        setTimeout(() => {
-          (window as any).__soryq_transitioning = false;
-        }, 1000);
-      } catch (e) {
-        (window as any).__soryq_transitioning = false;
-        applyLayout();
-      }
-      return;
-    }
-
-    layoutSwitchTimerRef.current = window.setTimeout(finishLayoutSwitch, 560);
-    applyLayout();
+    layoutSwitchTimerRef.current = window.setTimeout(finishLayoutSwitch, 360);
   }
+
+  // Keep the latest layout + switcher available to the (mount-stable) wheel
+  // listener without re-binding it on every render.
+  swipeGestureRef.current = { ambientLayout, switchAmbientLayout, sketchOpen, swipeEnabled: swipeNavEnabled };
+
+  // Slide between ambient modes with a horizontal trackpad swipe (or shift +
+  // mouse wheel). We defer to any inner element that can still scroll
+  // horizontally in the swipe direction, so this only takes over at the edge —
+  // editors, terminals and the gallery board keep their own scrolling.
+  useEffect(() => {
+    const el = roomsTableRef.current;
+    if (!el) return;
+
+    const MODE_ORDER: AmbientLayout[] = AMBIENT_LAYOUTS.map((m) => m.id);
+    const SWIPE_THRESHOLD = 130; // accumulated px before a mode change fires
+
+    // A swipe that starts inside the code editor must never switch modes — the
+    // editor owns left/right (caret moves, horizontal scroll) and users found the
+    // layout sliding out from under them while they worked. Walk up to the editor
+    // root if the gesture began on any element within it.
+    const startedInEditor = (start: EventTarget | null): boolean => {
+      const node = start instanceof HTMLElement ? start : null;
+      return !!node?.closest('.cm-editor, .code-editor-container');
+    };
+
+    const innerCanAbsorb = (start: EventTarget | null, dir: number): boolean => {
+      let node = start instanceof HTMLElement ? start : null;
+      while (node && node !== el) {
+        const overflowX = window.getComputedStyle(node).overflowX;
+        if (
+          (overflowX === 'auto' || overflowX === 'scroll') &&
+          node.scrollWidth > node.clientWidth + 1
+        ) {
+          const atStart = node.scrollLeft <= 0;
+          const atEnd = node.scrollLeft >= node.scrollWidth - node.clientWidth - 1;
+          if (dir > 0 ? !atEnd : !atStart) return true;
+        }
+        node = node.parentElement;
+      }
+      return false;
+    };
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return; // reserved for zoom / shortcuts
+      // Honour the user's "Swipe between layouts" setting — when off, scrolling
+      // never slides between modes.
+      if (!swipeGestureRef.current.swipeEnabled) return;
+      // The sketch canvas owns its own pan/zoom while open — never let a swipe
+      // over it switch modes and drag the whole layout sideways underneath it.
+      if (swipeGestureRef.current.sketchOpen) return;
+      // The code editor owns left/right while you're working in it.
+      if (startedInEditor(e.target)) return;
+
+      // A plain mouse usually only has a vertical wheel; treat shift + wheel as
+      // a horizontal swipe so mouse users can slide between modes too.
+      const horizontal = e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX;
+      const vertical = e.shiftKey && e.deltaX === 0 ? 0 : e.deltaY;
+
+      // Only react to clearly horizontal intent — let vertical scrolling pass.
+      if (Math.abs(horizontal) < 2 || Math.abs(horizontal) <= Math.abs(vertical) * 1.2) {
+        swipeAccumRef.current = 0;
+        return;
+      }
+
+      const dir = horizontal > 0 ? 1 : -1;
+
+      // A wheel "stream" is one continuous gesture; a lull marks a new one. Decide
+      // at the start of each stream whether it may switch modes — a stream that
+      // began by scrolling an inner panel stays ineligible, so its inertial tail
+      // can't fling us into another mode once that panel hits its edge.
+      const NEW_GESTURE_GAP = 120; // ms of quiet that marks a fresh, deliberate swipe
+      if (e.timeStamp - lastWheelTsRef.current > NEW_GESTURE_GAP) {
+        streamEligibleRef.current = !innerCanAbsorb(e.target, dir);
+        swipeAccumRef.current = 0;
+      }
+      lastWheelTsRef.current = e.timeStamp;
+
+      if (innerCanAbsorb(e.target, dir)) {
+        swipeAccumRef.current = 0;
+        return;
+      }
+
+      // Momentum tail of an inner-scroll gesture — let it die, don't switch.
+      if (!streamEligibleRef.current) {
+        swipeAccumRef.current = 0;
+        return;
+      }
+
+      e.preventDefault();
+      if (swipeCooldownRef.current) return;
+
+      // Reset if the swipe direction reversed mid-gesture.
+      if (swipeAccumRef.current !== 0 && Math.sign(swipeAccumRef.current) !== dir) {
+        swipeAccumRef.current = 0;
+      }
+      swipeAccumRef.current += horizontal;
+
+      if (swipeResetTimerRef.current !== null) window.clearTimeout(swipeResetTimerRef.current);
+      swipeResetTimerRef.current = window.setTimeout(() => {
+        swipeAccumRef.current = 0;
+      }, 220);
+
+      if (Math.abs(swipeAccumRef.current) >= SWIPE_THRESHOLD) {
+        const { ambientLayout: current, switchAmbientLayout: switchTo } = swipeGestureRef.current;
+        const idx = MODE_ORDER.indexOf(current);
+        const nextIdx = Math.min(MODE_ORDER.length - 1, Math.max(0, idx + dir));
+        if (nextIdx !== idx) switchTo(MODE_ORDER[nextIdx]);
+        swipeAccumRef.current = 0;
+        swipeCooldownRef.current = true;
+        window.setTimeout(() => {
+          swipeCooldownRef.current = false;
+        }, 500);
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      if (swipeResetTimerRef.current !== null) window.clearTimeout(swipeResetTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
 
   function renderSplitSwitcher() {
     return (
@@ -1625,13 +2038,53 @@ export default function AppShell() {
     if (ambientLayout === 'gallery') {
       return (
         <div
-          className="ambient-room-grid"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setGalleryScrollRoom(null);
-          }}
+          className={`ambient-room-grid${isPanning ? ' dragging-canvas' : ''}`}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onWheel={handleWheel}
         >
-          {orderedVisibleRooms.map((room) => renderRoomFrame(room, room === activeRoom, true))}
+          <div
+            className="canvas-content"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${canvasZoom})`,
+              transformOrigin: '0 0',
+            }}
+          >
+            <div className="canvas-background-grid" />
+            {orderedVisibleRooms.map((room) => renderRoomFrame(room, room === activeRoom, true))}
+          </div>
           {renderMinimizedRooms()}
+
+          <div className="canvas-toolbar bento-card">
+            <div className="canvas-zoom-controls">
+              <button className="canvas-tool-btn" onClick={zoomOutCanvas} title="Zoom Out">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+              <span className="canvas-zoom-value">{Math.round(canvasZoom * 100)}%</span>
+              <button className="canvas-tool-btn" onClick={zoomInCanvas} title="Zoom In">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </div>
+            <div className="canvas-toolbar-separator" />
+            <button className="canvas-tool-btn" onClick={resetCanvas} title="Reset Pan & Zoom">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
+              </svg>
+            </button>
+            <button className={`canvas-tool-btn${snapToGrid ? ' active' : ''}`} onClick={toggleSnapToGrid} title="Snap to Grid">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" />
+                <circle cx="5" cy="12" r="1" /><circle cx="5" cy="5" r="1" /><circle cx="5" cy="19" r="1" />
+                <circle cx="19" cy="12" r="1" /><circle cx="19" cy="5" r="1" /><circle cx="19" cy="19" r="1" />
+              </svg>
+            </button>
+          </div>
         </div>
       );
     }
@@ -1683,7 +2136,7 @@ export default function AppShell() {
             <div className={`app-body rooms-workspace${resizing ? ' resizing' : ''}`}>
               {resizing && <div className={`resize-overlay${auxRowResizing ? ' row-resize' : ''}`} />}
 
-              <main className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}`} aria-label="Soryq ambient layout">
+              <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}`} aria-label="Soryq ambient layout">
                 {renderAmbientLayout()}
                 {sketchOpen && (
                   <Suspense fallback={null}>

@@ -36,7 +36,7 @@
 .rooms-workspace {
   flex-direction: column;
   gap: 10px;
-  padding: 10px 14px 12px;
+  padding: 16px 20px 20px;
 }
 
 .rooms-table {
@@ -49,9 +49,9 @@
   overflow: hidden;
   contain: layout paint;
   transition:
-    grid-template-columns 0.48s cubic-bezier(0.16, 1, 0.3, 1),
-    grid-template-rows 0.48s cubic-bezier(0.16, 1, 0.3, 1),
-    gap 0.28s ease;
+    grid-template-columns 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    grid-template-rows 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    gap 0.2s ease;
 }
 
 .rooms-table.ambient-focus {
@@ -66,6 +66,9 @@
 .rooms-table.ambient-gallery {
   display: block;
   overflow: hidden;
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .focused-room {
@@ -86,42 +89,141 @@
   min-width: 0;
   min-height: 0;
   display: flex;
-  transition: opacity 0.26s ease, transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.24s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .ambient-room-grid {
   height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 12px;
-  overflow: auto;
-  scrollbar-gutter: stable;
-  padding: 1px;
-  transition: opacity 0.28s ease, transform 0.44s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+  user-select: none;
+  background-color: var(--bg-primary);
 }
 
-.ambient-room-grid .room-panel {
-  flex: 0 0 auto;
-  width: clamp(320px, 42vw, 620px);
-  height: clamp(260px, 42vh, 620px);
-  min-width: 280px;
-  min-height: 220px;
-  max-width: min(100%, 920px);
-  max-height: 100%;
-  resize: none;
-  position: relative;
+.ambient-room-grid.dragging-canvas {
+  cursor: grabbing;
+}
+
+.canvas-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.canvas-background-grid {
+  position: absolute;
+  top: -50000px;
+  left: -50000px;
+  width: 100000px;
+  height: 100000px;
+  background-image: radial-gradient(color-mix(in srgb, var(--text-muted) 12%, transparent) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+  pointer-events: none;
+}
+
+.rooms-table.ambient-gallery .room-panel {
+  position: absolute !important;
+  margin: 0 !important;
+  flex: none !important;
+  box-shadow: var(--glass-shadow, 0 10px 30px -10px rgba(0, 0, 0, 0.4));
+  border: 1px solid var(--border);
+}
+
+.rooms-table.ambient-gallery .room-panel.dragging {
+  opacity: 0.85;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+  border-color: var(--accent);
+  transform: scale(1.02);
+  z-index: 1000;
+}
+
+.rooms-table.ambient-gallery .room-panel.arrangeable {
+  transition: opacity 0.16s ease, border-color 0.16s ease;
+}
+
+/* Floating Toolbar */
+.canvas-toolbar {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -10px rgba(0, 0, 0, 0.5);
+  animation: canvas-fade-in 0.3s ease;
+}
+
+.canvas-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.canvas-zoom-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 42px;
+  text-align: center;
+  user-select: none;
+}
+
+.canvas-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.canvas-tool-btn:hover {
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-hover));
+  color: var(--accent);
+}
+
+.canvas-tool-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+.canvas-toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border-subtle);
+}
+
+@keyframes canvas-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .ambient-room-grid .minimized-room-stack {
-  position: sticky;
-  left: 0;
-  bottom: 0;
+  position: absolute;
+  left: 20px;
+  bottom: 70px;
   z-index: 20;
   width: fit-content;
   align-self: start;
-  margin-top: auto;
 }
 
 .room-panel {
@@ -496,33 +598,33 @@
   overflow: hidden;
 }
 
-.rooms-table.layout-switching .focused-room,
-.rooms-table.layout-switching .ambient-secondary-room,
-.rooms-table.layout-switching .ambient-room-grid,
-.rooms-table.layout-switching .room-stack,
-.rooms-table.layout-switching .split-switcher {
-  animation: mode-region-settle 0.46s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
 .rooms-table.layout-switching {
   pointer-events: none;
 }
 
-.rooms-table.layout-switching .room-panel {
-  animation: mode-panel-settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+/* Enter animation for the regions that belong to a single mode. Using
+   @starting-style means the fade fires ONLY the moment an element is actually
+   inserted (i.e. the region of the mode you just switched to). Elements that
+   persist across a switch — the focused room and its live panel, the minimized
+   chips — are never touched, so they can't be yanked to a dim/blurred frame on
+   entry. That backward-fill snap (from the old `animation: … both` keyframes)
+   was the enter-flicker. Persisting panels simply resize through the
+   grid-template transition on .rooms-table above. */
+.room-stack,
+.split-switcher {
+  transition:
+    opacity 0.24s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.rooms-table.layout-switching .room-card,
-.rooms-table.layout-switching .split-switch-item,
-.rooms-table.layout-switching .minimized-room {
-  animation: mode-chip-settle 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.rooms-table.layout-switching .room-panel:hover,
-.rooms-table.layout-switching .room-card:hover,
-.rooms-table.layout-switching .split-switch-item:hover,
-.room-panel.resizing:hover {
-  transform: none;
+@starting-style {
+  .ambient-secondary-room,
+  .ambient-room-grid,
+  .room-stack,
+  .split-switcher {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .split-switcher-rooms {
@@ -853,6 +955,11 @@
   /* Own view-transition group so the dock is lifted out of the root snapshot and
      stays visually fixed while the rooms morph between layouts. */
   view-transition-name: soryq-room-dock;
+  /* See-through dock: drop the opaque bento fill to a low-alpha tint so the panel
+     behind shows through, while the inherited backdrop blur keeps the icons
+     legible (frosted glass). Tune --frost-dock to taste. */
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, transparent 100%),
+              rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-dock, 0.26));
   min-height: 50px;
   width: min(100%, 1040px);
   align-self: center;
@@ -1069,51 +1176,6 @@
   }
 }
 
-@keyframes mode-region-settle {
-  0% {
-    opacity: 0.82;
-    transform: translateY(8px) scale(0.99);
-    filter: blur(1px);
-  }
-  62% {
-    opacity: 1;
-    filter: blur(0);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
-  }
-}
-
-@keyframes mode-panel-settle {
-  0% {
-    opacity: 0.78;
-    transform: translateY(10px) scale(0.988);
-    filter: blur(1px) saturate(0.98);
-  }
-  58% {
-    opacity: 1;
-    filter: blur(0) saturate(1.06);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0) saturate(1);
-  }
-}
-
-@keyframes mode-chip-settle {
-  0% {
-    opacity: 0;
-    transform: translateY(10px) scale(0.96);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 @keyframes mode-icon-pop {
   0% { transform: scale(0.92) rotate(-4deg); }
   58% { transform: scale(1.14) rotate(2deg); }
@@ -1121,10 +1183,10 @@
 }
 
 /* The root layer is everything that isn't an individually-named group (the
-   background, title bar, gaps). During a mode switch the rooms morph on their
-   own — so the root should barely move. Keep it a gentle opacity settle with no
-   scale and no full-screen blur: the old blur(2px) on the whole snapshot was
-   costly and made a simple layout change flash the entire UI. */
+   background, title bar, gaps). For modal/overlay transitions the rooms behind
+   barely move, so keep root a gentle opacity settle with no scale and no
+   full-screen blur. (Ambient mode switches no longer use view transitions —
+   they animate the live DOM directly — so this only affects overlays now.) */
 @keyframes soryq-view-old {
   0% { opacity: 1; }
   100% { opacity: 0.55; }
