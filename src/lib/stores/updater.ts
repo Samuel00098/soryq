@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable } from '$lib/stores/storeCompat';
 import type { Update } from '@tauri-apps/plugin-updater';
 
 export interface UpdateInfo {

@@ -118,7 +118,35 @@ pub fn detect_shell() -> ShellConfig {
         }
     }
 
-    available_shells().into_iter().next().unwrap_or_else(|| {
+    let shells = available_shells();
+
+    // On Windows the auto-detected default must never be Windows PowerShell 5.1.
+    // Its in-box PSReadLine 2.0.0 renders a blank prompt under the ConPTY pseudo-
+    // console (cmd and PowerShell 7 are unaffected), so picking it as the default
+    // shows users an empty terminal out of the box. Prefer PowerShell 7 (`pwsh`,
+    // ships a modern PSReadLine that renders correctly), then fall back to cmd,
+    // which is rock-solid under ConPTY. Windows PowerShell 5.1 stays in
+    // `available_shells()` so users can still select it explicitly.
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(pwsh) = shells
+            .iter()
+            .find(|s| s.program.eq_ignore_ascii_case("pwsh"))
+        {
+            return pwsh.clone();
+        }
+        if let Some(cmd) = shells.iter().find(|s| {
+            Path::new(&s.program)
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .map(|stem| stem.eq_ignore_ascii_case("cmd"))
+                .unwrap_or(false)
+        }) {
+            return cmd.clone();
+        }
+    }
+
+    shells.into_iter().next().unwrap_or_else(|| {
         if cfg!(target_os = "windows") {
             ShellConfig {
                 program: std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),

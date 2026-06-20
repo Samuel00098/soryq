@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use keyring::{Entry, Error as KeyringError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 const KEYCHAIN_SERVICE: &str = "com.samue.soryq";
@@ -39,6 +39,7 @@ const OPENROUTER_AUDIO_TRANSCRIPT_URL: &str = "https://openrouter.ai/api/v1/audi
 const OPENROUTER_TTS_URL: &str = "https://openrouter.ai/api/v1/audio/speech";
 const OPENAI_URL: &str = "https://api.openai.com/v1/chat/completions";
 const OPENAI_TTS_URL: &str = "https://api.openai.com/v1/audio/speech";
+const OPENAI_STT_URL: &str = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_TTS_URL: &str = "https://api.groq.com/openai/v1/audio/speech";
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -156,6 +157,107 @@ fn truncate_desc(s: &str) -> String {
         t
     } else {
         s
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ModelPurpose {
+    Chat,
+    Stt,
+    Tts,
+}
+
+fn openai_is_stt_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id.contains("whisper") || id.contains("transcribe") || id.contains("transcription")
+}
+
+fn openai_is_tts_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id.contains("tts") || id.contains("speech")
+}
+
+fn groq_is_stt_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id.contains("whisper") || id.contains("transcribe") || id.contains("asr")
+}
+
+fn groq_is_tts_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id.contains("tts") || id.contains("orpheus") || id.contains("playai") || id.contains("speech")
+}
+
+fn text_matches_any(value: &str, needles: &[&str]) -> bool {
+    let value = value.to_ascii_lowercase();
+    needles.iter().any(|needle| value.contains(needle))
+}
+
+fn json_string_array_contains(value: Option<&serde_json::Value>, needle: &str) -> bool {
+    value
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(|item| item.as_str().map(|s| s.eq_ignore_ascii_case(needle)).unwrap_or(false)))
+        .unwrap_or(false)
+}
+
+fn openrouter_model_matches_purpose(item: &serde_json::Value, id: &str, purpose: ModelPurpose) -> bool {
+    if purpose == ModelPurpose::Chat {
+        return true;
+    }
+
+    let architecture = item.get("architecture");
+    let input_audio = json_string_array_contains(
+        architecture.and_then(|a| a.get("input_modalities")),
+        "audio",
+    );
+    let output_audio = json_string_array_contains(
+        architecture.and_then(|a| a.get("output_modalities")),
+        "audio",
+    );
+    let output_text = json_string_array_contains(
+        architecture.and_then(|a| a.get("output_modalities")),
+        "text",
+    );
+    let label = item
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(id);
+    let haystack = format!("{id} {label}");
+
+    match purpose {
+        ModelPurpose::Stt => {
+            (input_audio && !output_audio)
+                || (input_audio && output_text)
+                || text_matches_any(
+                    &haystack,
+                    &[
+                        "whisper",
+                        "transcribe",
+                        "transcription",
+                        "asr",
+                        "chirp",
+                        "voxtral",
+                        "parakeet",
+                    ],
+                )
+        }
+        ModelPurpose::Tts => {
+            output_audio
+                || text_matches_any(
+                    &haystack,
+                    &[
+                        "tts",
+                        "text-to-speech",
+                        "voice",
+                        "speech",
+                        "kokoro",
+                        "zonos",
+                        "orpheus",
+                        "csm",
+                    ],
+                ) && !text_matches_any(&haystack, &["whisper", "transcribe", "asr"])
+        }
+        ModelPurpose::Chat => true,
     }
 }
 
@@ -639,7 +741,7 @@ pub async fn ai_transcribe_audio(
     api_key: String,
     base_url: Option<String>,
 ) -> Result<String, String> {
-    if provider != "google" && provider != "openrouter" && !is_local_provider(&provider) {
+    if provider != "google" && provider != "openai" && provider != "openrouter" && !is_local_provider(&provider) {
         return Err("Selected provider does not support transcription yet.".to_string());
     }
 
@@ -709,6 +811,40 @@ pub async fn ai_transcribe_audio(
             })?;
 
             Ok(extract_google_text(&payload))
+        }
+        "openai" => {
+            let response = client
+                .post(OPENAI_STT_URL)
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"))
+                .header(reqwest::header::CONTENT_TYPE, "multipart/form-data; boundary=soryq-openai-stt")
+                .body(build_audio_transcription_multipart_body(
+                    "soryq-openai-stt",
+                    &model,
+                    &mime_type,
+                    audio_format,
+                    &audio_bytes,
+                ))
+                .send()
+                .await
+                .map_err(|err| safe_request_error("Failed to contact OpenAI transcription", err))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                let preview = redact_secrets(&body.chars().take(200).collect::<String>());
+                return Err(format!("OpenAI transcription failed ({status}): {preview}"));
+            }
+
+            let payload: serde_json::Value = response.json().await.map_err(|err| {
+                format!("OpenAI transcription returned an invalid response: {err}")
+            })?;
+
+            Ok(payload
+                .get("text")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string())
         }
         "openrouter" => {
             if openrouter_audio_chat_model_is_unsupported(&model) {
@@ -904,20 +1040,22 @@ pub async fn ai_generate_commit_message(
 }
 
 /// Fetch the live list of models a provider's key unlocks. Normalises each
-/// provider's response into `ModelInfo` and filters out non-chat models so the
-/// picker only shows usable options. Returns an empty list rather than erroring
-/// when a provider simply has no matching models.
+/// provider's response into `ModelInfo` and filters by `purpose` (chat, stt,
+/// or tts) so the picker only shows usable options. Returns an empty list
+/// rather than erroring when a provider simply has no matching models.
 #[tauri::command]
 pub async fn list_provider_models(
     provider: String,
     api_key: String,
     base_url: Option<String>,
+    purpose: Option<ModelPurpose>,
 ) -> Result<Vec<ModelInfo>, String> {
     if !is_known_provider(&provider) {
         return Err("Unknown provider".to_string());
     }
     let api_key = resolve_api_key(&provider, &api_key)?;
     let base_url = resolve_base_url(&provider, &base_url)?;
+    let purpose = purpose.unwrap_or(ModelPurpose::Chat);
 
     let timeout_secs = if is_local_provider(&provider) { 2 } else { 20 };
     let client = shared_http_client(Duration::from_secs(timeout_secs))?;
@@ -977,14 +1115,6 @@ pub async fn list_provider_models(
                 .unwrap_or_default();
             let mut out = Vec::new();
             for item in data {
-                let supports_generate = item
-                    .get("supportedGenerationMethods")
-                    .and_then(|m| m.as_array())
-                    .map(|arr| arr.iter().any(|v| v.as_str() == Some("generateContent")))
-                    .unwrap_or(false);
-                if !supports_generate {
-                    continue;
-                }
                 let raw = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let id = raw
                     .strip_prefix("models/")
@@ -993,6 +1123,22 @@ pub async fn list_provider_models(
                     .to_string();
                 if id.is_empty() || !model_id_is_safe(&id) {
                     continue;
+                }
+                let supports_generate = item
+                    .get("supportedGenerationMethods")
+                    .and_then(|m| m.as_array())
+                    .map(|arr| arr.iter().any(|v| v.as_str() == Some("generateContent")))
+                    .unwrap_or(false);
+                match purpose {
+                    ModelPurpose::Chat if !supports_generate => continue,
+                    ModelPurpose::Stt if !id.to_ascii_lowercase().contains("chirp") => continue,
+                    ModelPurpose::Tts
+                        if !id.to_ascii_lowercase().contains("tts")
+                            && !id.to_ascii_lowercase().contains("speech") =>
+                    {
+                        continue
+                    }
+                    _ => {}
                 }
                 let label = item
                     .get("displayName")
@@ -1055,9 +1201,48 @@ pub async fn list_provider_models(
                     continue;
                 }
                 match provider.as_str() {
-                    "openai" if !openai_is_chat_model(&id) => continue,
-                    "groq" if !groq_is_chat_model(&id) => continue,
-                    _ => {}
+                    "openai" => match purpose {
+                        ModelPurpose::Stt => {
+                            if !openai_is_stt_model(&id) {
+                                continue;
+                            }
+                        }
+                        ModelPurpose::Tts => {
+                            if !openai_is_tts_model(&id) {
+                                continue;
+                            }
+                        }
+                        ModelPurpose::Chat => {
+                            if !openai_is_chat_model(&id) {
+                                continue;
+                            }
+                        }
+                    },
+                    "groq" => match purpose {
+                        ModelPurpose::Stt => {
+                            if !groq_is_stt_model(&id) {
+                                continue;
+                            }
+                        }
+                        ModelPurpose::Tts => {
+                            if !groq_is_tts_model(&id) {
+                                continue;
+                            }
+                        }
+                        ModelPurpose::Chat => {
+                            if !groq_is_chat_model(&id) {
+                                continue;
+                            }
+                        }
+                    },
+                    p if is_local_provider(p) => {
+                        // Local providers — no structured metadata, return all
+                    }
+                    _ => {
+                        if !openrouter_model_matches_purpose(&item, &id, purpose) {
+                            continue;
+                        }
+                    }
                 }
                 let label = item
                     .get("name")

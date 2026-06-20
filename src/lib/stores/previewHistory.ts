@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { loadJson } from '$lib/utils/storage';
 
 /**
@@ -8,11 +8,11 @@ import { loadJson } from '$lib/utils/storage';
  *  - `browsingHistory` — a flat, most-recent-first log of visited pages, used to
  *    power the "history" dropdown that lets the user jump back to any prior page
  *    (beyond a single tab's linear back/forward stack).
- *  - scroll positions — the last scroll offset per URL, restored after the page
- *    (re)loads in the cross-origin preview iframe. These are NOT a Svelte store:
- *    scroll fires constantly, so keeping them as plain module state avoids
- *    triggering reactive re-renders on every wheel tick. They're flushed to
- *    localStorage on a short debounce instead.
+  *  - scroll positions — the last scroll offset per URL, restored after the page
+   *    (re)loads in the cross-origin preview iframe. These are plain module state
+   *    (not a reactive store) because scroll fires constantly and triggering
+   *    re-renders on every wheel tick would be wasteful. They're flushed to
+   *    localStorage on a short debounce instead.
  */
 
 export type HistoryEntry = {

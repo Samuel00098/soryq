@@ -92,7 +92,7 @@ export const resolvedFontFamily = derived(fontFamily, ($ff) => {
   return $ff;
 });
 export const tabSize = persistentWritable('tabSize', 2);
-export const wordWrap = persistentWritable('wordWrap', false);
+export const wordWrap = persistentWritable('wordWrap', true);
 export const minimap = persistentWritable('minimap', false);
 export const vimMode = persistentWritable('vimMode', false);
 // Language-server-backed autocomplete, diagnostics and hover. Requires the
@@ -127,9 +127,10 @@ export type AiProviderId =
   | 'google'
   | 'groq'
   | 'ollama'
-  | 'lmstudio';
+  | 'lmstudio'
+  | 'local';
 
-export type VoiceInputProviderId = 'webspeech' | 'google' | 'openrouter' | 'ollama' | 'lmstudio';
+export type VoiceInputProviderId = 'webspeech' | 'google' | 'openai' | 'openrouter' | 'ollama' | 'lmstudio' | 'local';
 
 export interface AiModelOption {
   id: string;
@@ -275,6 +276,26 @@ export const aiProviders: AiProviderDef[] = [
     defaultModel: 'local-model',
     models: [
       { id: 'local-model', label: 'Loaded model', description: 'Uses whichever model LM Studio currently has loaded.' },
+    ],
+  },
+  {
+    id: 'local',
+    label: 'Local (Offline)',
+    local: true,
+    defaultBaseUrl: '',
+    keyLabel: '',
+    keyPlaceholder: '',
+    keyUrl: '',
+    ttsSupport: 'native',
+    defaultModel: 'whisper-tiny-en',
+    models: [
+      { id: 'whisper-tiny-en', label: 'Whisper Tiny (English)', description: 'Fast offline Speech-to-Text.' },
+      { id: 'whisper-base-en', label: 'Whisper Base (English)', description: 'Balanced offline Speech-to-Text.' },
+      { id: 'whisper-small-en', label: 'Whisper Small (English)', description: 'Higher-accuracy offline Speech-to-Text.' },
+      { id: 'whisper-large-v3-turbo-q5', label: 'Whisper Large v3 Turbo (Quantized)', description: 'Latest multilingual Speech-to-Text, compact.' },
+      { id: 'whisper-large-v3-turbo', label: 'Whisper Large v3 Turbo (Full)', description: 'Highest-accuracy multilingual Speech-to-Text.' },
+      { id: 'parakeet-tdt-v3', label: 'NVIDIA Parakeet TDT v3', description: 'Fastest, top-accuracy multilingual Speech-to-Text (WASM).' },
+      { id: 'kokoro-tts-v1.0', label: 'Kokoro TTS (v1.0)', description: 'Offline Text-to-Speech.' },
     ],
   },
 ];
@@ -471,6 +492,10 @@ export const openRouterVoiceInputModels: AiModelOption[] = [
   { id: 'google/chirp-3', label: 'Google Chirp 3', description: 'Google speech recognition through OpenRouter.' },
 ];
 
+export const openAiVoiceInputModels: AiModelOption[] = [
+  { id: 'whisper-1', label: 'Whisper 1', description: 'OpenAI Whisper STT model.' },
+];
+
 export const localVoiceInputModels: AiModelOption[] = [
   { id: 'local-stt-model', label: 'Local STT model', description: 'Generic model id for an OpenAI-compatible /audio/transcriptions server.' },
   { id: 'whisper-1', label: 'Whisper 1', description: 'Common OpenAI-compatible Whisper alias.' },
@@ -484,9 +509,20 @@ export function getVoiceInputModelOptions(provider: VoiceInputProviderId): AiMod
       return getProviderDef('google').models.filter((model) => model.id.startsWith('gemini'));
     case 'openrouter':
       return openRouterVoiceInputModels;
+    case 'openai':
+      return openAiVoiceInputModels;
     case 'ollama':
     case 'lmstudio':
       return localVoiceInputModels;
+    case 'local':
+      return [
+        { id: 'whisper-tiny-en', label: 'Whisper Tiny (English)', description: 'Fast offline Speech-to-Text.' },
+        { id: 'whisper-base-en', label: 'Whisper Base (English)', description: 'Balanced offline Speech-to-Text.' },
+        { id: 'whisper-small-en', label: 'Whisper Small (English)', description: 'Higher-accuracy offline Speech-to-Text.' },
+        { id: 'whisper-large-v3-turbo-q5', label: 'Whisper Large v3 Turbo (Quantized)', description: 'Latest multilingual Speech-to-Text, compact.' },
+        { id: 'whisper-large-v3-turbo', label: 'Whisper Large v3 Turbo (Full)', description: 'Highest-accuracy multilingual Speech-to-Text.' },
+        { id: 'parakeet-tdt-v3', label: 'NVIDIA Parakeet TDT v3', description: 'Fastest, top-accuracy multilingual Speech-to-Text (WASM).' },
+      ];
     default:
       return [];
   }
@@ -498,9 +534,13 @@ export function getDefaultVoiceInputModel(provider: VoiceInputProviderId): strin
       return getProviderDef('google').defaultModel;
     case 'openrouter':
       return 'openai/whisper-1';
+    case 'openai':
+      return 'whisper-1';
     case 'ollama':
     case 'lmstudio':
       return 'local-stt-model';
+    case 'local':
+      return 'whisper-tiny-en';
     default:
       return '';
   }
@@ -514,7 +554,7 @@ export function getTtsVoiceOptionsForModel(provider: AiProviderId, modelId: stri
   switch (provider) {
     case 'openrouter': {
       const match = openRouterTtsModelOptions.find((model) => model.id === modelId);
-      if (match) return match.voices;
+      if (match?.voices) return match.voices;
       const idLc = modelId.toLowerCase();
       if (idLc.includes('kokoro')) return kokoroVoiceOptions;
       if (idLc.includes('voxtral')) return voxtralTtsVoiceOptions;
@@ -528,6 +568,8 @@ export function getTtsVoiceOptionsForModel(provider: AiProviderId, modelId: stri
       return openAiTtsVoiceOptions;
     case 'google':
       return googleTtsVoiceOptions;
+    case 'local':
+      return kokoroVoiceOptions;
     default:
       return [];
   }
@@ -549,6 +591,10 @@ export function getTtsModelOptions(provider: AiProviderId): TtsModelOption[] {
       return [
         { id: 'gemini-2.5-flash-preview-tts', label: 'Gemini 2.5 Flash Preview TTS', description: 'Google Gemini speech model.', voices: googleTtsVoiceOptions },
       ];
+    case 'local':
+      return [
+        { id: 'kokoro-tts-v1.0', label: 'Kokoro TTS (v1.0)', description: 'Offline speech synthesis.', voices: kokoroVoiceOptions },
+      ];
     default:
       return [];
   }
@@ -564,6 +610,8 @@ export function getDefaultTtsModel(provider: AiProviderId): string {
       return 'gpt-4o-mini-tts';
     case 'google':
       return 'gemini-2.5-flash-preview-tts';
+    case 'local':
+      return 'kokoro-tts-v1.0';
     default:
       return 'local-tts-model';
   }
@@ -579,6 +627,8 @@ export function getDefaultTtsVoice(provider: AiProviderId): string {
       return 'alloy';
     case 'google':
       return 'Kore';
+    case 'local':
+      return 'af_bella';
     default:
       return 'default';
   }
@@ -599,6 +649,13 @@ export const voiceConversationTtsModelByProvider = persistentWritable<Record<str
 export const voiceConversationTtsVoiceByProvider = persistentWritable<Record<string, string>>('voiceConversationTtsVoiceByProvider', {});
 export const ttsVoice = persistentWritable<string>('ttsVoice', 'austin');
 
+/**
+ * When on, the orchestrator speaks a short status line aloud each time an agent
+ * finishes/blocks/fails ("Codex finished: Add dark mode"), independent of whether
+ * the voice conversation overlay is open. The detailed recap stays on-demand.
+ */
+export const announceAgentCompletions = persistentWritable<boolean>('announceAgentCompletions', true);
+
 export const currentVoiceInputModel = derived(
   [voiceInputProvider, voiceInputModelByProvider],
   ([$provider, $map]) => {
@@ -618,7 +675,7 @@ export function setVoiceInputModel(provider: Exclude<VoiceInputProviderId, 'webs
 }
 
 export function voiceInputUsesModelTranscription(provider: VoiceInputProviderId): boolean {
-  return provider === 'google' || provider === 'openrouter' || provider === 'ollama' || provider === 'lmstudio';
+  return provider === 'google' || provider === 'openai' || provider === 'openrouter' || provider === 'ollama' || provider === 'lmstudio' || provider === 'local';
 }
 
 export const currentVoiceAiModel = derived(
@@ -802,6 +859,13 @@ export function setAiModel(provider: AiProviderId, modelId: string) {
 
 // UI Scaling
 export const uiZoom = persistentWritable('uiZoom', 100);
+
+// Layout navigation
+// A horizontal trackpad swipe (or shift + mouse wheel) slides between the
+// ambient layout modes (Focus → Split → Gallery). Some users find it fires by
+// accident while scrolling sideways, so it can be switched off here. Even when
+// on, a swipe that starts inside the code editor never switches modes.
+export const swipeNavigationEnabled = persistentWritable<boolean>('swipeNavigationEnabled', true);
 
 // Code Formatting
 export const formatOnSave = persistentWritable('formatOnSave', true);
@@ -1078,6 +1142,7 @@ export function updateSetting(key: string, value: unknown) {
     case 'aiModelByProvider': aiModelByProvider.set(value as Record<string, string>); break;
     case 'aiBaseUrlByProvider': aiBaseUrlByProvider.set(value as Record<string, string>); break;
     case 'uiZoom':           uiZoom.set(value as number); break;
+    case 'swipeNavigationEnabled': swipeNavigationEnabled.set(value as boolean); break;
     case 'formatOnSave':     formatOnSave.set(value as boolean); break;
     case 'closeBehavior':    closeBehavior.set(value as CloseBehavior); break;
     case 'appearance':       appearance.set(value as 'system' | 'light' | 'dark'); break;
@@ -1092,7 +1157,7 @@ export function resetSettingsToDefault() {
   fontSize.set(14);
   fontFamily.set(FONT_FALLBACK);
   tabSize.set(2);
-  wordWrap.set(false);
+  wordWrap.set(true);
   minimap.set(false);
   vimMode.set(false);
   enableLsp.set(true);
@@ -1112,6 +1177,7 @@ export function resetSettingsToDefault() {
   aiModelByProvider.set({});
   aiBaseUrlByProvider.set({});
   uiZoom.set(100);
+  swipeNavigationEnabled.set(true);
   formatOnSave.set(true);
   closeBehavior.set('quit');
   userShortcuts.set(defaultShortcuts);

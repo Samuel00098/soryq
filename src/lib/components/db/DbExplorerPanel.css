@@ -411,6 +411,39 @@
   cursor: not-allowed;
 }
 
+/* Pin every inline icon to an explicit size and take it out of flex sizing.
+   An inline <svg> used as a flex child can have its size resolved from the
+   flex container on a racy first paint (Chromium / WebView2), which ballooned
+   the icon inside the "Open SQLite Database File" button — the button (now
+   flex-shrink:0 + nowrap) then grew to wrap the giant icon, producing the blue
+   blob that overlapped the label and shoved the surrounding layout around until
+   a manual refresh. The width/height attributes on the elements aren't enough
+   on their own; the explicit CSS size plus `flex: none` make it deterministic
+   so it renders correctly on the very first paint, every time. */
+.db-explorer svg {
+  flex: none;
+}
+.action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.db-path svg {
+  width: 12px;
+  height: 12px;
+}
+.table-item svg {
+  width: 12px;
+  height: 12px;
+}
+.error-banner svg {
+  width: 16px;
+  height: 16px;
+}
+
 .text-btn {
   display: flex;
   align-items: center;

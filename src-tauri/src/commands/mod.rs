@@ -13,6 +13,7 @@ pub mod secrets;
 pub mod terminal;
 pub mod theme;
 pub mod workspace;
+pub mod models;
 
 use std::path::PathBuf;
 

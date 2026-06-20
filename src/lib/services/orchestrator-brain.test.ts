@@ -190,18 +190,18 @@ describe('routeOrchestratorRequest', () => {
   it('parses setting / theme actions from the model', async () => {
     invoke.mockResolvedValueOnce(
       '{"reply":"Done.","actions":[' +
-        '{"kind":"setting","setting":"theme","value":"Dracula"},' +
-        '{"kind":"theme","theme":"Nord"},' +
+        '{"kind":"setting","setting":"theme","value":"Dusk"},' +
+        '{"kind":"theme","theme":"Golden Hour"},' +
         '{"kind":"setting","setting":"fontSize","value":16},' +
         '{"kind":"setting","setting":"wordWrap","value":true}]}'
     );
 
-    const result = await routeOrchestratorRequest('use the dracula theme and bump the font', [{ command: 'claude', name: 'Claude' }]);
+    const result = await routeOrchestratorRequest('use the dusk theme and bump the font', [{ command: 'claude', name: 'Claude' }]);
 
     expect(result.viaLLM).toBe(true);
     expect(result.actions).toEqual([
-      { kind: 'setting', setting: 'theme', value: 'Dracula' },
-      { kind: 'setting', setting: 'theme', value: 'Nord' },
+      { kind: 'setting', setting: 'theme', value: 'Dusk' },
+      { kind: 'setting', setting: 'theme', value: 'Golden Hour' },
       { kind: 'setting', setting: 'fontsize', value: 16 },
       { kind: 'setting', setting: 'wordwrap', value: true },
     ]);

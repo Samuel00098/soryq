@@ -97,10 +97,10 @@ npm run tauri dev
 
 This command (defined in `tauri.conf.json` as `beforeDevCommand`) runs two processes concurrently:
 
-1. **Vite dev server** (`npm run dev`) — serves the Svelte frontend on `http://localhost:1420` with hot module replacement
+1. **Vite dev server** (`npm run dev`) — serves the React frontend on `http://localhost:1420` with hot module replacement
 2. **Tauri dev process** — compiles the Rust backend and opens a native window pointed at the Vite dev server
 
-Changes to `.svelte` and `.ts` files are reflected immediately via HMR without restarting the Rust process. Changes to `.rs` files trigger a Rust recompile and window reload.
+Changes to `.tsx`, `.ts`, and CSS files are reflected immediately via HMR without restarting the Rust process. Changes to `.rs` files trigger a Rust recompile and window reload.
 
 ### First Build
 
@@ -110,7 +110,7 @@ The first `cargo` compile takes several minutes. Subsequent incremental builds a
 
 - Tauri DevTools can be opened with `F12` or `Ctrl+Shift+I` in dev mode
 - Rust `println!` output appears in the terminal where you ran `npm run tauri dev`
-- Svelte store changes are visible in the browser console inside DevTools
+- Store changes are visible in the browser console inside DevTools
 
 ---
 
@@ -183,38 +183,38 @@ soryq/
 │       └── theme/
 │           └── mod.rs          # Theme loading and persistence
 │
-├── src/                        # Svelte + TypeScript frontend
-│   ├── main.ts                 # App entry: mounts App.svelte
-│   ├── App.svelte              # Root component
+├── src/                        # React + TypeScript frontend
+│   ├── main.tsx                # App entry: mounts App.tsx
+│   ├── App.tsx                 # Root component
 │   └── lib/
 │       ├── components/
 │       │   ├── layout/
-│       │   │   ├── AppShell.svelte       # Main layout: sidebar + terminal + aux panels
-│       │   │   ├── TitleBar.svelte       # Custom frameless title bar + search
-│       │   │   ├── StatusBar.svelte      # Bottom status bar
-│       │   │   └── SnapshotsPanel.svelte # Workspace snapshot UI
+│       │   │   ├── AppShell.tsx          # Main layout: sidebar + terminal + aux panels
+│       │   │   ├── TitleBar.tsx          # Custom frameless title bar + search
+│       │   │   ├── StatusBar.tsx         # Bottom status bar
+│       │   │   └── SnapshotsPanel.tsx    # Workspace snapshot UI
 │       │   ├── terminal/
-│       │   │   ├── TerminalPanel.svelte  # Terminal panel host + layout picker
-│       │   │   ├── TerminalPane.svelte   # Individual xterm.js instance
-│       │   │   └── FloatingPromptBar.svelte
+│       │   │   ├── TerminalPanel.tsx     # Terminal panel host + layout picker
+│       │   │   ├── TerminalPane.tsx      # Individual xterm.js instance
+│       │   │   └── FloatingPromptBar.tsx
 │       │   ├── editor/
-│       │   │   ├── EditorPanel.svelte    # Editor host + tabs
-│       │   │   └── CodeEditor.svelte     # CodeMirror 6 wrapper
+│       │   │   ├── EditorPanel.tsx       # Editor host + tabs
+│       │   │   └── CodeEditor.tsx        # CodeMirror 6 wrapper
 │       │   ├── preview/
-│       │   │   └── PreviewPanel.svelte   # Preview iframe + inspector + console
+│       │   │   └── PreviewPanel.tsx      # Preview iframe + inspector + console
 │       │   ├── explorer/
-│       │   │   ├── FileExplorer.svelte   # File tree
-│       │   │   └── SourceControl.svelte  # Git diff/status/log
+│       │   │   ├── FileExplorer.tsx      # File tree
+│       │   │   └── SourceControl.tsx     # Git diff/status/log
 │       │   ├── workspace/
-│       │   │   ├── WelcomeScreen.svelte  # Recent workspaces landing page
-│       │   │   ├── ProjectSwitcher.svelte
-│       │   │   ├── TasksPanel.svelte
-│       │   │   ├── NotesPanel.svelte
-│       │   │   ├── QuickRunPanel.svelte
-│       │   │   └── ReviewPanel.svelte
+│       │   │   ├── WelcomeScreen.tsx     # Recent workspaces landing page
+│       │   │   ├── ProjectSwitcher.tsx
+│       │   │   ├── TasksPanel.tsx
+│       │   │   ├── NotesPanel.tsx
+│       │   │   ├── RunHistoryPanel.tsx
+│       │   │   └── ReviewPanel.tsx
 │       │   └── shared/
-│       │       ├── SettingsModal.svelte  # Settings modal (5 tabs)
-│       │       └── Toasts.svelte         # Toast notification renderer
+│       │       ├── SettingsModal.tsx     # Settings modal
+│       │       └── Toasts.tsx            # Toast notification renderer
 │       ├── stores/
 │       │   ├── settings.ts     # Editor, terminal, shortcut, zoom settings
 │       │   ├── layout.ts       # Panel visibility, sidebar state
@@ -242,7 +242,6 @@ soryq/
 │   └── icon.png                # App icon (used in titlebar)
 ├── index.html                  # Vite entry HTML
 ├── vite.config.ts              # Vite build configuration
-├── svelte.config.js            # Svelte compiler configuration
 ├── tsconfig.json               # TypeScript configuration
 └── package.json
 ```
@@ -255,7 +254,7 @@ soryq/
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  WebView (Svelte 5 + TypeScript)                            │
+│  WebView (React + TypeScript)                               │
 │                                                             │
 │  Stores ──► Components ──► invoke("command_name", args)     │
 │     ^                              │                        │
@@ -274,7 +273,7 @@ soryq/
 
 ### Frontend Stores
 
-All application state in the frontend is managed by **Svelte 5 stores** in `src/lib/stores/`. Stores communicate with each other through subscriptions and derived stores. They communicate with the Rust backend through Tauri's `invoke` function.
+Application state in the frontend is managed by store modules in `src/lib/stores/`. The store contract lives in `src/lib/stores/storeCompat.ts`, and React components subscribe through `src/lib/react/useStore.ts`. Stores communicate with the Rust backend through Tauri's `invoke` function.
 
 Stores that need persistence call `localStorage` directly inside a `store.subscribe()` callback, using a `forge_setting_` or `forge_ws_` key prefix.
 
@@ -394,13 +393,13 @@ Ensure `DISPLAY` or `WAYLAND_DISPLAY` is set if you are running inside a desktop
 3. Try toggling "Preferred Local Host" between `127.0.0.1` and `localhost` — some servers bind to only one
 4. Check that your dev server is not binding to `0.0.0.0` only (some servers reject `localhost` requests in that case — use `127.0.0.1` in that scenario)
 
-### `npm run check` reports Svelte type errors
+### `npm run check` reports TypeScript errors
 
 ```bash
 npm run check
 ```
 
-TypeScript and Svelte type checks are run with `svelte-check`. Fix any reported errors before submitting a PR. The checks do not run automatically during `tauri dev` to keep startup fast.
+TypeScript checks are run with `tsc --noEmit`. Fix any reported errors before submitting a PR. The checks do not run automatically during `tauri dev` to keep startup fast.
 
 ### Changing Tauri configuration
 

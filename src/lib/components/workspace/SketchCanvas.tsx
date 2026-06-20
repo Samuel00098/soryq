@@ -2546,6 +2546,9 @@ export default function SketchCanvas() {
     }
 
     e.preventDefault();
+    // Keep canvas pan/zoom from bubbling to the app shell, which would otherwise
+    // treat a horizontal swipe as a mode switch and slide the whole layout.
+    e.stopPropagation();
     const viewport = viewportRef.current;
     if (!viewport) return;
     

@@ -20,7 +20,7 @@ import {
   parseLocalPreviewUrl,
   type PreviewTab,
 } from './preview';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 
 /**
  * Create a fresh singleton state for each test.

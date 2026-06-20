@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Soryq — Terminal-first developer workspace</title>
-  <meta name="description" content="A lightweight, terminal-first developer workspace combining PTY terminal sessions, CodeMirror editor, live proxy preview, and git integration in a single keyboard-driven window. Built with Tauri and Svelte.">
+  <meta name="description" content="A lightweight, terminal-first developer workspace combining PTY terminal sessions, CodeMirror editor, live proxy preview, and git integration in a single keyboard-driven window. Built with Tauri and React.">
   <link rel="icon" type="image/png" href="../static/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,7 +39,7 @@
   <section class="hero">
     <div class="hero-bg-lines"></div>
     <div class="container hero-content">
-      <div class="badge">TAURI 2 + SVELTE 5 SHIPPED</div>
+      <div class="badge">TAURI 2 + REACT 19 SHIPPED</div>
       <h1 class="hero-title">The lightweight, terminal-first developer workspace.</h1>
       <p class="hero-desc">Soryq merges a native PTY terminal, CodeMirror editor, live preview proxy, and git status into a keyboard-centric window. Sub-second startup. Zero background cloud trackers.</p>
       
@@ -119,20 +119,19 @@
             <!-- Editor panel -->
             <div class="mock-panel-content" id="editor-panel">
               <div class="editor-header">
-                <span>App.svelte</span>
+                <span>App.tsx</span>
               </div>
               <div class="editor-body">
-                <div class="code-line"><span class="ln">1</span><span class="kw">&lt;script</span> <span class="attr">lang</span>=<span class="str">"ts"</span><span class="kw">&gt;</span></div>
-                <div class="code-line"><span class="ln">2</span>  <span class="kw">let</span> count = <span class="num">0</span>;</div>
-                <div class="code-line"><span class="ln">3</span>  <span class="kw">function</span> <span class="fun">increment</span>() {</div>
-                <div class="code-line"><span class="ln">4</span>    count += <span class="num">1</span>;</div>
-                <div class="code-line"><span class="ln">5</span>  }</div>
-                <div class="code-line"><span class="ln">6</span><span class="kw">&lt;/script&gt;</span></div>
-                <div class="code-line"><span class="ln">7</span></div>
-                <div class="code-line"><span class="ln">8</span><span class="kw">&lt;main</span> <span class="attr">class</span>=<span class="str">"container"</span><span class="kw">&gt;</span></div>
-                <div class="code-line"><span class="ln">9</span>  <span class="kw">&lt;h1&gt;</span>Hello Soryq!<span class="kw">&lt;/h1&gt;</span></div>
-                <div class="code-line"><span class="ln">10</span>  <span class="kw">&lt;button</span> <span class="attr">onclick</span>=<span class="str">&#123;increment&#125;</span><span class="kw">&gt;</span>Clicks: &#123;count&#125;<span class="kw">&lt;/button&gt;</span></div>
-                <div class="code-line"><span class="ln">11</span><span class="kw">&lt;/main&gt;</span></div>
+                  <div class="code-line"><span class="ln">1</span><span class="kw">import</span> { useState } <span class="kw">from</span> <span class="str">"react"</span>;</div>
+                <div class="code-line"><span class="ln">2</span><span class="kw">function</span> <span class="fun">App</span>() {</div>
+                <div class="code-line"><span class="ln">3</span>  <span class="kw">const</span> [count, setCount] = useState(<span class="num">0</span>);</div>
+                <div class="code-line"><span class="ln">4</span>  <span class="kw">return</span> (</div>
+                <div class="code-line"><span class="ln">5</span>    <span class="kw">&lt;main</span> <span class="attr">className</span>=<span class="str">"container"</span><span class="kw">&gt;</span></div>
+                <div class="code-line"><span class="ln">6</span>      <span class="kw">&lt;h1&gt;</span>Hello Soryq!<span class="kw">&lt;/h1&gt;</span></div>
+                <div class="code-line"><span class="ln">7</span>      <span class="kw">&lt;button</span> <span class="attr">onClick</span>=<span class="str">{() =&gt; setCount(c =&gt; c + 1)}</span><span class="kw">&gt;</span>Clicks: {count}<span class="kw">&lt;/button&gt;</span></div>
+                <div class="code-line"><span class="ln">8</span>    <span class="kw">&lt;/main&gt;</span></div>
+                <div class="code-line"><span class="ln">9</span>  );</div>
+                <div class="code-line"><span class="ln">10</span>}</div>
               </div>
             </div>
 
@@ -160,7 +159,7 @@
                 <div class="git-changes-label">Changes (1)</div>
                 <div class="git-file-row">
                   <span class="file-icon">M</span>
-                  <span class="file-name">src/App.svelte</span>
+                  <span class="file-name">src/App.tsx</span>
                   <span class="git-badge modified">M</span>
                 </div>
                 <div class="commit-message-section">

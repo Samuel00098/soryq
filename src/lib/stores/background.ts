@@ -1,24 +1,34 @@
-import { get, writable } from 'svelte/store';
+import { get, writable } from '$lib/stores/storeCompat';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { backgroundImageEnabled, interfaceTransparency, backgroundImageOpacity, backgroundImageBlur } from './settings';
 import { showToast } from './notification';
+import { useBackgroundStore, type BackgroundMedia, type BackgroundMediaKind } from './zustand/background';
 
-export type BackgroundMediaKind = 'image' | 'video';
+export type { BackgroundMediaKind, BackgroundMedia } from './zustand/background';
 
-export interface BackgroundMedia {
-  url: string;
-  kind: BackgroundMediaKind;
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useBackgroundStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useBackgroundStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useBackgroundStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useBackgroundStore.getState() as any)[key] as T;
+      (useBackgroundStore.getState() as any).__set(key, fn(current));
+    },
+  };
 }
 
-// The current background image as a webview-safe asset URL. The image itself
-// lives on disk in the app config dir; we avoid piping large base64 payloads
-// over IPC for faster set/get performance.
+export const backgroundImagePresent = syncWritable<boolean>('backgroundImagePresent', false);
+export const backgroundMedia = syncWritable<BackgroundMedia | null>('backgroundMedia', null);
+
 let currentAssetUrl: string | null = null;
 let currentMediaKind: BackgroundMediaKind | null = null;
-
-/** Reactive flag for the UI: whether a background image is stored on disk. */
-export const backgroundImagePresent = writable<boolean>(false);
-export const backgroundMedia = writable<BackgroundMedia | null>(null);
 
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'm4v', 'mov', 'ogv']);
 
@@ -43,17 +53,21 @@ function setCurrent(filePath: string | null, cacheToken = `${Date.now()}`) {
   );
 }
 
-/** Load saved settings on startup: apply the global frost, then any stored image. */
 export async function initBackground(): Promise<void> {
-  // Interface transparency is global — apply it whether or not an image loads.
   applyInterfaceFrost(get(interfaceTransparency));
   applyBackgroundAppearance(get(backgroundImageOpacity), get(backgroundImageBlur));
   try {
     const storedBackground = await invoke<string | null>('background_image_get');
     setCurrent(storedBackground);
-    // If a wallpaper is stored on disk, restore it as active on startup so the
-    // background doesn't disappear after relaunching the app.
-    backgroundImageEnabled.set(storedBackground !== null);
+    // Load the stored media but DON'T force the enabled toggle on. Whether the
+    // background shows is the user's persisted choice (set true by
+    // chooseBackgroundImage, false by the Settings toggle / removeBackgroundImage)
+    // — overriding it here from "a file exists on disk" is what made a toggled-off
+    // background reappear on every restart. If the file went missing, fall the
+    // toggle off so a stale "on" doesn't leave the app trying to show nothing.
+    if (storedBackground === null) {
+      backgroundImageEnabled.set(false);
+    }
   } catch (e) {
     console.error('Failed to load background image:', e);
     setCurrent(null);
@@ -61,7 +75,6 @@ export async function initBackground(): Promise<void> {
   applyBackgroundImage();
 }
 
-/** Open a file picker, copy the chosen background media into the app data dir, and show it. */
 export async function chooseBackgroundImage(): Promise<void> {
   const { open } = await import('@tauri-apps/plugin-dialog');
   const selected = await open({
@@ -86,7 +99,6 @@ export async function chooseBackgroundImage(): Promise<void> {
   }
 }
 
-/** Remove the stored background image (frost/transparency is unaffected). */
 export async function removeBackgroundImage(): Promise<void> {
   try {
     await invoke('background_image_clear');
@@ -98,16 +110,10 @@ export async function removeBackgroundImage(): Promise<void> {
   applyBackgroundImage();
 }
 
-/** True when an image is present (regardless of the enabled toggle). */
 export function hasBackgroundImage(): boolean {
   return currentAssetUrl !== null;
 }
 
-/**
- * Apply (or remove) just the background image layer based on current settings.
- * Frost/transparency is handled separately by applyInterfaceFrost so it works
- * even with no image set.
- */
 export function applyBackgroundImage(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
@@ -125,30 +131,14 @@ export function applyBackgroundImage(): void {
   root.classList.toggle('has-bg-media', active);
 }
 
-/**
- * Map a 0–100 transparency value onto the glass tokens for the entire UI.
- * 0 = solid/opaque surfaces; 100 = most see-through (desktop or background image
- * shows strongly). 50 ≈ the app's built-in frosted defaults. The
- * base < chrome < surface opacity hierarchy is preserved so panel depth stays
- * intact. Applied globally — independent of any background image.
- */
 let frostTimeout: any = null;
 let lastFrostRun = 0;
 
-/**
- * Map a 0–100 transparency value onto the glass tokens for the entire UI.
- * 0 = solid/opaque surfaces. Up to 50 the surfaces are fully frosted glass
- * (heavy blur — translucent but you can't see through). Past 50 the frost melts
- * away and the glass clears up, until 100 = clear, see-through glass (desktop or
- * background image shows sharply). The base < chrome < surface opacity hierarchy
- * is preserved so panel depth stays intact. Applied globally — independent of any
- * background image.
- */
 export function applyInterfaceFrost(transparency: number): void {
   if (typeof document === 'undefined') return;
 
   const now = Date.now();
-  const throttleMs = 40; // ~25 FPS max update rate
+  const throttleMs = 40;
 
   const run = () => {
     const root = document.documentElement;
@@ -162,17 +152,14 @@ export function applyInterfaceFrost(transparency: number): void {
       root.classList.remove('solid-theme');
       const t = Math.min(100, Math.max(0, transparency)) / 100;
 
-      const base = 0.9 - t * 0.78;             // t0 → 0.90 (solid), t1 → 0.12 (clear)
+      const base = 0.9 - t * 0.78;
       const chrome = Math.min(0.98, base + 0.1);
       const surface = Math.min(0.99, base + 0.2);
 
-      // Frost behaves like real glass: thick & frosted through the lower half
-      // (≤50% = full frosted glass — you can't see through), then the frost melts
-      // away as transparency rises past the midpoint until it's clear glass at 100%.
       const FROST_MAX = 32;
       const blur = t <= 0.5
-        ? FROST_MAX                            // 0–50% → 32px: full frost
-        : FROST_MAX * (1 - (t - 0.5) / 0.5);   // 50% → 32px, 100% → 0px: clears up
+        ? FROST_MAX
+        : FROST_MAX * (1 - (t - 0.5) / 0.5);
 
       root.style.setProperty('--frost-base', base.toFixed(3));
       root.style.setProperty('--frost-chrome', chrome.toFixed(3));
@@ -199,16 +186,11 @@ export function applyInterfaceFrost(transparency: number): void {
 let appearanceTimeout: any = null;
 let lastAppearanceRun = 0;
 
-/**
- * Apply the background-image appearance (Terax-style): opacity 0–100 dims the
- * image, blur 0–60px softens it. Pure CSS on the html::before layer; independent
- * of the global interface frost so the wallpaper can be tuned for legibility.
- */
 export function applyBackgroundAppearance(opacityPct: number, blurPx: number): void {
   if (typeof document === 'undefined') return;
 
   const now = Date.now();
-  const throttleMs = 40; // ~25 FPS max update rate
+  const throttleMs = 40;
 
   const run = () => {
     const root = document.documentElement;

@@ -14,7 +14,7 @@
  * one rust-analyzer per `.rs` file would re-index the project every time.
  */
 import { invoke, Channel } from '@tauri-apps/api/core';
-import { writable } from 'svelte/store';
+import { writable } from '$lib/stores/storeCompat';
 import {
   LanguageServerClient,
   WebSocketTransport,
@@ -22,7 +22,7 @@ import {
 } from 'codemirror-languageserver';
 import type { Extension } from '@codemirror/state';
 import { showToast, dismissToast, toasts } from '$lib/stores/notification';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 
 /** Soryq language ids (from `detectLanguage`) that we offer LSP for. */
 const SUPPORTED = new Set(['typescript', 'javascript', 'rust', 'python', 'go']);

@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { showToast } from './notification';
 
 export const targetPort = writable<number>(5173);

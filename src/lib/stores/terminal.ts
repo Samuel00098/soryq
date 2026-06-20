@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { attachPty, openPty, type PtySession } from '$lib/services/pty-bridge';
 import { terminalShell } from '$lib/stores/settings';
 import { showToast } from '$lib/stores/notification';
@@ -6,6 +6,7 @@ import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
 import { agentReadsRulesFile, ensureAgentRulesFiles } from '$lib/services/orchestrator/agent-rules-file';
 import { devpet } from '$lib/stores/devpet';
 import { getCustomAgents } from '$lib/stores/customAgents';
+import { removeTaskWorktree, type WorktreeInfo } from '$lib/services/orchestrator/worktree-manager';
 
 export type TerminalSessionInfo = {
   id: number;
@@ -29,6 +30,11 @@ export type TerminalSessionInfo = {
   // Orchestrator: id of the OrchestratorTask that currently owns this terminal
   // (single-agent lease). null/undefined = unowned / user-controlled.
   ownerTaskId?: string | null;
+  // Isolated git worktree this agent runs in, when spawned outside the
+  // orchestrator (e.g. the floating prompt bar). Orchestrator-dispatched agents
+  // keep their worktree on the OrchestratorTask instead, so this stays unset for
+  // them — that ownership split is what decides who cleans the worktree up.
+  worktree?: WorktreeInfo | null;
 };
 
 // Keyed by the agent's launch command (see AI_AGENT_PRESETS in runs.ts), with a
@@ -383,23 +389,31 @@ export function swapPanes(from: number, to: number) {
 export function focusPane(paneIdx: number) {
   const projectId = activeTerminalProjectId;
   if (!projectId) {
-    activePaneIndex.set(paneIdx);
+    if (get(activePaneIndex) !== paneIdx) {
+      activePaneIndex.set(paneIdx);
+    }
     const panes = get(paneAssignments);
     if (panes[paneIdx] !== null) {
       activateSessionInPane(panes[paneIdx]!);
     }
     // Focusing a pane makes its terminal the prompt-bar target.
-    manualPromptTargetId.set(panes[paneIdx]);
+    if (get(manualPromptTargetId) !== panes[paneIdx]) {
+      manualPromptTargetId.set(panes[paneIdx]);
+    }
     return;
   }
 
-  updateProjectState(projectId, (state) => ({ ...state, activePaneIndex: paneIdx }));
+  updateProjectState(projectId, (state) => (
+    state.activePaneIndex === paneIdx ? state : { ...state, activePaneIndex: paneIdx }
+  ));
   const panes = getProjectState(projectId).paneAssignments;
   if (panes[paneIdx] !== null) {
     activateSessionInPane(panes[paneIdx]!);
   }
   // Focusing a pane makes its terminal the prompt-bar target.
-  manualPromptTargetId.set(panes[paneIdx]);
+  if (get(manualPromptTargetId) !== panes[paneIdx]) {
+    manualPromptTargetId.set(panes[paneIdx]);
+  }
 }
 
 export function setActiveSession(id: number) {
@@ -414,9 +428,13 @@ export function activateSessionInPane(id: number) {
 
   updateProjectState(projectId, (state) => {
     const idx = state.paneAssignments.indexOf(id);
+    const nextActivePaneIndex = idx !== -1 ? idx : state.activePaneIndex;
+    if (state.activeSessionId === id && state.activePaneIndex === nextActivePaneIndex) {
+      return state;
+    }
     return {
       ...state,
-      activePaneIndex: idx !== -1 ? idx : state.activePaneIndex,
+      activePaneIndex: nextActivePaneIndex,
       activeSessionId: id,
       sessions: state.sessions.map((session) => (
         session.id === id
@@ -573,7 +591,8 @@ function registerPtySession(
   owningProjectId: string,
   cwd?: string | null,
   targetPaneIndex?: number,
-  metadata: RestoredSessionMetadata = {}
+  metadata: RestoredSessionMetadata = {},
+  assignPane = true
 ) {
   ptyInstances.set(pty.id, pty);
   terminalSessionProjects.set(pty.id, owningProjectId);
@@ -606,6 +625,11 @@ function registerPtySession(
       : [...state.sessions, info],
     activeSessionId: pty.id,
   }));
+
+  // Agent rooms (assignPane: false) live in `sessions` but never take a slot in
+  // the user's personal terminal mosaic — assigning one would render its cell as
+  // an empty "Agent is open as a panel" pane instead of the agent itself.
+  if (!assignPane) return;
 
   updateProjectState(owningProjectId, (state) => {
     const paneAssignments = [...state.paneAssignments];
@@ -642,7 +666,23 @@ function findSessionAnyProject(id: number): TerminalSessionInfo | undefined {
   return pool.find((s) => s.id === id);
 }
 
-export async function createTerminalSession(cwd?: string, targetPaneIndex?: number, projectId?: string): Promise<number | null> {
+export async function createTerminalSession(
+  cwd?: string,
+  targetPaneIndex?: number,
+  projectId?: string,
+  opts?: { assignPane?: boolean; agentPreset?: string | null }
+): Promise<number | null> {
+  // Agents run as their own rooms and must never occupy a slot in the user's
+  // personal terminal grid — pass assignPane: false to create a session that
+  // lives in `sessions` (so it surfaces as an agent room) without touching
+  // paneAssignments / the mosaic. Everything else defaults to assigning a pane.
+  const assignPane = opts?.assignPane ?? true;
+  // Stamp the agent preset at birth (not a beat later via markSessionAgentPreset).
+  // Otherwise the session exists momentarily as a plain "shell session", and the
+  // TerminalPanel auto-fill reconcile — which runs during the awaited create —
+  // grabs that unassigned shell into a leftover empty pane. Marking it an agent
+  // afterward then evicts it, leaving an undismissable ghost "Open terminal" cell.
+  const agentPreset = opts?.agentPreset ?? null;
   try {
     let pty: PtySession;
     const owningProjectId = projectId ?? activeTerminalProjectId;
@@ -707,6 +747,8 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       paneTitle: null,
       agentName: null,
       isRunning: true,
+      agentPreset,
+      role: agentPreset ? 'Agent' : null,
       // Remember where this terminal runs so an agent's standing brief can be
       // written to a rules file (CLAUDE.md / AGENTS.md) in the same directory.
       cwd: resolvedCwd ?? null,
@@ -720,7 +762,7 @@ export async function createTerminalSession(cwd?: string, targetPaneIndex?: numb
       activeSessionId: pty.id,
     }));
 
-    updateProjectState(owningProjectId, (state) => {
+    if (assignPane) updateProjectState(owningProjectId, (state) => {
       const paneAssignments = [...state.paneAssignments];
       let nextActivePaneIndex = state.activePaneIndex;
       if (targetPaneIndex !== undefined && targetPaneIndex >= 0) {
@@ -760,7 +802,8 @@ export async function attachTerminalSession(
   cwd?: string | null,
   targetPaneIndex?: number,
   projectId?: string,
-  metadata: RestoredSessionMetadata = {}
+  metadata: RestoredSessionMetadata = {},
+  opts?: { assignPane?: boolean }
 ): Promise<number | null> {
   try {
     const owningProjectId = projectId ?? activeTerminalProjectId;
@@ -793,7 +836,7 @@ export async function attachTerminalSession(
     });
 
     pty = await ptyPromise;
-    registerPtySession(pty, owningProjectId, cwd ?? null, targetPaneIndex, metadata);
+    registerPtySession(pty, owningProjectId, cwd ?? null, targetPaneIndex, metadata, opts?.assignPane ?? true);
     return pty.id;
   } catch {
     return null;
@@ -1612,6 +1655,17 @@ export function setSessionRole(id: number, role: string | null) {
   }));
 }
 
+/** Record the isolated worktree a (non-orchestrator) agent runs in, so its pane
+ *  can show the branch badge and its worktree is torn down when the pane closes. */
+export function setSessionWorktree(id: number, worktree: WorktreeInfo | null) {
+  const projectId = terminalSessionProjects.get(id);
+  if (!projectId) return;
+  updateProjectState(projectId, (state) => ({
+    ...state,
+    sessions: state.sessions.map((x) => (x.id === id ? { ...x, worktree } : x)),
+  }));
+}
+
 export function setSessionCwd(id: number, cwd: string | null) {
   const projectId = terminalSessionProjects.get(id);
   if (!projectId) return;
@@ -1655,6 +1709,22 @@ export function sessionHasRunningProcess(session: TerminalSessionInfo | null | u
   if (!session || !session.isRunning) return false;
   const role = session.role?.trim().toLowerCase();
   return !!role && RUNNING_PROCESS_ROLES.has(role);
+}
+
+/**
+ * Find an idle, non-agent terminal that already exists for this project and
+ * return its id, or create a fresh one if nothing is available. Never reuses
+ * a pane that is an agent, busy, or running a detected long-lived process
+ * (dev server / build) — running a command there would clobber it.
+ */
+export async function ensureIdleOrCreateTerminal(rootPath: string, projectId: string): Promise<number | null> {
+  const sessions = getTerminalProjectState(projectId).sessions;
+  const reusable = sessions.filter(
+    (s) => s.isRunning && !s.agentPreset && !s.ownerTaskId && !sessionHasRunningProcess(s)
+  );
+  const shell = reusable.find((s) => !s.isExecuting) ?? reusable[0];
+  if (shell) return shell.id;
+  return await createTerminalSession(rootPath || undefined, undefined, projectId);
 }
 
 
@@ -1852,7 +1922,7 @@ function getNextGridLayout(current: GridLayout): GridLayout | null {
 }
 
 // ── Mosaic growth hook ──────────────────────────────────────────────────────
-// The visual mosaic (columns / widths / heights) lives in TerminalPanel.svelte.
+// The visual mosaic (columns / widths / heights) is managed by TerminalPane components.
 // It registers a grow function here so spawning agents can add exactly one
 // tiled pane at a time, instead of jumping to a fixed grid layout that would
 // leave empty filler panes. Returns the new pane index.
@@ -1877,37 +1947,23 @@ export async function spawnAgentPreset(
   opts?: { activate?: boolean; skipAutoBrief?: boolean }
 ): Promise<number | null> {
   const activate = opts?.activate ?? true;
-  // When spawning in the background (activate: false), remember what was focused
-  // so a freshly created pane doesn't steal focus — the "primary" agent stays put.
-  const bgProjectId = activate ? null : activeTerminalProjectId;
-  const priorActive = bgProjectId
+  // Agents are their own rooms — they never occupy the user's personal terminal
+  // grid. Remember what's focused there so creating the agent session (which sets
+  // activeSessionId) doesn't yank the personal terminal's active tab out from
+  // under the user; we restore it below unless this agent is being focused.
+  const projectForFocus = activeTerminalProjectId;
+  const priorActive = projectForFocus
     ? {
-        sessionId: getProjectState(bgProjectId).activeSessionId,
-        paneIndex: getProjectState(bgProjectId).activePaneIndex,
+        sessionId: getProjectState(projectForFocus).activeSessionId,
+        paneIndex: getProjectState(projectForFocus).activePaneIndex,
       }
     : null;
 
-  let target = findAvailablePaneForAgentRun();
-
-  if (!target) {
-    if (mosaicGrowFn) {
-      // Preferred path: grow the mosaic by a single tiled pane (no filler panes).
-      const paneIdx = mosaicGrowFn();
-      target = { paneIdx, sessionId: null as number | null };
-    } else {
-      // Fallback: bump to the next fixed grid layout.
-      const next = getNextGridLayout(get(gridLayout));
-      if (!next) return null;
-      setGridLayout(next);
-      target = findAvailablePaneForAgentRun();
-      if (!target) return null;
-    }
-  }
-
-  let sessionId = target.sessionId;
-  if (sessionId === null) {
-    sessionId = await createTerminalSession(cwd, target.paneIdx);
-  }
+  // Create a standalone session: it lives in `sessions` (so it surfaces as an
+  // agent room) but is NOT assigned to any pane in the personal terminal mosaic.
+  // Pass the preset so the session is born an agent — never a transient shell the
+  // pane auto-fill could grab (which would leave a ghost empty pane behind).
+  const sessionId = await createTerminalSession(cwd, undefined, undefined, { assignPane: false, agentPreset: command });
   if (sessionId === null || sessionId === undefined) return null;
 
   // Agents that read a rules file get the standing brief from CLAUDE.md /
@@ -1942,13 +1998,13 @@ export async function spawnAgentPreset(
   // dispatch (skipAutoBrief) wraps it around the goal itself; every other spawn
   // is briefed by autoBriefSession via the readiness-gated agent-charter path.
 
-  // Background spawn: createTerminalSession made the new pane active — undo that
-  // and restore the prior focus so the primary terminal stays stationary.
-  if (bgProjectId && priorActive?.sessionId != null && priorActive.sessionId !== sessionId) {
-    updateProjectState(bgProjectId, (state) => ({
+  // createTerminalSession set the new agent as the active session. When this
+  // agent isn't being focused (a background/secondary spawn), restore the
+  // personal terminal's prior active tab so it stays put.
+  if (!activate && projectForFocus && priorActive?.sessionId != null && priorActive.sessionId !== sessionId) {
+    updateProjectState(projectForFocus, (state) => ({
       ...state,
       activeSessionId: priorActive.sessionId,
-      activePaneIndex: priorActive.paneIndex,
     }));
   }
 
@@ -1965,6 +2021,15 @@ export function resizeSession(id: number, rows: number, cols: number) {
 export async function killAllSessions() {
   const ids = Array.from(ptyInstances.keys());
   await Promise.all(ids.map((id) => killSession(id)));
+  dataCallbacks.clear();
+  exitCallbacks.clear();
+  sessionOutputBuffers.clear();
+  sessionOutputDecoders.clear();
+  sessionInputBuffers.clear();
+  agentLaunchStartLengths.clear();
+  terminalSessionProjects.clear();
+  suppressAgentDetection.clear();
+  autoBriefInFlight.clear();
 }
 
 export async function killSession(id: number) {
@@ -1978,6 +2043,15 @@ export async function killSession(id: number) {
   const paneIndexForMosaicClose = projectId
     ? getProjectState(projectId).paneAssignments.indexOf(id)
     : get(paneAssignments).indexOf(id);
+
+  // Tear down a session-owned worktree (floating-bar agents) when its pane is
+  // closed. Orchestrator agents carry no session worktree — theirs lives on the
+  // task and is cleaned up on task deletion — so this never touches those. The
+  // branch is kept so any committed work remains recoverable.
+  if (projectId) {
+    const closing = getProjectState(projectId).sessions.find((s) => s.id === id);
+    if (closing?.worktree) void removeTaskWorktree(projectId, closing.worktree, false);
+  }
 
   // Update the authoritative state *synchronously* — before the async pty
   // teardown below. closePane() in TerminalPanel mutates the local mosaic

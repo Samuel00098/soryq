@@ -63,7 +63,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Typecheck Svelte app
+      - name: Typecheck frontend
         run: npm run check
 
       - name: Build frontend bundle

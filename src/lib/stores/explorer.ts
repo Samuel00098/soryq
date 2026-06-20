@@ -1,23 +1,44 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { invoke } from '@tauri-apps/api/core';
 import type { FileEntry, FileNode, ContextMenuState } from '$lib/types/explorer';
 import { showHidden } from './settings';
 import { activeProject } from './workspace';
 import { showToast } from './notification';
+import { useExplorerStore } from './zustand/explorer';
 
-export const rootNodes = writable<FileNode[]>([]);
-export const projectRootNodes = writable<Map<string, FileNode[]>>(new Map());
-export const loadingProjectRoots = writable<Set<string>>(new Set());
-export const expandedPaths = writable<Set<string>>(new Set());
-export const selectedPath = writable<string | null>(null);
+export type { FileNode, ContextMenuState } from '$lib/types/explorer';
+
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useExplorerStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useExplorerStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useExplorerStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useExplorerStore.getState() as any)[key] as T;
+      (useExplorerStore.getState() as any).__set(key, fn(current));
+    },
+  };
+}
+
+export const rootNodes = syncWritable<FileNode[]>('rootNodes', []);
+export const projectRootNodes = syncWritable<Map<string, FileNode[]>>('projectRootNodes', new Map());
+export const loadingProjectRoots = syncWritable<Set<string>>('loadingProjectRoots', new Set());
+export const expandedPaths = syncWritable<Set<string>>('expandedPaths', new Set());
+export const selectedPath = syncWritable<string | null>('selectedPath', null);
 // Multi-selection: the full set of selected paths. `selectedPath` stays the
 // "active" item (last clicked) — it's what gets persisted and what anchors a
 // shift-range. Highlighting in the tree is driven by this set.
-export const selectedPaths = writable<Set<string>>(new Set());
+export const selectedPaths = syncWritable<Set<string>>('selectedPaths', new Set());
 // Fixed end of a shift-range selection. Module-local; not persisted.
 let selectionAnchor: string | null = null;
-export const isLoading = writable(false);
-export const contextMenu = writable<ContextMenuState>({
+export const isLoading = syncWritable<boolean>('isLoading', false);
+export const contextMenu = syncWritable<ContextMenuState>('contextMenu', {
   visible: false,
   x: 0,
   y: 0,
@@ -26,14 +47,14 @@ export const contextMenu = writable<ContextMenuState>({
 });
 
 // ── Inline rename state ───────────────────────────────────────────────────
-export const renamingPath = writable<string | null>(null);
-export const renamingValue = writable('');
+export const renamingPath = syncWritable<string | null>('renamingPath', null);
+export const renamingValue = syncWritable<string>('renamingValue', '');
 
 // ── Inline create state ───────────────────────────────────────────────────
 // `creatingPath` holds the *parent* directory the new entry will be created in.
-export const creatingPath = writable<string | null>(null);
-export const creatingType = writable<'file' | 'dir'>('file');
-export const creatingValue = writable('');
+export const creatingPath = syncWritable<string | null>('creatingPath', null);
+export const creatingType = syncWritable<'file' | 'dir'>('creatingType', 'file');
+export const creatingValue = syncWritable<string>('creatingValue', '');
 
 export function startCreate(parentPath: string, type: 'file' | 'dir') {
   creatingPath.set(parentPath);

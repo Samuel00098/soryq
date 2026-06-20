@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),

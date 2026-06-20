@@ -15,7 +15,6 @@ import {
   closeSettings,
   quickCaptureOpen,
   closeQuickCapture,
-  envManagerOpen,
 } from '$lib/stores/layout';
 import {
   newWorkspacePromptOpen,
@@ -54,7 +53,6 @@ import { isTauriRuntime } from '$lib/utils/tauri';
 
 const ZOOM_LEVELS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200] as const;
 
-const EnvManager = lazy(() => import('$lib/components/shared/EnvManager.tsx'));
 const OnboardingWalkthrough = lazy(() => import('$lib/components/workspace/OnboardingWalkthrough.tsx'));
 
 function zoomIn() {
@@ -74,7 +72,6 @@ function zoomOut() {
 export default function App() {
   const isSettingsOpen = useStore(settingsOpen);
   const isQuickCaptureOpen = useStore(quickCaptureOpen);
-  const isEnvManagerOpen = useStore(envManagerOpen);
   const isNewWorkspacePromptOpen = useStore(newWorkspacePromptOpen);
   const permissionRequest = usePermissionsStore((s) => s.pendingPermissionRequest);
   const hasCompletedOnboarding = useStore(onboardingCompleted);
@@ -196,12 +193,6 @@ export default function App() {
       {isSettingsOpen && <SettingsModal onclose={closeSettings} />}
 
       {isQuickCaptureOpen && <QuickCaptureModal onclose={closeQuickCapture} />}
-
-      {isEnvManagerOpen && (
-        <Suspense fallback={null}>
-          <EnvManager />
-        </Suspense>
-      )}
 
       {isNewWorkspacePromptOpen && <WorkspaceNameModal />}
 

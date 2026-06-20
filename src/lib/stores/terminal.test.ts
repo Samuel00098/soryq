@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 
 const ptyDataHandlers = vi.hoisted(() => new Map<number, (bytes: Uint8Array) => void>());
 const ptyReplayHandlers = vi.hoisted(() => new Map<number, (bytes: Uint8Array) => void>());

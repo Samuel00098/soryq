@@ -1,11 +1,13 @@
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 import { layout, settingsOpen } from '$lib/stores/layout';
+import { layoutSnapshot } from '$lib/stores/layoutControl';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn, activeSelection } from '$lib/stores/editor';
 import { getTerminalProjectState, getAgentDisplayName, getSessionOutputBuffer } from '$lib/stores/terminal';
 import { currentUrl, proxyStarted } from '$lib/stores/preview';
 import { branchInfo } from '$lib/stores/gitBranch';
 import { getPresetRuns } from '$lib/stores/runs';
 import { captureTranscript } from '$lib/services/orchestrator/activity-log';
+import { getAgentSettingsSnapshot } from '$lib/services/orchestrator/app-settings';
 import type { LayoutState } from '$lib/types/layout';
 import type { AppStateRef } from '$lib/services/orchestrator-brain';
 
@@ -81,6 +83,12 @@ export function getAppContextSnapshot(projectId: string, rootPath = ''): AppStat
 
   const visiblePanels = PANEL_FLAGS.filter(({ flag }) => !!l[flag]).map(({ label }) => label);
 
+  const snap = get(layoutSnapshot);
+  const layoutState = {
+    ambient: snap.ambient,
+    rooms: snap.rooms.map((r) => ({ title: r.title, focused: r.focused, minimized: r.minimized })),
+  };
+
   const branch = get(branchInfo)?.current ?? null;
   const previewUrl = get(currentUrl);
 
@@ -101,6 +109,7 @@ export function getAppContextSnapshot(projectId: string, rootPath = ''): AppStat
     activeView: l.activeView,
     settingsOpen: get(settingsOpen),
     visiblePanels,
+    layout: layoutState,
     sidebar: { open: l.sidebarVisible, tab: l.sidebarTab },
     editor: {
       activeFile: relativise(active, rootPath),
@@ -117,5 +126,6 @@ export function getAppContextSnapshot(projectId: string, rootPath = ''): AppStat
     branch,
     availableViews: [...NAVIGABLE_VIEWS],
     availableRuns,
+    settings: getAgentSettingsSnapshot(),
   };
 }

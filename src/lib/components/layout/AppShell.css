@@ -34,9 +34,33 @@
 }
 
 .rooms-workspace {
+  /* Height of the floating bottom cluster (dock + composer). Focus/Split pad
+     their content by this so it clears the controls; Canvas lets windows flow
+     full-bleed behind them. */
+  --overlay-clear: 128px;
   flex-direction: column;
-  gap: 10px;
   padding: 16px 20px 20px;
+}
+
+/* The dock + prompt bar float over the workspace as one bottom-centred cluster
+   instead of sitting in their own opaque band. pointer-events pass through the
+   empty gaps so the canvas behind stays draggable. */
+.workspace-overlays {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px 14px;
+  pointer-events: none;
+}
+
+.workspace-overlays > * {
+  pointer-events: auto;
 }
 
 .rooms-table {
@@ -54,6 +78,13 @@
     gap 0.2s ease;
 }
 
+/* Focus & Split keep their panels above the floating controls. Canvas
+   deliberately omits this so windows can be placed behind the bar. */
+.rooms-table.ambient-focus,
+.rooms-table.ambient-split {
+  padding-bottom: var(--overlay-clear);
+}
+
 .rooms-table.ambient-focus {
   grid-template-columns: minmax(0, 1fr) minmax(380px, 480px);
 }
@@ -66,9 +97,6 @@
 .rooms-table.ambient-gallery {
   display: block;
   overflow: hidden;
-  position: relative;
-  width: 100%;
-  height: 100%;
 }
 
 .focused-room {
@@ -92,138 +120,118 @@
   transition: opacity 0.24s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.ambient-room-grid {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
+/* Freeform "Canvas" mode — a window screen, not a drawing surface. The viewport
+   clips and captures pan/zoom gestures; the world inside it is translated/scaled
+   so window panels can sit at any coordinate. The surface itself is plain so it
+   reads as an open desktop the windows float on, not a sketch board. */
+.ambient-canvas {
   position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 12px;
   cursor: grab;
-  user-select: none;
-  background-color: var(--bg-primary);
+  touch-action: none;
+  background: transparent;
+  transition: opacity 0.24s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.ambient-room-grid.dragging-canvas {
+.ambient-canvas.panning {
   cursor: grabbing;
 }
 
-.canvas-content {
+.ambient-canvas-world {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
+  width: 0;
+  height: 0;
   transform-origin: 0 0;
   will-change: transform;
 }
 
-.canvas-background-grid {
+.ambient-canvas .room-panel {
+  /* Positioned via inline left/top/width/height in world coordinates. */
   position: absolute;
-  top: -50000px;
-  left: -50000px;
-  width: 100000px;
-  height: 100000px;
-  background-image: radial-gradient(color-mix(in srgb, var(--text-muted) 12%, transparent) 1.2px, transparent 1.2px);
-  background-size: 20px 20px;
-  pointer-events: none;
+  resize: none;
+  box-shadow: var(--glass-shadow, 0 18px 50px -24px rgba(0, 0, 0, 0.55));
 }
 
-.rooms-table.ambient-gallery .room-panel {
-  position: absolute !important;
-  margin: 0 !important;
-  flex: none !important;
-  box-shadow: var(--glass-shadow, 0 10px 30px -10px rgba(0, 0, 0, 0.4));
-  border: 1px solid var(--border);
+.ambient-canvas .room-header.canvas-drag-handle {
+  cursor: grab;
 }
 
-.rooms-table.ambient-gallery .room-panel.dragging {
-  opacity: 0.85;
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
-  border-color: var(--accent);
-  transform: scale(1.02);
-  z-index: 1000;
+.ambient-canvas .room-panel.dragging .room-header.canvas-drag-handle {
+  cursor: grabbing;
 }
 
-.rooms-table.ambient-gallery .room-panel.arrangeable {
-  transition: opacity 0.16s ease, border-color 0.16s ease;
-}
-
-/* Floating Toolbar */
-.canvas-toolbar {
+.ambient-canvas .minimized-room-stack {
   position: absolute;
-  bottom: 20px;
-  left: 20px;
-  z-index: 100;
-  display: flex;
+  left: 12px;
+  bottom: 12px;
+  z-index: 30;
+  width: fit-content;
+}
+
+/* Floating zoom + fit control cluster, pinned to the canvas (not the world, so
+   it stays put while panning/zooming). */
+.ambient-canvas-controls {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 20;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  box-shadow: 0 10px 25px -10px rgba(0, 0, 0, 0.5);
-  animation: canvas-fade-in 0.3s ease;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 10px;
 }
 
-.canvas-zoom-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.canvas-zoom-value {
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  min-width: 42px;
-  text-align: center;
-  user-select: none;
-}
-
-.canvas-tool-btn {
-  display: flex;
+.canvas-zoom-btn {
+  appearance: none;
+  width: 30px;
+  height: 28px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: none;
+  border: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
-.canvas-tool-btn:hover {
-  background: color-mix(in srgb, var(--accent) 15%, var(--bg-hover));
-  color: var(--accent);
+.canvas-zoom-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
-.canvas-tool-btn.active {
-  background: var(--accent);
-  color: var(--bg-primary);
+.canvas-zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
-.canvas-toolbar-separator {
-  width: 1px;
-  height: 20px;
-  background: var(--border-subtle);
+.canvas-zoom-label {
+  appearance: none;
+  min-width: 52px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
-@keyframes canvas-fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.ambient-room-grid .minimized-room-stack {
-  position: absolute;
-  left: 20px;
-  bottom: 70px;
-  z-index: 20;
-  width: fit-content;
-  align-self: start;
+.canvas-zoom-label:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .room-panel {
@@ -282,13 +290,29 @@
   border-color: color-mix(in srgb, var(--accent) 76%, var(--border));
 }
 
+/* On the canvas a dragged panel follows the cursor 1:1 via left/top, so keep it
+   crisp (no scale wobble, no transform/position transition) and lift it with a
+   stronger shadow + accent ring instead. */
+.ambient-canvas .room-panel.dragging {
+  opacity: 1;
+  transform: none;
+  transition: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent),
+    0 30px 70px -30px rgba(0, 0, 0, 0.7);
+}
+
+.ambient-canvas .room-panel.resizing {
+  transition: none;
+}
+
 .room-panel.resizing {
   border-color: color-mix(in srgb, var(--accent) 76%, var(--border));
   transition: none;
   will-change: width, height;
 }
 
-.ambient-room-grid .room-panel.scroll-armed {
+.ambient-canvas .room-panel.scroll-armed {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
     var(--glass-shadow, 0 18px 50px -22px rgba(0, 0, 0, 0.5));
@@ -619,7 +643,7 @@
 
 @starting-style {
   .ambient-secondary-room,
-  .ambient-room-grid,
+  .ambient-canvas,
   .room-stack,
   .split-switcher {
     opacity: 0;
@@ -960,7 +984,7 @@
      legible (frosted glass). Tune --frost-dock to taste. */
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, transparent 100%),
               rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-dock, 0.26));
-  min-height: 50px;
+  min-height: 42px;
   width: min(100%, 1040px);
   align-self: center;
   flex-shrink: 0;
@@ -970,8 +994,8 @@
      start-alignment when the content is wider than the dock — so the leftmost
      switchers stay reachable instead of being clipped off the centre. */
   justify-content: safe center;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: 6px;
+  padding: 5px 9px;
   border-radius: 12px;
   /* Scroll horizontally rather than clip when the row can't fit, so cramped
      icons stay reachable instead of spilling over each other. */
@@ -988,10 +1012,10 @@
 .ambient-switcher {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 36px;
-  padding: 3px;
-  border-radius: 10px;
+  gap: 2px;
+  height: 30px;
+  padding: 2px;
+  border-radius: 9px;
   border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
   background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
   flex-shrink: 0;
@@ -999,14 +1023,14 @@
 
 .ambient-switch-btn {
   appearance: none;
-  height: 28px;
-  min-width: 34px;
+  height: 24px;
+  min-width: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 9px;
-  border-radius: 7px;
+  gap: 5px;
+  padding: 0 8px;
+  border-radius: 6px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-muted);
@@ -1020,8 +1044,8 @@
 }
 
 .ambient-switch-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
   transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), color 0.16s ease;
 }
@@ -1073,20 +1097,20 @@
 
 .room-dock-separator {
   width: 1px;
-  height: 24px;
+  height: 20px;
   flex-shrink: 0;
   background: var(--border);
 }
 
 .svt-btn {
   appearance: none;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 7px;
+  padding: 6px;
   border-radius: 8px;
   border: 1px solid transparent;
   color: var(--text-muted);
@@ -1306,10 +1330,13 @@
 
 .composer-strip {
   /* Kept out of the root snapshot so the prompt bar holds still during mode
-     switches instead of fading with the background. */
+     switches instead of fading with the background. Floats over the workspace
+     with no band/background of its own — just the prompt pill on top of the
+     content behind it. */
   view-transition-name: soryq-composer;
   flex-shrink: 0;
-  padding: 8px 18px 10px;
+  width: min(720px, 100%);
+  padding: 0;
   border-top: none;
   background: transparent;
   backdrop-filter: none;
@@ -1321,16 +1348,16 @@
   left: auto;
   bottom: auto;
   transform: none;
-  width: min(820px, 100%);
+  width: 100%;
   margin: 0 auto;
   pointer-events: auto;
 }
 
 .composer-strip .floating-prompt-bar {
-  border-radius: 24px;
+  border-radius: 20px;
   width: 100%;
-  min-height: 58px;
-  padding: 9px 10px 9px 11px;
+  min-height: 48px;
+  padding: 6px 8px 6px 9px;
   animation: shell-composer-in 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
 }
 
@@ -1343,17 +1370,17 @@
 }
 
 .composer-strip .send-btn {
-  min-width: 60px;
-  height: 38px;
-  padding-inline: 15px;
+  min-width: 52px;
+  height: 32px;
+  padding-inline: 13px;
 }
 
 .composer-strip .spawn-toggle,
 .composer-strip .attach-toggle,
 .composer-strip .voice-toggle,
 .composer-strip .agent-toggle {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
 }
 
 .composer-strip .prompt-input {
@@ -1486,24 +1513,24 @@
   }
 
   .composer-strip .floating-prompt-bar {
-    gap: 7px;
-    min-height: 56px;
-    padding: 8px;
-    border-radius: 20px;
+    gap: 6px;
+    min-height: 46px;
+    padding: 6px;
+    border-radius: 18px;
   }
 
   .composer-strip .spawn-toggle,
   .composer-strip .attach-toggle,
   .composer-strip .voice-toggle,
   .composer-strip .agent-toggle {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
 
   .composer-strip .send-btn {
-    min-width: 52px;
-    height: 34px;
-    padding-inline: 12px;
+    min-width: 48px;
+    height: 30px;
+    padding-inline: 11px;
   }
 
   .composer-strip .prompt-hint {
@@ -1531,7 +1558,7 @@
   .composer-strip .floating-prompt-bar,
   .rooms-table.layout-switching .focused-room,
   .rooms-table.layout-switching .ambient-secondary-room,
-  .rooms-table.layout-switching .ambient-room-grid,
+  .rooms-table.layout-switching .ambient-canvas,
   .rooms-table.layout-switching .room-stack,
   .rooms-table.layout-switching .split-switcher {
     animation-duration: 0.001ms !important;

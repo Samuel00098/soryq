@@ -1,21 +1,48 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { invoke } from '@tauri-apps/api/core';
 import type { EditorFile } from '$lib/types/editor';
 import { showToast } from './notification';
 import { formatCode } from '$lib/utils/formatter';
 import { formatOnSave } from './settings';
 import { setActiveView } from './layout';
+import { useEditorStore } from './zustand/editor';
 
-export const openFiles = writable<string[]>([]);
-export const activeFile = writable<string | null>(null);
-export const fileCache = writable<Map<string, EditorFile>>(new Map());
-export const activeLine = writable<number>(1);
-export const activeColumn = writable<number>(1);
-export const jumpToLine = writable<{ path: string; line: number } | null>(null);
-// The text currently selected in the editor (empty when nothing is selected).
-// Fed by CodeEditor's update listener so the in-app assistant can see what the
-// user has highlighted ("explain this", "refactor the selection").
-export const activeSelection = writable<string>('');
+// ── Zustand-backed writables ──
+
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useEditorStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useEditorStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) {
+      const state = useEditorStore.getState() as any;
+      if (typeof state.__set === 'function') {
+        state.__set(key, value);
+      } else {
+        useEditorStore.setState({ [key]: value } as any);
+      }
+    },
+    update(fn: (val: T) => T) {
+      const current = (useEditorStore.getState() as any)[key] as T;
+      this.set(fn(current));
+    },
+  };
+}
+
+export const openFiles = syncWritable<string[]>('openFiles', []);
+export const activeFile = syncWritable<string | null>('activeFile', null);
+export const fileCache = syncWritable<Map<string, EditorFile>>('fileCache', new Map());
+export const activeLine = syncWritable<number>('activeLine', 1);
+export const activeColumn = syncWritable<number>('activeColumn', 1);
+export const jumpToLine = syncWritable<{ path: string; line: number } | null>('jumpToLine', null);
+export const activeSelection = syncWritable<string>('selectedText', '');
+
+// ── Utility functions (unchanged) ──
 
 const IMAGE_EXTENSIONS = new Set([
   'png', 'apng', 'jpg', 'jpeg', 'jpe', 'jfif', 'gif', 'webp', 'bmp', 'ico', 'cur',
@@ -30,33 +57,17 @@ export function isImagePath(path: string): boolean {
 export function getImageMimeType(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   switch (ext) {
-    case 'png':
-      return 'image/png';
-    case 'apng':
-      return 'image/apng';
-    case 'jpg':
-    case 'jpeg':
-    case 'jpe':
-    case 'jfif':
-      return 'image/jpeg';
-    case 'gif':
-      return 'image/gif';
-    case 'webp':
-      return 'image/webp';
-    case 'bmp':
-      return 'image/bmp';
-    case 'ico':
-    case 'cur':
-      return 'image/x-icon';
-    case 'svg':
-      return 'image/svg+xml';
-    case 'avif':
-      return 'image/avif';
-    case 'tif':
-    case 'tiff':
-      return 'image/tiff';
-    default:
-      return 'application/octet-stream';
+    case 'png': return 'image/png';
+    case 'apng': return 'image/apng';
+    case 'jpg': case 'jpeg': case 'jpe': case 'jfif': return 'image/jpeg';
+    case 'gif': return 'image/gif';
+    case 'webp': return 'image/webp';
+    case 'bmp': return 'image/bmp';
+    case 'ico': case 'cur': return 'image/x-icon';
+    case 'svg': return 'image/svg+xml';
+    case 'avif': return 'image/avif';
+    case 'tif': case 'tiff': return 'image/tiff';
+    default: return 'application/octet-stream';
   }
 }
 
@@ -76,89 +87,43 @@ export function updateCursorPosition(line: number, col: number) {
   activeColumn.set(col);
 }
 
-// Helper to detect language from file extension
 export function detectLanguage(path: string): string {
-  if (isImagePath(path)) {
-    return 'image';
-  }
-
+  if (isImagePath(path)) return 'image';
   const filename = path.split(/[/\\]/).pop()?.toLowerCase() || '';
   const ext = filename.split('.').pop()?.toLowerCase();
   const name = filename.split('.').slice(0, -1).join('.');
-
-  // Shell files without extensions (e.g., "run.sh" -> ext is "sh")
-  if (ext === 'sh' || ext === 'bash' || ext === 'zsh' || (!ext && name === '' && filename !== '')) {
-    return 'shell';
-  }
-
+  if (ext === 'sh' || ext === 'bash' || ext === 'zsh' || (!ext && name === '' && filename !== '')) return 'shell';
   switch (ext) {
-    case 'js':
-    case 'jsx':
-    case 'mjs':
-      return 'javascript';
-    case 'ts':
-    case 'tsx':
-      return 'typescript';
-    case 'html':
-    case 'htm':
-      return 'html';
-    case 'css':
-      return 'css';
-    case 'scss':
-      return 'scss';
-    case 'sass':
-      return 'sass';
-    case 'rs':
-      return 'rust';
-    case 'json':
-      return 'json';
-    case 'md':
-    case 'markdown':
-      return 'markdown';
-    case 'py':
-      return 'python';
-    case 'java':
-      return 'java';
-    case 'c':
-    case 'cpp':
-    case 'cc':
-    case 'cxx':
-    case 'h':
-    case 'hpp':
-    case 'hxx':
-      return 'cpp';
-    case 'cs':
-      return 'csharp';
-    case 'svelte':
-      return 'svelte';
-    case 'toml':
-      return 'toml';
-    case 'php':
-      return 'php';
-    case 'sql':
-      return 'sql';
-    case 'xml':
-    case 'svg':
-    case 'plist':
-      return 'xml';
-    case 'yaml':
-    case 'yml':
-      return 'yaml';
-    case 'go':
-      return 'go';
-    case 'swift':
-      return 'swift';
-    case 'kt':
-    case 'kts':
-      return 'kotlin';
-    default:
-      return 'plaintext';
+    case 'js': case 'jsx': case 'mjs': return 'javascript';
+    case 'ts': case 'tsx': return 'typescript';
+    case 'html': case 'htm': return 'html';
+    case 'css': return 'css';
+    case 'scss': return 'scss';
+    case 'sass': return 'sass';
+    case 'rs': return 'rust';
+    case 'json': return 'json';
+    case 'md': case 'markdown': return 'markdown';
+    case 'py': return 'python';
+    case 'java': return 'java';
+    case 'c': case 'cpp': case 'cc': case 'cxx': case 'h': case 'hpp': case 'hxx': return 'cpp';
+    case 'cs': return 'csharp';
+    case 'svelte': return 'svelte';
+    case 'toml': return 'toml';
+    case 'php': return 'php';
+    case 'sql': return 'sql';
+    case 'xml': case 'svg': case 'plist': return 'xml';
+    case 'yaml': case 'yml': return 'yaml';
+    case 'go': return 'go';
+    case 'swift': return 'swift';
+    case 'kt': case 'kts': return 'kotlin';
+    default: return 'plaintext';
   }
 }
 
+// ── Functions using Zustand-backed writables ──
+
 export async function openFile(path: string) {
   const currentOpenFiles = get(openFiles);
-  // Switching files invalidates any prior selection.
   activeSelection.set('');
 
   if (currentOpenFiles.includes(path)) {
@@ -174,38 +139,20 @@ export async function openFile(path: string) {
       const bytes = await invoke<number[]>('fs_read_binary', { path });
       const mimeType = getImageMimeType(path);
       editorFile = {
-        path,
-        content: '',
-        originalContent: '',
-        isDirty: false,
-        language: 'image',
-        kind: 'image',
-        imageSrc: createObjectUrl(bytes, mimeType),
-        mimeType,
-        size: bytes.length,
+        path, content: '', originalContent: '', isDirty: false,
+        language: 'image', kind: 'image',
+        imageSrc: createObjectUrl(bytes, mimeType), mimeType, size: bytes.length,
       };
     } else {
       const content = await invoke<string>('fs_read_file', { path });
       const language = detectLanguage(path);
       editorFile = {
-        path,
-        content,
-        originalContent: content,
-        isDirty: false,
-        language,
-        kind: 'text',
-        imageSrc: null,
-        mimeType: null,
-        size: content.length,
+        path, content, originalContent: content, isDirty: false,
+        language, kind: 'text', imageSrc: null, mimeType: null, size: content.length,
       };
     }
 
-    fileCache.update((c) => {
-      const next = new Map(c);
-      next.set(path, editorFile);
-      return next;
-    });
-
+    fileCache.update((c) => { const next = new Map(c); next.set(path, editorFile); return next; });
     openFiles.update((files) => [...files, path]);
     activeFile.set(path);
     setActiveView('editor');
@@ -219,24 +166,13 @@ export function closeFile(path: string) {
   const currentActive = get(activeFile);
   const files = get(openFiles);
   const cachedFile = get(fileCache).get(path);
-
   const updatedFiles = files.filter((f) => f !== path);
   openFiles.set(updatedFiles);
-
-  fileCache.update((c) => {
-    const next = new Map(c);
-    next.delete(path);
-    return next;
-  });
-
+  fileCache.update((c) => { const next = new Map(c); next.delete(path); return next; });
+  useEditorStore.getState().setMarkdownPreview(path, false);
   revokeEditorAsset(cachedFile);
-
   if (currentActive === path) {
-    if (updatedFiles.length > 0) {
-      activeFile.set(updatedFiles[updatedFiles.length - 1]);
-    } else {
-      activeFile.set(null);
-    }
+    activeFile.set(updatedFiles.length > 0 ? updatedFiles[updatedFiles.length - 1] : null);
   }
 }
 
@@ -258,9 +194,7 @@ function normalisePathSeparators(path: string): string {
 }
 
 export function onFileDeleted(path: string) {
-  // Close exact file match
   closeFile(path);
-  // Close any open files that lived inside a deleted directory
   const deletedPath = normalisePathSeparators(path).replace(/\/+$/, '');
   const dirPrefix = `${deletedPath}/`;
   const children = get(openFiles).filter((f) => normalisePathSeparators(f).startsWith(dirPrefix));
@@ -272,12 +206,7 @@ export function updateContent(path: string, newContent: string) {
     const next = new Map(cache);
     const file = next.get(path);
     if (file && file.kind === 'text') {
-      const isDirty = newContent !== file.originalContent;
-      next.set(path, {
-        ...file,
-        content: newContent,
-        isDirty,
-      });
+      next.set(path, { ...file, content: newContent, isDirty: newContent !== file.originalContent });
     }
     return next;
   });
@@ -297,11 +226,7 @@ export async function saveFile(path: string) {
         contentToSave = formatted;
         fileCache.update((c) => {
           const next = new Map(c);
-          next.set(path, {
-            ...file,
-            content: formatted,
-            isDirty: true,
-          });
+          next.set(path, { ...file, content: formatted, isDirty: true });
           return next;
         });
       }
@@ -315,12 +240,7 @@ export async function saveFile(path: string) {
     fileCache.update((c) => {
       const next = new Map(c);
       const currentFile = next.get(path) || file;
-      next.set(path, {
-        ...currentFile,
-        content: contentToSave,
-        originalContent: contentToSave,
-        isDirty: false,
-      });
+      next.set(path, { ...currentFile, content: contentToSave, originalContent: contentToSave, isDirty: false });
       return next;
     });
     const filename = path.split(/[/\\]/).pop() || path;
@@ -333,15 +253,9 @@ export async function saveFile(path: string) {
 
 export async function saveActiveFile() {
   const active = get(activeFile);
-  if (active) {
-    await saveFile(active);
-  }
+  if (active) await saveFile(active);
 }
 
-/**
- * Restores a set of previously open files from disk without switching the active view.
- * Used on app reopen to silently reload editor tabs.
- */
 export async function restoreEditorFiles(filePaths: string[], activeFilePath: string | null) {
   const previousCache = get(fileCache);
   const newCache = new Map<string, EditorFile>();
@@ -353,41 +267,22 @@ export async function restoreEditorFiles(filePaths: string[], activeFilePath: st
         const bytes = await invoke<number[]>('fs_read_binary', { path });
         const mimeType = getImageMimeType(path);
         newCache.set(path, {
-          path,
-          content: '',
-          originalContent: '',
-          isDirty: false,
-          language: 'image',
-          kind: 'image',
-          imageSrc: createObjectUrl(bytes, mimeType),
-          mimeType,
-          size: bytes.length,
+          path, content: '', originalContent: '', isDirty: false,
+          language: 'image', kind: 'image',
+          imageSrc: createObjectUrl(bytes, mimeType), mimeType, size: bytes.length,
         });
       } else {
         const content = await invoke<string>('fs_read_file', { path });
         newCache.set(path, {
-          path,
-          content,
-          originalContent: content,
-          isDirty: false,
-          language: detectLanguage(path),
-          kind: 'text',
-          imageSrc: null,
-          mimeType: null,
-          size: content.length,
+          path, content, originalContent: content, isDirty: false,
+          language: detectLanguage(path), kind: 'text', imageSrc: null, mimeType: null, size: content.length,
         });
       }
       validPaths.push(path);
-    } catch {
-      // File deleted or moved - skip silently
-    }
+    } catch {}
   }
 
-  previousCache.forEach((file, path) => {
-    if (!newCache.has(path)) {
-      revokeEditorAsset(file);
-    }
-  });
+  previousCache.forEach((file, path) => { if (!newCache.has(path)) revokeEditorAsset(file); });
 
   fileCache.set(newCache);
   openFiles.set(validPaths);
@@ -401,21 +296,14 @@ export async function formatActiveFile() {
   const cache = get(fileCache);
   const file = cache.get(active);
   if (!file) return;
-  if (file.kind !== 'text') {
-    showToast('Image files cannot be formatted', 'info');
-    return;
-  }
+  if (file.kind !== 'text') { showToast('Image files cannot be formatted', 'info'); return; }
 
   try {
     const formatted = await formatCode(file.content, active);
     if (formatted !== file.content) {
       fileCache.update((c) => {
         const next = new Map(c);
-        next.set(active, {
-          ...file,
-          content: formatted,
-          isDirty: formatted !== file.originalContent,
-        });
+        next.set(active, { ...file, content: formatted, isDirty: formatted !== file.originalContent });
         return next;
       });
       showToast('Formatted document', 'success');

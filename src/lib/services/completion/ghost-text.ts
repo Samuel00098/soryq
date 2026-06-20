@@ -11,7 +11,7 @@
  * run on a fast, cheap model independent of the main AI provider.
  */
 import { invoke } from '@tauri-apps/api/core';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 import {
   EditorView,
   Decoration,

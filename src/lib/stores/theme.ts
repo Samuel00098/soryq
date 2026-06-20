@@ -1,12 +1,31 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { invoke } from '@tauri-apps/api/core';
 import type { Theme, ThemeInfo } from '$lib/types/theme';
 import { showToast } from './notification';
 import { appearance } from './settings';
 import { presetThemes, currentPresetTheme } from './presetThemes';
+import { useThemeStore } from './zustand/theme';
 
-export const activeTheme = writable<Theme | null>(null);
-export const availableThemes = writable<ThemeInfo[]>([]);
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useThemeStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useThemeStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useThemeStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useThemeStore.getState() as any)[key] as T;
+      (useThemeStore.getState() as any).__set(key, fn(current));
+    },
+  };
+}
+
+export const activeTheme = syncWritable<Theme | null>('activeTheme', null);
+export const availableThemes = syncWritable<ThemeInfo[]>('availableThemes', []);
 
 let mediaQueryList: MediaQueryList | null = null;
 const handleSystemThemeChange = (e: MediaQueryListEvent | MediaQueryList) => {
@@ -41,8 +60,6 @@ if (typeof window !== 'undefined') {
           mediaQueryList.addListener(handleSystemThemeChange);
         } catch (_) {}
       }
-      // Only apply the system theme on explicit user changes, not on startup.
-      // loadThemes() handles the initial theme from localStorage.
       if (!isAppearanceInitialLoad) {
         handleSystemThemeChange(mediaQueryList);
       }
@@ -63,11 +80,9 @@ export async function loadThemes() {
     const themes = await invoke<ThemeInfo[]>('theme_list');
     availableThemes.set(themes);
 
-    // Get the last saved theme ID from localStorage
     const savedThemeId = typeof window !== 'undefined' ? localStorage.getItem('forge_active_theme') : null;
 
     if (savedThemeId) {
-      // 1. Check if it's a preset theme
       const preset = presetThemes.find(t => t.id === savedThemeId);
       if (preset) {
         activeTheme.set(preset);
@@ -76,7 +91,6 @@ export async function loadThemes() {
         return;
       }
 
-      // 2. Otherwise, activate it on the backend (bundled or custom theme)
       try {
         const theme = await invoke<Theme>('theme_activate', { themeId: savedThemeId });
         activeTheme.set(theme);
@@ -88,7 +102,6 @@ export async function loadThemes() {
       }
     }
 
-    // Fallback: Get whatever the backend thinks is active
     const theme = await invoke<Theme>('theme_get_active');
     activeTheme.set(theme);
     currentPresetTheme.set(null);
@@ -157,7 +170,6 @@ export function applyThemeToCSS(theme: Theme | null) {
   if (!theme || typeof document === 'undefined') return;
   const root = document.documentElement;
 
-  // Add theme type class for light/dark theme CSS targeting
   if (theme.type === 'light') {
     root.classList.add('light-theme');
     root.classList.remove('dark-theme');
@@ -169,7 +181,6 @@ export function applyThemeToCSS(theme: Theme | null) {
   const isInitialLoad = !root.classList.contains('theme-initialized');
   if (!isInitialLoad) {
     root.classList.add('theme-transitioning');
-    // Force browser reflow to register the transition styles before changing CSS variables
     void root.offsetHeight;
     if (themeTransitionTimeout) {
       clearTimeout(themeTransitionTimeout);

@@ -46,6 +46,37 @@ fn get_models_dir() -> PathBuf {
         .join("models")
 }
 
+// Parakeet ships as a set of ONNX files (encoder + decoder/joint + tokenizer +
+// mel preprocessor) rather than a single weight file. The first entry is the
+// "main" file used by the generic single-file plumbing; the rest are fetched
+// alongside it. (url, local filename, progress phase).
+const PARAKEET_FILES: &[(&str, &str, &str)] = &[
+    (
+        "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.int8.onnx",
+        "parakeet-encoder.int8.onnx",
+        "main",
+    ),
+    (
+        "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.int8.onnx",
+        "parakeet-decoder.int8.onnx",
+        "decoder",
+    ),
+    (
+        "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt",
+        "parakeet-vocab.txt",
+        "tokenizer",
+    ),
+    (
+        "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/nemo128.onnx",
+        "parakeet-preprocessor.onnx",
+        "preprocessor",
+    ),
+];
+
+fn file_present(path: &Path) -> bool {
+    path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
+}
+
 #[tauri::command]
 pub async fn list_downloadable_models() -> Result<Vec<ModelInfo>, String> {
     let models_dir = get_models_dir();
@@ -54,7 +85,7 @@ pub async fn list_downloadable_models() -> Result<Vec<ModelInfo>, String> {
             id: "whisper-tiny-en".to_string(),
             name: "Whisper Tiny (English)".to_string(),
             category: "stt".to_string(),
-            size: "75 MB".to_string(),
+            size: "74 MB".to_string(),
             description: "Super fast, lightweight English transcription. Runs well on any CPU.".to_string(),
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin".to_string(),
             filename: "ggml-tiny.en.bin".to_string(),
@@ -64,43 +95,75 @@ pub async fn list_downloadable_models() -> Result<Vec<ModelInfo>, String> {
             id: "whisper-base-en".to_string(),
             name: "Whisper Base (English)".to_string(),
             category: "stt".to_string(),
-            size: "140 MB".to_string(),
+            size: "141 MB".to_string(),
             description: "Balanced speed and accuracy English transcription.".to_string(),
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin".to_string(),
             filename: "ggml-base.en.bin".to_string(),
             downloaded: false,
         },
         ModelInfo {
-            id: "parakeet-tdt-110m".to_string(),
-            name: "NVIDIA Parakeet TDT (English)".to_string(),
+            id: "whisper-small-en".to_string(),
+            name: "Whisper Small (English)".to_string(),
             category: "stt".to_string(),
-            size: "110 MB".to_string(),
-            description: "Highly accurate and fast local English transcription with strong punctuation (ONNX format).".to_string(),
-            url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b/resolve/main/parakeet-tdt.onnx".to_string(),
-            filename: "parakeet-tdt.onnx".to_string(),
+            size: "465 MB".to_string(),
+            description: "Higher-accuracy English transcription. A solid step up from Base on capable machines.".to_string(),
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin".to_string(),
+            filename: "ggml-small.en.bin".to_string(),
             downloaded: false,
         },
         ModelInfo {
-            id: "kokoro-tts-v0.19".to_string(),
-            name: "Kokoro TTS (v0.19)".to_string(),
+            id: "whisper-large-v3-turbo-q5".to_string(),
+            name: "Whisper Large v3 Turbo (Quantized)".to_string(),
+            category: "stt".to_string(),
+            size: "547 MB".to_string(),
+            description: "Latest Whisper Turbo, quantized. Near large-v3 accuracy, multilingual, at a fraction of the size.".to_string(),
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin".to_string(),
+            filename: "ggml-large-v3-turbo-q5_0.bin".to_string(),
+            downloaded: false,
+        },
+        ModelInfo {
+            id: "whisper-large-v3-turbo".to_string(),
+            name: "Whisper Large v3 Turbo (Full)".to_string(),
+            category: "stt".to_string(),
+            size: "1.5 GB".to_string(),
+            description: "Highest-accuracy multilingual transcription. Best on machines with ample RAM and CPU.".to_string(),
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin".to_string(),
+            filename: "ggml-large-v3-turbo.bin".to_string(),
+            downloaded: false,
+        },
+        ModelInfo {
+            id: "parakeet-tdt-v3".to_string(),
+            name: "NVIDIA Parakeet TDT v3 (Multilingual)".to_string(),
+            category: "stt".to_string(),
+            size: "640 MB".to_string(),
+            description: "Latest NVIDIA Parakeet — top-tier accuracy, very fast, ~25 languages. Runs in-app via WASM (ONNX). Needs ample RAM.".to_string(),
+            url: PARAKEET_FILES[0].0.to_string(),
+            filename: PARAKEET_FILES[0].1.to_string(),
+            downloaded: false,
+        },
+        ModelInfo {
+            id: "kokoro-tts-v1.0".to_string(),
+            name: "Kokoro TTS (v1.0)".to_string(),
             category: "tts".to_string(),
-            size: "330 MB".to_string(),
-            description: "State-of-the-art offline text-to-speech engine. Extremely human-like voices (ONNX format).".to_string(),
-            url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/kokoro-v0_19.onnx".to_string(),
-            filename: "kokoro-v0_19.onnx".to_string(),
+            size: "310 MB".to_string(),
+            description: "Latest state-of-the-art offline text-to-speech. Extremely human-like, 28+ voices (ONNX format).".to_string(),
+            url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx".to_string(),
+            filename: "kokoro-v1.0.onnx".to_string(),
             downloaded: false,
         }
     ];
 
     for model in &mut list {
-        let path = models_dir.join(&model.filename);
-        let exists = path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false);
-        
-        // Kokoro needs voices.bin as well to be considered fully downloaded
-        if model.id == "kokoro-tts-v0.19" {
-            let voices_path = models_dir.join("voices.bin");
-            let voices_exists = voices_path.exists() && voices_path.metadata().map(|m| m.len() > 0).unwrap_or(false);
-            model.downloaded = exists && voices_exists;
+        let exists = file_present(&models_dir.join(&model.filename));
+
+        if model.id == "kokoro-tts-v1.0" {
+            // Kokoro needs its voices file as well to be considered fully downloaded.
+            model.downloaded = exists && file_present(&models_dir.join("voices-v1.0.bin"));
+        } else if model.id == "parakeet-tdt-v3" {
+            // Parakeet is only usable once every one of its ONNX files is present.
+            model.downloaded = PARAKEET_FILES
+                .iter()
+                .all(|(_, filename, _)| file_present(&models_dir.join(filename)));
         } else {
             model.downloaded = exists;
         }
@@ -133,14 +196,23 @@ pub async fn download_model(app_handle: AppHandle, model_id: String) -> Result<(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin".to_string(),
             "ggml-base.en.bin".to_string()
         ),
-        "parakeet-tdt-110m" => (
-            "https://huggingface.co/nvidia/parakeet-tdt-0.6b/resolve/main/parakeet-tdt.onnx".to_string(),
-            "parakeet-tdt.onnx".to_string()
+        "whisper-small-en" => (
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin".to_string(),
+            "ggml-small.en.bin".to_string()
         ),
-        "kokoro-tts-v0.19" => (
-            "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/kokoro-v0_19.onnx".to_string(),
-            "kokoro-v0_19.onnx".to_string()
+        "whisper-large-v3-turbo-q5" => (
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin".to_string(),
+            "ggml-large-v3-turbo-q5_0.bin".to_string()
         ),
+        "whisper-large-v3-turbo" => (
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin".to_string(),
+            "ggml-large-v3-turbo.bin".to_string()
+        ),
+        "kokoro-tts-v1.0" => (
+            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx".to_string(),
+            "kokoro-v1.0.onnx".to_string()
+        ),
+        "parakeet-tdt-v3" => (PARAKEET_FILES[0].0.to_string(), PARAKEET_FILES[0].1.to_string()),
         _ => {
             active_downloads().lock().unwrap().remove(&model_id);
             return Err("Unknown model ID".to_string());
@@ -156,11 +228,18 @@ pub async fn download_model(app_handle: AppHandle, model_id: String) -> Result<(
             // Download the main file
             download_file_inner(&app_handle_clone, &model_id_clone, &url, &models_dir.join(&filename), "main").await?;
 
-            // If Kokoro, sequentially download voices.bin
-            if model_id_clone == "kokoro-tts-v0.19" {
-                let voices_url = "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/voices.bin";
-                let voices_path = models_dir.join("voices.bin");
+            // If Kokoro, sequentially download its voice style-vector pack.
+            if model_id_clone == "kokoro-tts-v1.0" {
+                let voices_url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin";
+                let voices_path = models_dir.join("voices-v1.0.bin");
                 download_file_inner(&app_handle_clone, &model_id_clone, voices_url, &voices_path, "voices").await?;
+            }
+
+            // Parakeet's remaining ONNX files (the encoder is the "main" file above).
+            if model_id_clone == "parakeet-tdt-v3" {
+                for (url, filename, phase) in PARAKEET_FILES.iter().skip(1) {
+                    download_file_inner(&app_handle_clone, &model_id_clone, url, &models_dir.join(filename), phase).await?;
+                }
             }
 
             Ok::<(), String>(())
@@ -267,13 +346,24 @@ pub async fn delete_model(model_id: String) -> Result<(), String> {
     let filename = match model_id.as_str() {
         "whisper-tiny-en" => "ggml-tiny.en.bin",
         "whisper-base-en" => "ggml-base.en.bin",
-        "parakeet-tdt-110m" => "parakeet-tdt.onnx",
-        "kokoro-tts-v0.19" => {
-            let voices_path = models_dir.join("voices.bin");
+        "whisper-small-en" => "ggml-small.en.bin",
+        "whisper-large-v3-turbo-q5" => "ggml-large-v3-turbo-q5_0.bin",
+        "whisper-large-v3-turbo" => "ggml-large-v3-turbo.bin",
+        "kokoro-tts-v1.0" => {
+            let voices_path = models_dir.join("voices-v1.0.bin");
             if voices_path.exists() {
                 let _ = fs::remove_file(voices_path);
             }
-            "kokoro-v0_19.onnx"
+            "kokoro-v1.0.onnx"
+        }
+        "parakeet-tdt-v3" => {
+            for (_, filename, _) in PARAKEET_FILES.iter() {
+                let p = models_dir.join(filename);
+                if p.exists() {
+                    let _ = fs::remove_file(p);
+                }
+            }
+            return Ok(());
         }
         _ => return Err("Unknown model ID".to_string()),
     };
@@ -291,8 +381,11 @@ pub async fn get_model_path(model_id: String) -> Result<String, String> {
     let filename = match model_id.as_str() {
         "whisper-tiny-en" => "ggml-tiny.en.bin",
         "whisper-base-en" => "ggml-base.en.bin",
-        "parakeet-tdt-110m" => "parakeet-tdt.onnx",
-        "kokoro-tts-v0.19" => "kokoro-v0_19.onnx",
+        "whisper-small-en" => "ggml-small.en.bin",
+        "whisper-large-v3-turbo-q5" => "ggml-large-v3-turbo-q5_0.bin",
+        "whisper-large-v3-turbo" => "ggml-large-v3-turbo.bin",
+        "kokoro-tts-v1.0" => "kokoro-v1.0.onnx",
+        "parakeet-tdt-v3" => PARAKEET_FILES[0].1,
         _ => return Err("Unknown model ID".to_string()),
     };
 
@@ -302,6 +395,52 @@ pub async fn get_model_path(model_id: String) -> Result<String, String> {
     }
 
     Ok(path.to_string_lossy().to_string())
+}
+
+/// Return the raw bytes of a downloaded model file as a binary IPC response.
+///
+/// Sent as `tauri::ipc::Response` (raw bytes) rather than `Vec<u8>` so the
+/// payload travels as a binary `ArrayBuffer` instead of a JSON number array,
+/// which would balloon a 300 MB ONNX model to multiple gigabytes over IPC.
+/// Used by the renderer-side Kokoro pipeline to feed onnxruntime-web.
+#[tauri::command]
+pub async fn read_tts_model_bytes(model_id: String) -> Result<tauri::ipc::Response, String> {
+    let path = get_model_path(model_id).await?;
+    let bytes = fs::read(&path).map_err(|e| format!("Failed to read model file: {}", e))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Return the raw bytes of the downloaded Kokoro voice style-vector pack.
+#[tauri::command]
+pub async fn read_tts_voices_bytes() -> Result<tauri::ipc::Response, String> {
+    let path = get_models_dir().join("voices-v1.0.bin");
+    if !path.exists() {
+        return Err("Voices file is not downloaded".to_string());
+    }
+    let bytes = fs::read(&path).map_err(|e| format!("Failed to read voices file: {}", e))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Return the raw bytes of a named file inside the models directory.
+///
+/// Used by the renderer (e.g. the Parakeet WASM pipeline) to load multi-file
+/// models. The name is restricted to a plain filename within the models dir to
+/// prevent path traversal.
+#[tauri::command]
+pub async fn read_model_file_bytes(filename: String) -> Result<tauri::ipc::Response, String> {
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains("..")
+    {
+        return Err("Invalid filename".to_string());
+    }
+    let path = get_models_dir().join(&filename);
+    if !path.exists() {
+        return Err(format!("File is not downloaded: {}", filename));
+    }
+    let bytes = fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 fn wav_to_f32_pcm(wav_bytes: &[u8]) -> Result<Vec<f32>, String> {

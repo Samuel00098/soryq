@@ -146,15 +146,30 @@ const AMBIENT_LAYOUTS: Array<{ id: AmbientLayout; label: string; icon: React.Rea
   },
   {
     id: 'gallery',
-    label: 'Gallery',
-    icon: <Icon><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></Icon>,
+    label: 'Canvas',
+    icon: <Icon><rect x="2.5" y="4" width="9" height="7" rx="1.5" /><rect x="13.5" y="7" width="8" height="9" rx="1.5" /><rect x="6" y="14" width="7" height="6" rx="1.5" /></Icon>,
   },
 ];
 
 const GALLERY_MIN_WIDTH = 280;
 const GALLERY_MIN_HEIGHT = 220;
-const GALLERY_DEFAULT_WIDTH = 430;
-const GALLERY_DEFAULT_HEIGHT = 320;
+const GALLERY_DEFAULT_WIDTH = 540;
+const GALLERY_DEFAULT_HEIGHT = 410;
+
+// Freeform canvas ("gallery" mode) — pan/zoom of an infinite board of panels.
+const CANVAS_MIN_ZOOM = 0.3;
+const CANVAS_MAX_ZOOM = 2.4;
+const CANVAS_ZOOM_STEP = 1.2;
+const CANVAS_TILE_GAP = 30;
+const CANVAS_COLUMNS = 3;
+const CANVAS_MOVE_THRESHOLD = 4; // px of pointer travel before a header press becomes a drag
+
+type CanvasPos = { x: number; y: number };
+type CanvasView = { x: number; y: number; zoom: number };
+
+function clampZoom(zoom: number) {
+  return Math.min(CANVAS_MAX_ZOOM, Math.max(CANVAS_MIN_ZOOM, zoom));
+}
 
 const SketchCanvas = lazy(() => import('$lib/components/workspace/SketchCanvas.tsx'));
 const EditorPanel = lazy(() => import('$lib/components/editor/EditorPanel.tsx'));
@@ -308,15 +323,7 @@ export default function AppShell() {
   const [auxEditorHeight, setAuxEditorHeight] = useState(layoutState.auxEditorHeight);
   const [focusedRoom, setFocusedRoom] = useState<RoomId | null>('terminal');
   const [minimizedRooms, setMinimizedRooms] = useState<Set<RoomId>>(() => new Set());
-  const [ambientLayout, setAmbientLayout] = useState<AmbientLayout>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('soryq_ambient_layout');
-      if (saved === 'focus' || saved === 'split' || saved === 'gallery') {
-        return saved;
-      }
-    }
-    return 'gallery';
-  });
+  const [ambientLayout, setAmbientLayout] = useState<AmbientLayout>('focus');
   const [layoutSwitching, setLayoutSwitching] = useState(false);
   const [terminalRoomOpen, setTerminalRoomOpen] = useState(true);
   const [roomOrder, setRoomOrder] = useState<RoomId[]>(['workspace', 'terminal']);
@@ -324,63 +331,28 @@ export default function AppShell() {
   const [resizingRoom, setResizingRoom] = useState<RoomId | null>(null);
   const [secondaryRoom, setSecondaryRoom] = useState<RoomId | null>(null);
   const [galleryScrollRoom, setGalleryScrollRoom] = useState<RoomId | null>(null);
-  const [gallerySizes, setGallerySizes] = useState<Record<string, GallerySize>>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('soryq_gallery_sizes');
-        return saved ? JSON.parse(saved) : {};
-      } catch {
-        return {};
-      }
-    }
-    return {};
-  });
+  const [gallerySizes, setGallerySizes] = useState<Record<string, GallerySize>>({});
+  const [canvasPositions, setCanvasPositions] = useState<Record<string, CanvasPos>>({});
+  const [canvasView, setCanvasView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
+  const [canvasPanning, setCanvasPanning] = useState(false);
 
-  const [galleryPositions, setGalleryPositions] = useState<Record<string, { x: number; y: number }>>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('soryq_gallery_positions');
-        return saved ? JSON.parse(saved) : {};
-      } catch {
-        return {};
-      }
-    }
-    return {};
-  });
+  const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+  const canvasViewRef = useRef(canvasView);
+  const canvasPanRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const canvasMoveRef = useRef<{
+    room: RoomId;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    zoom: number;
+    moved: boolean;
+  } | null>(null);
+  const canvasMoveSuppressClickRef = useRef(false);
 
-  const [pan, setPan] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('soryq_gallery_pan');
-        return saved ? JSON.parse(saved) : { x: 0, y: 0 };
-      } catch {
-        return { x: 0, y: 0 };
-      }
-    }
-    return { x: 0, y: 0 };
-  });
-
-  const [canvasZoom, setCanvasZoom] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('soryq_gallery_zoom');
-        return saved ? parseFloat(saved) : 1;
-      } catch {
-        return 1;
-      }
-    }
-    return 1;
-  });
-
-  const [snapToGrid, setSnapToGrid] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('soryq_gallery_snap') === 'true';
-    }
-    return false;
-  });
-
-  const [draggingRoomId, setDraggingRoomId] = useState<RoomId | null>(null);
-  const [isPanning, setIsPanning] = useState(false);
+  useEffect(() => {
+    canvasViewRef.current = canvasView;
+  }, [canvasView]);
 
   const sidebarResizeRef = useRef({ startX: 0, startWidth: 0 });
   const auxResizeRef = useRef({ startX: 0, startWidth: 0 });
@@ -391,112 +363,12 @@ export default function AppShell() {
     startY: number;
     width: number;
     height: number;
+    zoom: number;
     element: HTMLElement;
     nextWidth: number;
     nextHeight: number;
     rafId: number | null;
   } | null>(null);
-
-  const roomDragRef = useRef<{
-    room: RoomId;
-    startX: number;
-    startY: number;
-    roomX: number;
-    roomY: number;
-    nextX: number;
-    nextY: number;
-    rafId: number | null;
-  } | null>(null);
-
-  const dragHasMovedRef = useRef(false);
-  const panStartRef = useRef({ x: 0, y: 0 });
-
-  const canvasZoomRef = useRef(canvasZoom);
-  const snapToGridRef = useRef(snapToGrid);
-
-  useEffect(() => {
-    canvasZoomRef.current = canvasZoom;
-  }, [canvasZoom]);
-
-  useEffect(() => {
-    snapToGridRef.current = snapToGrid;
-  }, [snapToGrid]);
-
-  useEffect(() => {
-    function handleRoomDragMove(event: MouseEvent) {
-      const drag = roomDragRef.current;
-      if (!drag) return;
-
-      const scale = canvasZoomRef.current;
-      const snap = snapToGridRef.current;
-
-      const deltaX = (event.clientX - drag.startX) / scale;
-      const deltaY = (event.clientY - drag.startY) / scale;
-
-      let nextX = drag.roomX + deltaX;
-      let nextY = drag.roomY + deltaY;
-
-      if (snap) {
-        nextX = Math.round(nextX / 20) * 20;
-        nextY = Math.round(nextY / 20) * 20;
-      }
-
-      drag.nextX = nextX;
-      drag.nextY = nextY;
-
-      const dist = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
-      if (dist > 5) {
-        dragHasMovedRef.current = true;
-      }
-
-      if (drag.rafId !== null) return;
-      drag.rafId = requestAnimationFrame(() => {
-        const latest = roomDragRef.current;
-        if (!latest) return;
-        latest.rafId = null;
-        const element = document.querySelector(`.room-panel[data-room-id="${latest.room}"]`);
-        if (element instanceof HTMLElement) {
-          element.style.left = `${latest.nextX}px`;
-          element.style.top = `${latest.nextY}px`;
-        }
-      });
-    }
-
-    function handleRoomDragEnd() {
-      const drag = roomDragRef.current;
-      if (!drag) return;
-
-      if (drag.rafId !== null) {
-        cancelAnimationFrame(drag.rafId);
-      }
-
-      setGalleryPositions((current) => {
-        const updated = {
-          ...current,
-          [drag.room]: { x: drag.nextX, y: drag.nextY },
-        };
-        localStorage.setItem('soryq_gallery_positions', JSON.stringify(updated));
-        return updated;
-      });
-
-      roomDragRef.current = null;
-      setDraggingRoomId(null);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      
-      setTimeout(() => {
-        dragHasMovedRef.current = false;
-      }, 50);
-    }
-
-    window.addEventListener('mousemove', handleRoomDragMove);
-    window.addEventListener('mouseup', handleRoomDragEnd);
-    return () => {
-      window.removeEventListener('mousemove', handleRoomDragMove);
-      window.removeEventListener('mouseup', handleRoomDragEnd);
-    };
-  }, []);
-
   const layoutSwitchTimerRef = useRef<number | null>(null);
   const lastLayoutCommandNonce = useRef(0);
 
@@ -568,27 +440,6 @@ export default function AppShell() {
     () => roomOrder.filter((room) => visibleRooms.includes(room)),
     [roomOrder, visibleRooms],
   );
-
-  const resolvedPositions = useMemo(() => {
-    const positions = { ...galleryPositions };
-    orderedVisibleRooms.forEach((room, index) => {
-      if (!positions[room]) {
-        const col = index % 3;
-        const row = Math.floor(index / 3);
-        const gap = 24;
-        positions[room] = {
-          x: col * (GALLERY_DEFAULT_WIDTH + gap) + 40,
-          y: row * (GALLERY_DEFAULT_HEIGHT + gap) + 40,
-        };
-      }
-    });
-    return positions;
-  }, [orderedVisibleRooms, galleryPositions]);
-
-  const resolvedPositionsRef = useRef(resolvedPositions);
-  useEffect(() => {
-    resolvedPositionsRef.current = resolvedPositions;
-  }, [resolvedPositions]);
 
   const activeRoom = focusedRoom && visibleRooms.includes(focusedRoom)
     ? focusedRoom
@@ -742,31 +593,70 @@ export default function AppShell() {
     setGallerySizes((current) => {
       const open = new Set(openRooms);
       const next = Object.fromEntries(Object.entries(current).filter(([room]) => open.has(room as RoomId)));
-      const changed = Object.keys(next).length !== Object.keys(current).length;
-      if (changed) {
-        localStorage.setItem('soryq_gallery_sizes', JSON.stringify(next));
-      }
-      return changed ? next : current;
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
     });
-    setGalleryPositions((current) => {
+    setCanvasPositions((current) => {
       const open = new Set(openRooms);
       const next = Object.fromEntries(Object.entries(current).filter(([room]) => open.has(room as RoomId)));
-      const changed = Object.keys(next).length !== Object.keys(current).length;
-      if (changed) {
-        localStorage.setItem('soryq_gallery_positions', JSON.stringify(next));
-      }
-      return changed ? next : current;
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
     });
     setGalleryScrollRoom((current) => (current && openRooms.includes(current) ? current : null));
   }, [openRooms]);
+
+  // Give every room on the canvas a starting position. The first batch (an empty
+  // board) flows into a tidy 3-column grid; any room opened afterwards drops into
+  // the centre of whatever the user is currently looking at, so a freshly opened
+  // tab never lands off-screen or hidden behind the floating dock. Once placed,
+  // the user is free to drag rooms anywhere and the saved position sticks.
+  useEffect(() => {
+    if (ambientLayout !== 'gallery') return;
+    setCanvasPositions((current) => {
+      const missing = orderedVisibleRooms.filter((room) => !(room in current));
+      if (missing.length === 0) return current;
+      const next = { ...current };
+      let placed = Object.keys(current).length;
+
+      if (placed === 0) {
+        // Initial population of the board — lay the existing rooms out in a grid.
+        for (const room of missing) {
+          const col = placed % CANVAS_COLUMNS;
+          const row = Math.floor(placed / CANVAS_COLUMNS);
+          next[room] = {
+            x: col * (GALLERY_DEFAULT_WIDTH + CANVAS_TILE_GAP),
+            y: row * (GALLERY_DEFAULT_HEIGHT + CANVAS_TILE_GAP),
+          };
+          placed += 1;
+        }
+        return next;
+      }
+
+      // A room opened while the board already exists — centre it on the current
+      // viewport (mapped from screen space into world coordinates via the live
+      // pan/zoom). Multiple simultaneous opens cascade slightly so they don't
+      // perfectly overlap.
+      const view = canvasViewRef.current;
+      const rect = canvasViewportRef.current?.getBoundingClientRect();
+      const centerX = rect ? (rect.width / 2 - view.x) / view.zoom : 0;
+      const centerY = rect ? (rect.height / 2 - view.y) / view.zoom : 0;
+      missing.forEach((room, index) => {
+        const size = gallerySizes[room] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+        const cascade = index * 28;
+        next[room] = {
+          x: centerX - size.width / 2 + cascade,
+          y: centerY - size.height / 2 + cascade,
+        };
+      });
+      return next;
+    });
+  }, [ambientLayout, orderedVisibleRooms, gallerySizes]);
 
   useEffect(() => {
     function handleGalleryResizeMove(event: MouseEvent) {
       const drag = galleryResizeRef.current;
       if (!drag) return;
-      
-      const scale = canvasZoomRef.current;
-      
+      // Pointer travel is in screen pixels; the panel lives inside the zoomed
+      // canvas world, so divide by the zoom to keep the grip under the cursor.
+      const scale = drag.zoom || 1;
       drag.nextWidth = Math.max(GALLERY_MIN_WIDTH, drag.width + (event.clientX - drag.startX) / scale);
       drag.nextHeight = Math.max(GALLERY_MIN_HEIGHT, drag.height + (event.clientY - drag.startY) / scale);
 
@@ -788,14 +678,10 @@ export default function AppShell() {
       }
       drag.element.style.width = `${drag.nextWidth}px`;
       drag.element.style.height = `${drag.nextHeight}px`;
-      setGallerySizes((current) => {
-        const updated = {
-          ...current,
-          [drag.room]: { width: drag.nextWidth, height: drag.nextHeight },
-        };
-        localStorage.setItem('soryq_gallery_sizes', JSON.stringify(updated));
-        return updated;
-      });
+      setGallerySizes((current) => ({
+        ...current,
+        [drag.room]: { width: drag.nextWidth, height: drag.nextHeight },
+      }));
       galleryResizeRef.current = null;
       setResizingRoom(null);
       document.body.style.cursor = '';
@@ -810,6 +696,123 @@ export default function AppShell() {
       window.removeEventListener('mouseup', handleGalleryResizeEnd);
     };
   }, []);
+
+  // Canvas panning (drag empty board) and panel moving (drag a panel header).
+  // Both are pointer-driven and share one set of window listeners, mirroring
+  // the gallery-resize pattern above.
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      const pan = canvasPanRef.current;
+      if (pan) {
+        setCanvasView((view) => ({
+          ...view,
+          x: pan.origX + (event.clientX - pan.startX),
+          y: pan.origY + (event.clientY - pan.startY),
+        }));
+        return;
+      }
+
+      const move = canvasMoveRef.current;
+      if (move) {
+        const dx = event.clientX - move.startX;
+        const dy = event.clientY - move.startY;
+        if (!move.moved && Math.hypot(dx, dy) < CANVAS_MOVE_THRESHOLD) return;
+        move.moved = true;
+        const scale = move.zoom || 1;
+        const nextX = move.origX + dx / scale;
+        const nextY = move.origY + dy / scale;
+        setCanvasPositions((current) => ({ ...current, [move.room]: { x: nextX, y: nextY } }));
+      }
+    }
+
+    function handlePointerUp() {
+      if (canvasPanRef.current) {
+        canvasPanRef.current = null;
+        setCanvasPanning(false);
+      }
+      const move = canvasMoveRef.current;
+      if (move) {
+        // Swallow the click that fires right after a real drag so releasing a
+        // moved panel doesn't also fling it into Focus mode.
+        canvasMoveSuppressClickRef.current = move.moved;
+        canvasMoveRef.current = null;
+        setDraggingRoom(null);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
+
+  // Wheel = pan; Ctrl/⌘+wheel = zoom toward the cursor. Bound natively (not via
+  // React) so we can stopPropagation BEFORE the rooms-table swipe-to-switch
+  // handler sees it — on the canvas the wheel belongs to the board, not to mode
+  // switching. Inner panels that can still scroll keep their own wheel.
+  useEffect(() => {
+    if (ambientLayout !== 'gallery') return;
+    const viewport = canvasViewportRef.current;
+    if (!viewport) return;
+
+    const innerCanScrollY = (start: EventTarget | null, dir: number): boolean => {
+      let node = start instanceof HTMLElement ? start : null;
+      while (node && node !== viewport) {
+        const style = window.getComputedStyle(node);
+        if (
+          (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+          node.scrollHeight > node.clientHeight + 1
+        ) {
+          const atTop = node.scrollTop <= 0;
+          const atBottom = node.scrollTop >= node.scrollHeight - node.clientHeight - 1;
+          if (dir > 0 ? !atBottom : !atTop) return true;
+        }
+        node = node.parentElement;
+      }
+      return false;
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      // Always claim the gesture so it can never bubble out to switch modes.
+      event.stopPropagation();
+
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const rect = viewport.getBoundingClientRect();
+        const px = event.clientX - rect.left;
+        const py = event.clientY - rect.top;
+        setCanvasView((view) => {
+          const nextZoom = clampZoom(view.zoom * Math.exp(-event.deltaY * 0.0015));
+          if (nextZoom === view.zoom) return view;
+          // Keep the world point under the cursor pinned while scaling.
+          const worldX = (px - view.x) / view.zoom;
+          const worldY = (py - view.y) / view.zoom;
+          return { zoom: nextZoom, x: px - worldX * nextZoom, y: py - worldY * nextZoom };
+        });
+        return;
+      }
+
+      // Let a scrollable panel under the pointer take the wheel first.
+      const dir = event.deltaY > 0 ? 1 : -1;
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest('.room-content') &&
+        innerCanScrollY(event.target, dir)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setCanvasView((view) => ({ ...view, x: view.x - event.deltaX, y: view.y - event.deltaY }));
+    };
+
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleWheel);
+  }, [ambientLayout]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1028,8 +1031,14 @@ export default function AppShell() {
         return next;
       });
 
-      if (open) setFocusedRoom(id);
-      else if (focusedRoom === id) setFocusedRoom(nextVisibleRoom(id));
+      if (open) {
+        setFocusedRoom(id);
+        // On the canvas, arm the freshly opened panel so it lifts to the top and
+        // is immediately ready to scroll/edit in place (matching a direct click).
+        if (ambientLayout === 'gallery') setGalleryScrollRoom(id);
+      } else if (focusedRoom === id) {
+        setFocusedRoom(nextVisibleRoom(id));
+      }
     });
   }
 
@@ -1149,7 +1158,9 @@ export default function AppShell() {
   function handleFocusModeClick(event: React.MouseEvent, id: RoomId) {
     event.preventDefault();
     event.stopPropagation();
-    if (dragHasMovedRef.current) {
+    // A press that turned into a panel drag must not also open Focus on release.
+    if (canvasMoveSuppressClickRef.current) {
+      canvasMoveSuppressClickRef.current = false;
       return;
     }
     focusRoomMode(id);
@@ -1181,140 +1192,6 @@ export default function AppShell() {
     });
   }
 
-  function startRoomDrag(event: React.MouseEvent, room: RoomId) {
-    if (ambientLayout !== 'gallery') return;
-    if (event.button !== 0) return; // Only left click
-    if (
-      (event.target as HTMLElement).closest('.room-actions') || 
-      (event.target as HTMLElement).closest('.room-action')
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const currentPos = resolvedPositions[room] || { x: 0, y: 0 };
-    roomDragRef.current = {
-      room,
-      startX: event.clientX,
-      startY: event.clientY,
-      roomX: currentPos.x,
-      roomY: currentPos.y,
-      nextX: currentPos.x,
-      nextY: currentPos.y,
-      rafId: null,
-    };
-
-    setDraggingRoomId(room);
-    focusRoom(room);
-    document.body.style.cursor = 'grabbing';
-    document.body.style.userSelect = 'none';
-  }
-
-  function handleMouseDown(e: React.MouseEvent) {
-    if (ambientLayout !== 'gallery') return;
-    const isBg = e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-background-grid');
-    const isMiddleClick = e.button === 1;
-
-    if (isBg || isMiddleClick) {
-      setIsPanning(true);
-      panStartRef.current = {
-        x: e.clientX - pan.x,
-        y: e.clientY - pan.y,
-      };
-      e.preventDefault();
-    }
-  }
-
-  function handleMouseMove(e: React.MouseEvent) {
-    if (!isPanning) return;
-    const newPan = {
-      x: e.clientX - panStartRef.current.x,
-      y: e.clientY - panStartRef.current.y,
-    };
-    setPan(newPan);
-    localStorage.setItem('soryq_gallery_pan', JSON.stringify(newPan));
-  }
-
-  function handleMouseUp() {
-    setIsPanning(false);
-  }
-
-  function handleWheel(e: React.WheelEvent) {
-    if (ambientLayout !== 'gallery') return;
-    const isOverBackground = e.target === e.currentTarget || 
-      (e.target as HTMLElement).classList.contains('ambient-room-grid') ||
-      (e.target as HTMLElement).classList.contains('canvas-background-grid');
-      
-    if (!isOverBackground && !e.ctrlKey && !e.metaKey) {
-      return;
-    }
-
-    e.preventDefault();
-
-    if (e.ctrlKey || e.metaKey) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-
-      const cx = (mx - pan.x) / canvasZoom;
-      const cy = (my - pan.y) / canvasZoom;
-
-      const zoomFactor = 1.1;
-      let newZoom = e.deltaY < 0 ? canvasZoom * zoomFactor : canvasZoom / zoomFactor;
-      newZoom = Math.max(0.15, Math.min(newZoom, 3));
-
-      const newPanX = mx - cx * newZoom;
-      const newPanY = my - cy * newZoom;
-
-      setCanvasZoom(newZoom);
-      setPan({ x: newPanX, y: newPanY });
-      localStorage.setItem('soryq_gallery_zoom', newZoom.toString());
-      localStorage.setItem('soryq_gallery_pan', JSON.stringify({ x: newPanX, y: newPanY }));
-    } else {
-      const deltaX = e.shiftKey ? e.deltaY : e.deltaX;
-      const deltaY = e.shiftKey ? 0 : e.deltaY;
-      const newPan = {
-        x: pan.x - deltaX,
-        y: pan.y - deltaY,
-      };
-      setPan(newPan);
-      localStorage.setItem('soryq_gallery_pan', JSON.stringify(newPan));
-    }
-  }
-
-  function zoomInCanvas() {
-    setCanvasZoom((z) => {
-      const next = Math.min(3, z + 0.1);
-      localStorage.setItem('soryq_gallery_zoom', next.toString());
-      return next;
-    });
-  }
-
-  function zoomOutCanvas() {
-    setCanvasZoom((z) => {
-      const next = Math.max(0.15, z - 0.1);
-      localStorage.setItem('soryq_gallery_zoom', next.toString());
-      return next;
-    });
-  }
-
-  function resetCanvas() {
-    setCanvasZoom(1);
-    setPan({ x: 0, y: 0 });
-    localStorage.setItem('soryq_gallery_zoom', '1');
-    localStorage.setItem('soryq_gallery_pan', JSON.stringify({ x: 0, y: 0 }));
-  }
-
-  function toggleSnapToGrid() {
-    setSnapToGrid((prev) => {
-      const next = !prev;
-      localStorage.setItem('soryq_gallery_snap', next.toString());
-      return next;
-    });
-  }
-
   function startGalleryResize(event: React.MouseEvent, room: RoomId) {
     if (ambientLayout !== 'gallery') return;
     event.preventDefault();
@@ -1331,6 +1208,7 @@ export default function AppShell() {
       startY: event.clientY,
       width: current.width,
       height: current.height,
+      zoom: canvasView.zoom,
       element,
       nextWidth: current.width,
       nextHeight: current.height,
@@ -1340,6 +1218,86 @@ export default function AppShell() {
     focusRoom(room);
     document.body.style.cursor = 'nwse-resize';
     document.body.style.userSelect = 'none';
+  }
+
+  function startCanvasPan(event: React.PointerEvent) {
+    if (ambientLayout !== 'gallery') return;
+    // Only the empty board pans — presses on a panel or a floating overlay
+    // (zoom controls, minimized chips) are handled by those elements.
+    if ((event.target as HTMLElement).closest('.room-panel, .ambient-canvas-controls, .minimized-room-stack')) return;
+    if (event.button !== 0) return;
+    setGalleryScrollRoom(null);
+    canvasPanRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      origX: canvasView.x,
+      origY: canvasView.y,
+    };
+    setCanvasPanning(true);
+  }
+
+  function startPanelMove(event: React.PointerEvent, room: RoomId) {
+    if (ambientLayout !== 'gallery') return;
+    if (event.button !== 0) return;
+    // Buttons and the resize grip opt out so they stay clickable.
+    if ((event.target as HTMLElement).closest('.room-action, .room-resize-grip')) return;
+    const pos = canvasPositions[room] ?? { x: 0, y: 0 };
+    canvasMoveRef.current = {
+      room,
+      startX: event.clientX,
+      startY: event.clientY,
+      origX: pos.x,
+      origY: pos.y,
+      zoom: canvasView.zoom,
+      moved: false,
+    };
+    setDraggingRoom(room);
+    document.body.style.userSelect = 'none';
+  }
+
+  function zoomCanvasBy(factor: number) {
+    const viewport = canvasViewportRef.current;
+    setCanvasView((view) => {
+      const nextZoom = clampZoom(view.zoom * factor);
+      if (nextZoom === view.zoom) return view;
+      // Zoom toward the viewport centre when driven by the buttons.
+      const rect = viewport?.getBoundingClientRect();
+      const px = rect ? rect.width / 2 : 0;
+      const py = rect ? rect.height / 2 : 0;
+      const worldX = (px - view.x) / view.zoom;
+      const worldY = (py - view.y) / view.zoom;
+      return { zoom: nextZoom, x: px - worldX * nextZoom, y: py - worldY * nextZoom };
+    });
+  }
+
+  function fitCanvasToContent() {
+    const viewport = canvasViewportRef.current;
+    if (!viewport) return;
+    const rooms = orderedVisibleRooms;
+    if (rooms.length === 0) {
+      setCanvasView({ x: 0, y: 0, zoom: 1 });
+      return;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const room of rooms) {
+      const pos = canvasPositions[room] ?? { x: 0, y: 0 };
+      const size = gallerySizes[room] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x + size.width);
+      maxY = Math.max(maxY, pos.y + size.height);
+    }
+    const rect = viewport.getBoundingClientRect();
+    const pad = 48;
+    const contentW = Math.max(1, maxX - minX);
+    const contentH = Math.max(1, maxY - minY);
+    const zoom = clampZoom(Math.min((rect.width - pad * 2) / contentW, (rect.height - pad * 2) / contentH, 1));
+    const x = (rect.width - contentW * zoom) / 2 - minX * zoom;
+    const y = (rect.height - contentH * zoom) / 2 - minY * zoom;
+    setCanvasView({ x, y, zoom });
   }
 
   const topItems: ActivityItem[] = [
@@ -1644,26 +1602,42 @@ export default function AppShell() {
   // and terminal churn.
   function renderRoomFrame(id: RoomId, featured = false, arrangeable = false) {
     const title = roomTitle(id);
-    const pos = arrangeable ? resolvedPositions[id] : undefined;
-    const size = arrangeable ? (gallerySizes[id] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT }) : undefined;
+    // On the canvas every panel is absolutely positioned at its world (x, y)
+    // with an explicit size, so it can be dragged and zoomed freely.
+    const canvasStyle = arrangeable
+      ? (() => {
+          const pos = canvasPositions[id] ?? { x: 0, y: 0 };
+          const size = gallerySizes[id] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+          return {
+            position: 'absolute',
+            left: `${pos.x}px`,
+            top: `${pos.y}px`,
+            width: `${size.width}px`,
+            height: `${size.height}px`,
+            zIndex: id === activeRoom ? 5 : draggingRoom === id ? 6 : 1,
+          } as React.CSSProperties;
+        })()
+      : undefined;
     const roomStyle = {
-      ...(size ? { width: `${size.width}px`, height: `${size.height}px` } : {}),
-      ...(pos ? { left: `${pos.x}px`, top: `${pos.y}px` } : {}),
+      ...(canvasStyle ?? {}),
       viewTransitionName: `soryq-room-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
     } as React.CSSProperties;
     return (
       <section
         key={id}
-        className={`room-panel bento-card${featured ? ' featured active-glow' : ''}${arrangeable ? ' arrangeable' : ''}${draggingRoomId === id ? ' dragging' : ''}${resizingRoom === id ? ' resizing' : ''}${galleryScrollRoom === id ? ' scroll-armed' : ''}`}
+        className={`room-panel bento-card${featured ? ' featured active-glow' : ''}${arrangeable ? ' arrangeable' : ''}${draggingRoom === id ? ' dragging' : ''}${resizingRoom === id ? ' resizing' : ''}${galleryScrollRoom === id ? ' scroll-armed' : ''}`}
         data-room-id={id}
         style={roomStyle}
         onMouseDown={arrangeable ? () => activateGalleryPanel(id) : undefined}
       >
-        <header className="room-header" onMouseDown={arrangeable ? (e) => startRoomDrag(e, id) : undefined}>
+        <header
+          className={`room-header${arrangeable ? ' canvas-drag-handle' : ''}`}
+          onPointerDown={arrangeable ? (event) => startPanelMove(event, id) : undefined}
+        >
           <button
             className="room-title"
             onClick={(event) => (arrangeable ? handleFocusModeClick(event, id) : focusRoom(id))}
-            title={arrangeable ? `Open ${title} in Focus` : `Focus ${title}`}
+            title={arrangeable ? `Drag to move · click to open ${title} in Focus` : `Focus ${title}`}
           >
             <span className="room-kind">{roomKind(id)}</span>
             <span className="room-name">{title}</span>
@@ -1860,7 +1834,6 @@ export default function AppShell() {
     flushSync(() => {
       setLayoutSwitching(!prefersReducedMotion);
       setAmbientLayout(nextLayout);
-      localStorage.setItem('soryq_ambient_layout', nextLayout);
     });
 
     if (prefersReducedMotion) {
@@ -2045,55 +2018,55 @@ export default function AppShell() {
 
   function renderAmbientLayout() {
     if (ambientLayout === 'gallery') {
+      const zoomPct = Math.round(canvasView.zoom * 100);
       return (
         <div
-          className={`ambient-room-grid${isPanning ? ' dragging-canvas' : ''}`}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onWheel={handleWheel}
+          ref={canvasViewportRef}
+          className={`ambient-canvas${canvasPanning ? ' panning' : ''}`}
+          onPointerDown={startCanvasPan}
         >
           <div
-            className="canvas-content"
+            className="ambient-canvas-world"
             style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${canvasZoom})`,
-              transformOrigin: '0 0',
+              transform: `translate(${canvasView.x}px, ${canvasView.y}px) scale(${canvasView.zoom})`,
             }}
           >
-            <div className="canvas-background-grid" />
             {orderedVisibleRooms.map((room) => renderRoomFrame(room, room === activeRoom, true))}
           </div>
-          {renderMinimizedRooms()}
 
-          <div className="canvas-toolbar bento-card">
-            <div className="canvas-zoom-controls">
-              <button className="canvas-tool-btn" onClick={zoomOutCanvas} title="Zoom Out">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-              </button>
-              <span className="canvas-zoom-value">{Math.round(canvasZoom * 100)}%</span>
-              <button className="canvas-tool-btn" onClick={zoomInCanvas} title="Zoom In">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-              </button>
-            </div>
-            <div className="canvas-toolbar-separator" />
-            <button className="canvas-tool-btn" onClick={resetCanvas} title="Reset Pan & Zoom">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
-              </svg>
+          <div className="ambient-canvas-controls bento-card" aria-label="Canvas zoom">
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => zoomCanvasBy(1 / CANVAS_ZOOM_STEP)}
+              title="Zoom out"
+              aria-label="Zoom out"
+              disabled={canvasView.zoom <= CANVAS_MIN_ZOOM + 0.001}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M5 12h14" /></svg>
             </button>
-            <button className={`canvas-tool-btn${snapToGrid ? ' active' : ''}`} onClick={toggleSnapToGrid} title="Snap to Grid">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" />
-                <circle cx="5" cy="12" r="1" /><circle cx="5" cy="5" r="1" /><circle cx="5" cy="19" r="1" />
-                <circle cx="19" cy="12" r="1" /><circle cx="19" cy="5" r="1" /><circle cx="19" cy="19" r="1" />
-              </svg>
+            <button
+              type="button"
+              className="canvas-zoom-label"
+              onClick={fitCanvasToContent}
+              title="Fit all panels"
+              aria-label="Fit all panels to view"
+            >
+              {zoomPct}%
+            </button>
+            <button
+              type="button"
+              className="canvas-zoom-btn"
+              onClick={() => zoomCanvasBy(CANVAS_ZOOM_STEP)}
+              title="Zoom in"
+              aria-label="Zoom in"
+              disabled={canvasView.zoom >= CANVAS_MAX_ZOOM - 0.001}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
             </button>
           </div>
+
+          {renderMinimizedRooms()}
         </div>
       );
     }
@@ -2154,6 +2127,7 @@ export default function AppShell() {
                 )}
               </main>
 
+              <div className="workspace-overlays">
               <nav className="room-dock bento-card" aria-label="Room launcher">
                 <div className="ambient-switcher" role="tablist" aria-label="Ambient layouts">
                   {AMBIENT_LAYOUTS.map((mode) => (
@@ -2184,6 +2158,10 @@ export default function AppShell() {
                   {bottomItems.map((item) => <ActivityButton key={item.id} item={item} />)}
                 </div>
               </nav>
+              <div className="composer-strip">
+                <FloatingPromptBar />
+              </div>
+              </div>
             </div>
           </div>
         ) : (
@@ -2210,12 +2188,6 @@ export default function AppShell() {
           </Suspense>
         )}
       </div>
-
-      {workspaceId && (
-        <div className="composer-strip">
-          <FloatingPromptBar />
-        </div>
-      )}
     </div>
   );
 }

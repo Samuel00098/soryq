@@ -48,7 +48,6 @@ export async function formatCode(content: string, filepath: string): Promise<str
       break;
     case 'svelte':
       parser = 'svelte';
-      // The Svelte plugin embeds JS/TS and CSS, so it needs those parsers too.
       plugins = [parserSvelte, parserBabel, parserEstree, parserPostcss];
       break;
     case 'md':

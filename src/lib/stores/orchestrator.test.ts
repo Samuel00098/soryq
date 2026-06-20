@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 
 const invoke = vi.hoisted(() => vi.fn(async (..._args: any[]): Promise<any> => undefined));
 const routeOrchestratorRequest = vi.hoisted(() => vi.fn());

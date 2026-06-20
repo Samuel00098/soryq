@@ -45,6 +45,7 @@ import {
   setVoiceInputModel,
   showHidden,
   showSnapshotsTab,
+  swipeNavigationEnabled,
   tabSize,
   terminalCursorStyle,
   terminalFontSize,
@@ -62,6 +63,7 @@ import {
   voicePersonalities,
   getVoicePersonalityDef,
   voiceRefinementEnabled,
+  announceAgentCompletions,
   wordWrap,
   type AiModelOption,
   type AiProviderId,
@@ -621,6 +623,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const currentEnableLsp = useStore(enableLsp);
   const currentShowHidden = useStore(showHidden);
   const currentShowSnapshotsTab = useStore(showSnapshotsTab);
+  const currentSwipeNav = useStore(swipeNavigationEnabled);
   const currentNotifications = useStore(notificationsEnabled);
   const currentCloseBehavior = useStore(closeBehavior);
   const currentZoom = useStore(uiZoom);
@@ -655,6 +658,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const ttsModel = useStore(currentVoiceConversationTtsModel);
   const ttsVoice = useStore(currentVoiceConversationTtsVoice);
   const currentPersonality = useStore(voicePersonality);
+  const announceCompletions = useStore(announceAgentCompletions);
   const baseUrls = useStore(aiBaseUrlByProvider);
 
   const providerDef = getProviderDef(provider);
@@ -1248,6 +1252,9 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   <SettingRow title="Show Workspace Snapshots" detail="Show snapshots tab in the sidebar activity bar">
                     <Toggle label="Toggle workspace snapshots" checked={currentShowSnapshotsTab} onChange={showSnapshotsTab.set} />
                   </SettingRow>
+                  <SettingRow title="Swipe between layouts" detail="Slide between Focus, Split and Gallery with a horizontal swipe (or Shift + wheel). Editors keep their own scrolling.">
+                    <Toggle label="Toggle swipe navigation" checked={currentSwipeNav} onChange={swipeNavigationEnabled.set} />
+                  </SettingRow>
                   <SettingRow title="Notifications" detail="System alerts for agent activity and process exits">
                     <Toggle
                       label="Toggle notifications"
@@ -1585,7 +1592,14 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                             {progressInfo && (
                               <div style={{ width: '100%', marginTop: '4px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                                  <span>Phase: {progressInfo.phase === 'main' ? 'ONNX Model' : progressInfo.phase === 'voices' ? 'Voices (voices.bin)' : 'Initializing'}</span>
+                                  <span>Phase: {
+                                    progressInfo.phase === 'main' ? 'Model'
+                                    : progressInfo.phase === 'voices' ? 'Voices (voices-v1.0.bin)'
+                                    : progressInfo.phase === 'decoder' ? 'Decoder'
+                                    : progressInfo.phase === 'tokenizer' ? 'Tokenizer'
+                                    : progressInfo.phase === 'preprocessor' ? 'Preprocessor'
+                                    : 'Initializing'
+                                  }</span>
                                   <span>{Math.round(progressInfo.progress)}%</span>
                                 </div>
                                 <div style={{ height: '6px', width: '100%', background: 'var(--bg-active)', borderRadius: '3px', overflow: 'hidden' }}>
@@ -1695,6 +1709,12 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                         {getVoicePersonalityDef(currentPersonality).description}
                       </p>
                     </div>
+                  </SettingRow>
+                  <SettingRow
+                    title="Announce agent results"
+                    detail="Speak a status line aloud when an agent finishes, blocks, or fails — even when voice mode is closed."
+                  >
+                    <Toggle label="Toggle agent result announcements" checked={announceCompletions} onChange={announceAgentCompletions.set} />
                   </SettingRow>
                 </Section>
               </>

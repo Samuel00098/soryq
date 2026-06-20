@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { invoke } from '@tauri-apps/api/core';
 import type { ActivityEvent } from '$lib/services/orchestrator/activity-log';
 import type { OrchestratorTask } from '$lib/services/orchestrator/task-lifecycle';

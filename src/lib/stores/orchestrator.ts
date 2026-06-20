@@ -1,4 +1,5 @@
-import { writable, get, derived } from 'svelte/store';
+import { writable, get, derived } from '$lib/stores/storeCompat';
+import { useOrchestratorStore } from './zustand/orchestrator';
 import { invoke } from '@tauri-apps/api/core';
 import { showToast } from '$lib/stores/notification';
 import { getPresetRuns } from '$lib/stores/runs';
@@ -17,6 +18,7 @@ import type { ActiveView } from '$lib/types/layout';
 import { openFile, closeFile, jumpToLine } from '$lib/stores/editor';
 import { navigatePreviewTab } from '$lib/stores/preview';
 import { getAppContextSnapshot, NAVIGABLE_VIEWS } from '$lib/services/orchestrator/app-context';
+import { applyAgentSetting } from '$lib/services/orchestrator/app-settings';
 import { loadJson } from '$lib/utils/storage';
 import {
   routeOrchestratorRequest,
@@ -36,8 +38,10 @@ import {
   currentVoiceConversationAiModel,
   isLocalProvider,
   getProviderBaseUrl,
+  announceAgentCompletions,
 } from '$lib/stores/settings';
 import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
+import { speak, getVoiceReplyConfigError } from '$lib/services/tts';
 import {
   createTaskRecord,
   transitionTask,
@@ -48,13 +52,14 @@ import { classifyTaskAfterExecution } from '$lib/services/orchestrator/review-ga
 import {
   makeActivityEvent,
   appendActivity,
-  captureTranscript,
   MAX_ACTIVITY_EVENTS,
   MAX_TRANSCRIPT_CHARS,
   type ActivityKind,
   type ActivityEvent,
 } from '$lib/services/orchestrator/activity-log';
-import { watchLeasedAgentTurn, type AgentTurnOutcome } from '$lib/services/orchestrator/agent-turn-watch';
+import { type AgentTurnOutcome } from '$lib/services/orchestrator/agent-turn-watch';
+import { getAgentAdapter, disposeAgentAdapter } from '$lib/services/orchestrator/agent-adapter';
+import { requestAmbientLayout, requestRoomControl } from '$lib/stores/layoutControl';
 import {
   leaseOrchestratorTerminal,
   releaseOrchestratorTerminal,
@@ -64,6 +69,7 @@ import {
   applyOrchestratorAgentName,
 } from '$lib/services/orchestrator/terminal-lease';
 import { pickAssistantName, isGenericAgentName } from '$lib/services/orchestrator/agent-names';
+import { createTaskWorktree, removeTaskWorktree } from '$lib/services/orchestrator/worktree-manager';
 import { buildAgentCharter, buildAgentTaskMessage } from '$lib/services/orchestrator/agent-charter';
 import { agentReadsRulesFile } from '$lib/services/orchestrator/agent-rules-file';
 import {
@@ -72,6 +78,11 @@ import {
   rememberTask,
 } from '$lib/services/orchestrator/memory';
 import {
+  getProfileLines,
+  loadProjectProfile,
+  reflectAndEvolve,
+} from '$lib/services/orchestrator/evolve';
+import {
   onSessionExit,
   onAgentDetected,
   getAgentDisplayName,
@@ -79,7 +90,6 @@ import {
   focusPromptBar,
   summarizeTerminalTask,
   getTerminalProjectState,
-  getSessionOutputBuffer,
   killSession,
   createTerminalSession,
   sendPromptToSession,
@@ -168,6 +178,7 @@ function normalizeLoadedTask(raw: Partial<PersistedTask> | null | undefined): Or
       typeof raw.transcript === 'string' && raw.transcript
         ? raw.transcript.slice(-MAX_TRANSCRIPT_CHARS)
         : null,
+    worktree: raw.worktree ?? null,
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
     startedAt: typeof raw.startedAt === 'number' ? raw.startedAt : null,
     completedAt: typeof raw.completedAt === 'number' ? raw.completedAt : null,
@@ -211,6 +222,7 @@ function releaseTaskLease(task: OrchestratorTask): void {
 export async function loadProjectOrchestratorTasks(project: { id: string; root_path: string }): Promise<void> {
   projectPaths.set(project.id, project.root_path);
   await loadProjectMemory(project.id, project.root_path);
+  await loadProjectProfile(project.id, project.root_path);
   let rawPersistedTasks: Array<Partial<PersistedTask> | null | undefined> = [];
   try {
     const raw = await invoke<string>('fs_read_file', { path: storePath(project.root_path) });
@@ -355,16 +367,31 @@ export function captureTaskTranscript(taskId: string, sessionId?: number | null)
   if (!task) return;
   const sid = sessionId ?? task.assignedSessionId;
   if (sid == null) return;
-  const transcript = captureTranscript(getSessionOutputBuffer(sid));
+  const transcript = getAgentAdapter(sid).readOutput();
   if (!transcript) return;
   patchTask(taskId, (t) => ({ ...t, transcript }));
 }
 
-/** Read a task's live transcript while it runs, else its stored snapshot. */
+/**
+ * Read a task's transcript. Prefers the live terminal buffer whenever the
+ * agent's session is still running — including after the turn was marked done —
+ * because CLI agents stay alive in their REPL and may print their actual answer
+ * a beat after a (sometimes premature) idle/bell completion. Falls back to the
+ * frozen snapshot captured at completion when the session is gone.
+ */
 export function getTaskTranscript(task: OrchestratorTask): string {
-  if (task.status === 'in-progress' && task.assignedSessionId != null) {
-    const live = captureTranscript(getSessionOutputBuffer(task.assignedSessionId));
-    if (live) return live;
+  const sid = task.assignedSessionId ?? task.lastSessionId ?? null;
+  if (sid != null) {
+    const session = getTerminalProjectState(task.projectId).sessions.find((s) => s.id === sid);
+    // While in-progress the lease guarantees liveness; after completion only read
+    // if the process is genuinely still running, so a dead session doesn't mask
+    // the durable snapshot.
+    if (task.status === 'in-progress' || session?.isRunning) {
+      const live = getAgentAdapter(sid).readOutput();
+      // Keep whichever has more content — late output should win, but never
+      // regress to a thinner live read if the snapshot captured more.
+      if (live && live.length >= (task.transcript?.length ?? 0)) return live;
+    }
   }
   return task.transcript ?? '';
 }
@@ -418,6 +445,28 @@ async function generateTranscriptSummary(
   });
 }
 
+/**
+ * Speak a one-line status update aloud when an agent turn ends, so the user gets
+ * a hands-free heads-up ("Codex finished: Add dark mode") whether or not the
+ * voice conversation overlay is open. Best-effort: silently skipped when the
+ * toggle is off or no reply-capable TTS provider is configured. The detailed
+ * recap is intentionally left to the on-demand summary the orchestrator gives
+ * when the user asks for one in voice mode.
+ */
+function announceCompletionAloud(
+  name: string,
+  status: CompletionSummary['status'],
+  title: string
+): void {
+  if (!get(announceAgentCompletions)) return;
+  if (getVoiceReplyConfigError()) return;
+  const line =
+    status === 'blocked' ? `${name} needs your input: ${title}.` :
+    status === 'failed' ? `${name} failed: ${title}.` :
+    `${name} finished: ${title}.`;
+  void speak(line).catch(() => {});
+}
+
 /** True while `sessionId` is the live, running terminal still leased to `taskId`. */
 function leasedSessionLive(taskId: string, sessionId: number): boolean {
   const task = get(orchestratorTasks).find((t) => t.id === taskId);
@@ -448,13 +497,17 @@ function completeLeasedTask(
   // Snapshot the agent's terminal output before we release the lease, so the
   // durable record captures exactly what it did this turn.
   captureTaskTranscript(taskId, sessionId);
-  const updated = patchTask(taskId, (t) =>
-    classifyTaskAfterExecution(t, {
+  const updated = patchTask(taskId, (t) => ({
+    // Remember the session even though classify clears `assignedSessionId`, so we
+    // can still read late output if the agent kept printing past its turn end
+    // (the CLI process survives lease release). See getTaskTranscript.
+    lastSessionId: sessionId,
+    ...classifyTaskAfterExecution(t, {
       exitCode: opts?.exitCode ?? 0,
       needsHumanInput: blocked,
       note: blocked ? outcome.reason : undefined,
-    })
-  );
+    }),
+  }));
   releaseOrchestratorTerminal(sessionId);
 
   if (updated) {
@@ -487,6 +540,8 @@ function completeLeasedTask(
     updated.status === 'blocked' && outcome.kind === 'blocked' ? outcome.reason
     : updated.status === 'failed' ? updated.failureReason
     : null;
+
+  announceCompletionAloud(name, completionStatus, task.title);
 
   const chatMsgId = `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const willSummarize = !!(updated.transcript?.trim()) && isAiAvailable();
@@ -554,6 +609,9 @@ export function deleteOrchestratorTask(id: string) {
   if (task) {
     cancelPendingLaunch(task.id);
     releaseTaskLease(task);
+    // Tear down the agent's isolated worktree (best-effort). The branch is kept
+    // so any committed work remains recoverable.
+    if (task.worktree) void removeTaskWorktree(task.projectId, task.worktree, false);
   }
   let projectId = '';
   orchestratorTasks.update((all) => {
@@ -648,7 +706,7 @@ function sendGoalToLeasedTask(
       logTaskActivity(id, 'goal', goal);
       showToast('Sent goal to ' + (getAgentDisplayName(agentCommand) ?? agentCommand), 'info', 3000);
       if (!watchTurn) return;
-      const outcome = await watchLeasedAgentTurn(sessionId, {
+      const outcome = await getAgentAdapter(sessionId).watchTurn({
         shouldContinue: () => leasedSessionLive(id, sessionId),
       });
       if (outcome.kind !== 'aborted') completeLeasedTask(id, sessionId, outcome);
@@ -708,16 +766,50 @@ export async function launchOrchestratorTask(
   const launchGeneration = nextLaunchGeneration(task.id);
   let launchCommitted = false;
   try {
-    const sessionId = await leaseOrchestratorTerminal({
+    // Give each agent its own isolated git worktree (own branch off HEAD) so
+    // concurrent agents never collide in the shared working tree. Reuse an
+    // existing worktree on relaunch; fall back to the project root when isolation
+    // isn't possible (non-git project, empty repo, …).
+    let effectiveCwd = cwd;
+    let worktree = task.worktree ?? null;
+    if (!worktree) {
+      worktree = await createTaskWorktree({
+        projectId: task.projectId,
+        taskId: task.id,
+        label: task.name ?? task.title,
+      });
+      if (worktree) {
+        patchTask(task.id, (current) => ({ ...current, worktree }));
+        logTaskActivity(task.id, 'info', `Isolated in worktree ${worktree.branch}`);
+      }
+    }
+    if (worktree) effectiveCwd = worktree.path;
+
+    let sessionId = await leaseOrchestratorTerminal({
       agentCommand,
-      cwd,
+      cwd: effectiveCwd,
       taskId: task.id,
       taskTitle: task.title,
       name: task.name,
       activate,
     });
+    // If the isolated worktree couldn't start the agent, don't fail the launch —
+    // drop the worktree and retry in the project root so the agent still runs.
+    if (sessionId == null && worktree && effectiveCwd !== cwd) {
+      void removeTaskWorktree(task.projectId, worktree, false);
+      patchTask(task.id, (current) => ({ ...current, worktree: null }));
+      worktree = null;
+      sessionId = await leaseOrchestratorTerminal({
+        agentCommand,
+        cwd,
+        taskId: task.id,
+        taskTitle: task.title,
+        name: task.name,
+        activate,
+      });
+    }
     if (sessionId == null) {
-      showToast('No free terminal pane to launch the agent', 'error');
+      showToast('Could not start the agent terminal', 'error');
       return null;
     }
 
@@ -929,11 +1021,30 @@ export async function executeAppAction(
         return false;
       }
       showTerminal();
+      requestRoomControl('focus', 'terminal');
       sendPromptToSession(sid, command);
       return true;
     }
     case 'task':
       return executeTaskAction(action, projectId);
+    case 'setting': {
+      const result = await applyAgentSetting(action.setting, action.value);
+      showToast(result.message, result.ok ? 'success' : 'warning', result.ok ? 2500 : 4000);
+      return result.ok;
+    }
+    case 'layout': {
+      // Switch the workspace's ambient arrangement (Focus / Split / Gallery).
+      requestAmbientLayout(action.mode);
+      return true;
+    }
+    case 'room': {
+      // Focus / minimize / restore / close a specific room by name. AppShell
+      // resolves the name against its live rooms (panels + agents).
+      const target = action.target.trim();
+      if (!target) return false;
+      requestRoomControl(action.op, target);
+      return true;
+    }
     default:
       return false;
   }
@@ -1018,6 +1129,20 @@ function patchChat(projectId: string, id: string, patch: Partial<ChatMessage>) {
 
 export function clearProjectChat(projectId: string) {
   chatMessages.update((all) => ({ ...all, [projectId]: [] }));
+}
+
+/**
+ * Soft session reset: stop the task(s) currently running and clear the chat
+ * transcript, while KEEPING the brain's learned memory and evolving profile.
+ * Cancelling releases each task's terminal lease (it does not kill the user's
+ * terminal), so a mid-run agent is simply let go rather than force-closed.
+ */
+export function resetOrchestratorSession(projectId: string): void {
+  const running = get(orchestratorTasks).filter(
+    (t) => t.projectId === projectId && t.status === 'in-progress'
+  );
+  for (const t of running) cancelOrchestratorTask(t.id, 'Session reset');
+  clearProjectChat(projectId);
 }
 
 /** Agents the orchestrator may dispatch to (the project's launchable presets). */
@@ -1140,7 +1265,7 @@ export function getRunningAgentRefs(projectId: string): RunningAgentRef[] {
     .filter((s) => s.isRunning && s.agentPreset && !tracked.has(s.id))
     .sort((a, b) => (b.lastActivatedAt ?? 0) - (a.lastActivatedAt ?? 0))
     .map((s) => {
-      const full = captureTranscript(getSessionOutputBuffer(s.id));
+      const full = getAgentAdapter(s.id).readOutput();
       return {
         name: s.agentName?.trim() || null,
         agent: s.agentPreset ?? 'agent',
@@ -1240,7 +1365,9 @@ async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootP
 
   const sessionId = await leaseOrchestratorTerminal({
     agentCommand: task.agentPreset,
-    cwd: rootPath,
+    // Reopen the agent in its existing isolated worktree so resumed work stays on
+    // the same branch; fall back to the project root if it never had one.
+    cwd: task.worktree?.path ?? rootPath,
     taskId: task.id,
     taskTitle: task.title,
     name: task.name,
@@ -1278,7 +1405,7 @@ async function sendFollowUpToAgent(task: OrchestratorTask, prompt: string, rootP
   logTaskActivity(task.id, 'follow-up', prompt);
 
   void (async () => {
-    const outcome = await watchLeasedAgentTurn(sessionId, {
+    const outcome = await getAgentAdapter(sessionId).watchTurn({
       shouldContinue: () => leasedSessionLive(task.id, sessionId),
     });
     if (outcome.kind !== 'aborted') completeLeasedTask(task.id, sessionId, outcome);
@@ -1396,6 +1523,7 @@ export async function sendChatMessage(
         runningAgents: getRunningAgentRefs(projectId),
         reviewingAgents: getReviewableAgentRefs(projectId),
         taskOutputs: getAgentOutputRefs(projectId),
+        profile: getProfileLines(projectId),
         appState: getAppContextSnapshot(projectId, rootPath),
         llmConfig,
         conversational: !!opts?.voiceConversation,
@@ -1594,7 +1722,10 @@ export async function sendChatMessage(
       action.kind === 'close-file' ||
       action.kind === 'preview' ||
       action.kind === 'run' ||
-      action.kind === 'task'
+      action.kind === 'task' ||
+      action.kind === 'setting' ||
+      action.kind === 'layout' ||
+      action.kind === 'room'
     ) {
       // APP-control actions: drive the application UI directly (no agent).
       await executeAppAction(action, projectId, rootPath);
@@ -1605,6 +1736,29 @@ export async function sendChatMessage(
     const patch: Partial<ChatMessage> = { dispatched };
     if (reconSummary != null) patch.reconSummary = reconSummary;
     patchChat(projectId, assistantId, patch);
+  }
+
+  // Evolve the brain: fold any durable insight from this turn into the profile.
+  // Fire-and-forget — never blocks the reply, and silently no-ops without AI.
+  const { provider: rProvider, model: rModel, hasApiKey: rHasKey, baseUrl: rBaseUrl } = llmConfig;
+  const rLocal = isLocalProvider(rProvider);
+  if ((!rLocal || rBaseUrl) && (rLocal || rHasKey)) {
+    void reflectAndEvolve({
+      projectId,
+      rootPath,
+      userMessage: trimmed,
+      reply: result.reply,
+      actions: result.actions,
+      complete: (systemPrompt, userText) =>
+        invoke<string>('ai_complete', {
+          systemPrompt,
+          userText,
+          provider: rProvider,
+          model: rModel,
+          apiKey: '',
+          baseUrl: rBaseUrl || undefined,
+        }),
+    });
   }
 }
 
@@ -1637,6 +1791,8 @@ if (typeof window !== 'undefined') {
   // exits while its project is in the background is reconciled immediately
   // instead of being stranded in-progress until the user reopens that project.
   onSessionExit(({ sessionId, projectId, code }) => {
+    // The session is gone — tear down its agent adapter (clears any poll timers).
+    disposeAgentAdapter(sessionId);
     const task = get(orchestratorTasks).find(
       (t) => t.status === 'in-progress' && t.assignedSessionId === sessionId
     );

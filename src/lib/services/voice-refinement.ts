@@ -11,7 +11,7 @@ import {
   type AiProviderId,
 } from '$lib/stores/settings';
 import { refineVoiceTranscript } from '$lib/services/voice-input';
-import { get } from 'svelte/store';
+import { get } from '$lib/stores/storeCompat';
 import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 
 const VOICE_FALLBACK_PROVIDERS: AiProviderId[] = ['groq', 'ollama', 'lmstudio', 'openrouter'];

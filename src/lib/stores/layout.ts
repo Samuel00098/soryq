@@ -66,8 +66,13 @@ useLayoutStore.subscribe((state) => {
   envManagerOpen.set(state.envManagerOpen);
 });
 
-export function openSettings() { withTransition(() => { useLayoutStore.getState().openSettings(); }); }
-export function closeSettings() { withTransition(() => { useLayoutStore.getState().closeSettings(); }); }
+// Settings open/close intentionally skips the page-wide view transition. The
+// transition snapshots the entire app (terminals, editors, …) before the modal
+// can show, which made opening Settings feel laggy. The modal animates itself
+// in via the `settingsScaleUp` CSS animation, so it appears instantly and still
+// looks smooth.
+export function openSettings() { useLayoutStore.getState().openSettings(); }
+export function closeSettings() { useLayoutStore.getState().closeSettings(); }
 export function openQuickCapture() { withTransition(() => { useLayoutStore.getState().openQuickCapture(); }); }
 export function closeQuickCapture() { withTransition(() => { useLayoutStore.getState().closeQuickCapture(); }); }
 export function openEnvManager() { withTransition(() => { useLayoutStore.getState().openEnvManager(); }); }

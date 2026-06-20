@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable } from '$lib/stores/storeCompat';
 import { loadJson } from '$lib/utils/storage';
 
 export interface RunEntry {

@@ -351,6 +351,10 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
       return;
     }
 
+    // Keep the raw float PCM (Parakeet runs in-renderer on Float32 @ 16 kHz);
+    // Whisper still goes to Rust as WAV bytes.
+    const pcmChunks = capturedChunks;
+    const pcmRate = captureSampleRate;
     const bytes = pcmToWavBytes(capturedChunks, captureSampleRate);
     clearCaptureState();
 
@@ -360,10 +364,16 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
       if (provider === 'local') {
         callbacks.onProcessingStart?.('Transcribing locally…');
         const model = get(currentVoiceInputModel) || getDefaultVoiceInputModel(provider);
-        transcript = await invoke<string>('local_stt_transcribe', {
-          audioBytes: Array.from(bytes),
-          modelId: model,
-        });
+        if (model.startsWith('parakeet')) {
+          // Lazy-load so onnxruntime-web / parakeet.js stay out of the main bundle.
+          const { transcribeParakeet } = await import('$lib/services/parakeet-local');
+          transcript = await transcribeParakeet(pcmChunks, pcmRate, model);
+        } else {
+          transcript = await invoke<string>('local_stt_transcribe', {
+            audioBytes: Array.from(bytes),
+            modelId: model,
+          });
+        }
       } else {
         const providerId = (provider === 'webspeech' ? 'google' : provider) as AiProviderId;
         const providerDef = getProviderDef(providerId);

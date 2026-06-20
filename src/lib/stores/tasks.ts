@@ -1,4 +1,4 @@
-import { writable, get, derived } from 'svelte/store';
+import { writable, get, derived } from '$lib/stores/storeCompat';
 import { invoke } from '@tauri-apps/api/core';
 
 export type TaskStatus = 'todo' | 'doing' | 'done';

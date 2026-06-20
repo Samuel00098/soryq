@@ -8,6 +8,7 @@ export type OrchestratorTaskStatus =
 
 import type { ActivityEvent } from './activity-log';
 export type { ActivityEvent } from './activity-log';
+import type { WorktreeInfo } from './worktree-manager';
 
 export interface OrchestratorTask {
   id: string;
@@ -19,6 +20,13 @@ export interface OrchestratorTask {
   status: OrchestratorTaskStatus;
   agentPreset?: string | null;
   assignedSessionId?: number | null;
+  /**
+   * The session the agent last ran in. Unlike `assignedSessionId` (cleared on
+   * completion when the lease is released), this survives completion so the
+   * orchestrator can still read late terminal output from an agent that kept
+   * printing after its turn was marked done (the CLI process stays alive).
+   */
+  lastSessionId?: number | null;
   blockedReason?: string | null;
   failureReason?: string | null;
   /** Most recent prompt delivery for the current run; null until the agent has work. */
@@ -35,6 +43,12 @@ export interface OrchestratorTask {
    * follow-ups / close so agent mode can drive them like any other.
    */
   adopted?: boolean;
+  /**
+   * Isolated git worktree this agent works in (own branch, forked from HEAD), so
+   * multiple agents can edit the same repo concurrently. Null/absent when the
+   * task runs directly in the project root (non-git project, or isolation off).
+   */
+  worktree?: WorktreeInfo | null;
   createdAt: number;
   startedAt?: number | null;
   completedAt?: number | null;
@@ -72,6 +86,7 @@ export function createTaskRecord(
     promptSentAt: null,
     activity: [],
     transcript: null,
+    worktree: null,
     createdAt: now,
     startedAt: null,
     completedAt: null,

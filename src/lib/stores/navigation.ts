@@ -1,8 +1,27 @@
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/stores/storeCompat';
 import { activeWorkspaceId, activeProjectId, openWorkspace, switchToProject } from './workspace';
 import { layout, setActiveView } from './layout';
 import { activeFile, openFile } from './editor';
 import type { ActiveView } from '$lib/types/layout';
+import { useNavigationStore } from './zustand/navigation';
+
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useNavigationStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useNavigationStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useNavigationStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useNavigationStore.getState() as any)[key] as T;
+      (useNavigationStore.getState() as any).__set(key, fn(current));
+    },
+  };
+}
 
 interface NavState {
   workspaceId: string | null;
@@ -16,8 +35,8 @@ let currentIndex = -1;
 let isNavigatingHistory = false;
 
 // Stores for UI state
-export const canGoBack = writable(false);
-export const canGoForward = writable(false);
+export const canGoBack = syncWritable<boolean>('canGoBack', false);
+export const canGoForward = syncWritable<boolean>('canGoForward', false);
 
 function updateCanNav() {
   canGoBack.set(currentIndex > 0);

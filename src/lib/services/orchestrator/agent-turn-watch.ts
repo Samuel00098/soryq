@@ -47,7 +47,13 @@ export async function watchLeasedAgentTurn(
   opts: WatchLeasedAgentOptions
 ): Promise<AgentTurnOutcome> {
   const pollMs = opts.pollMs ?? 400;
-  const idleMs = opts.idleMs ?? 6000;
+  // Quiet-agent fallback only. Coding agents routinely go silent for many
+  // seconds while thinking, running a tool, or compiling, so a short window
+  // false-completes turns mid-work — and because the lease is then released and
+  // the task severed from its session, the agent's real answer (printed a beat
+  // later) is never read back. Discrete bell/attention signals still finish a
+  // turn immediately; this only governs agents that never signal.
+  const idleMs = opts.idleMs ?? 25000;
   const tailChars = opts.tailChars ?? 2000;
   const minWorkChars = opts.minWorkChars ?? 200;
 

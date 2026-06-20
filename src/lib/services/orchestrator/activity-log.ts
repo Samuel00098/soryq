@@ -8,7 +8,7 @@
 //      and normalized into readable text, so you can see exactly what it printed.
 //
 // Both are pure and live here so they can be unit-tested and reused by the store
-// and the panel without dragging in Svelte/terminal dependencies.
+// and the panel without dragging in terminal dependencies.
 
 export type ActivityKind =
   | 'dispatch'

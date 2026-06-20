@@ -75,9 +75,30 @@ pub(crate) fn classify_push_error(stderr: &str) -> String {
     format!("Git push failed:\n{}", sanitize_git_error(stderr))
 }
 
+/// Construct a `git` Command. On Windows this sets the CREATE_NO_WINDOW process
+/// creation flag so the child git process doesn't flash a console window.
+/// Without it, every git invocation pops up a terminal — and opening Source
+/// Control fires several git commands back-to-back (status, branches, log),
+/// so the user sees terminals opening repeatedly and the UI stutters.
+///
+/// Drop-in replacement for `git_base()`: callers add their own
+/// `.args(..)`, `.current_dir(..)`, and env as before.
+pub(crate) fn git_base() -> Command {
+    let program = "git";
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Run a git command in `root` and return its trimmed stdout on success, or None.
 fn git_capture(root: &std::path::Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
+    let out = git_base()
         .args(args)
         .current_dir(root)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -186,7 +207,7 @@ pub fn workspace_git_commit(
             add_args.push(path);
         }
     }
-    let add_output = Command::new("git")
+    let add_output = git_base()
         .args(&add_args)
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -210,7 +231,7 @@ pub fn workspace_git_commit(
             commit_args.push(path);
         }
     }
-    let commit_output = Command::new("git")
+    let commit_output = git_base()
         .args(&commit_args)
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -250,7 +271,7 @@ pub fn workspace_git_push(project_id: String, state: State<AppState>) -> Result<
     }
 
     // 1. Determine current branch
-    let branch = Command::new("git")
+    let branch = git_base()
         .args(["branch", "--show-current"])
         .current_dir(root_path)
         .output()
@@ -269,7 +290,7 @@ pub fn workspace_git_push(project_id: String, state: State<AppState>) -> Result<
         push_args.push(&branch_owned);
     }
 
-    let output = Command::new("git")
+    let output = git_base()
         .args(push_args)
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -309,7 +330,7 @@ pub fn workspace_git_fetch(project_id: String, state: State<AppState>) -> Result
         return Err("This project is not a Git repository.".to_string());
     }
 
-    let output = Command::new("git")
+    let output = git_base()
         .args(["fetch", "origin"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -535,7 +556,6 @@ fn search_dir_recursive(
                         || name == "build"
                         || name == "target"
                         || name == "out"
-                        || name == ".svelte-kit"
                     {
                         continue;
                     }
@@ -613,7 +633,7 @@ pub fn workspace_git_status(
     }
 
     // 1. Get branch name
-    let branch = Command::new("git")
+    let branch = git_base()
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -624,7 +644,7 @@ pub fn workspace_git_status(
         .unwrap_or_else(|| "HEAD".to_string());
 
     // 2. Get porcelain status
-    let output = Command::new("git")
+    let output = git_base()
         .args(["status", "--porcelain"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -666,7 +686,7 @@ pub fn workspace_git_status(
     let mut total_additions = 0;
     let mut total_deletions = 0;
 
-    let numstat_output = Command::new("git")
+    let numstat_output = git_base()
         .args(["diff", "HEAD", "--numstat", "--no-renames"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -765,7 +785,7 @@ pub fn workspace_git_discard_file(
     }
 
     // 1. Get current git status to see if file is untracked
-    let status_output = Command::new("git")
+    let status_output = git_base()
         .args(["status", "--porcelain", "--", &file_path])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -790,14 +810,14 @@ pub fn workspace_git_discard_file(
     } else {
         // Tracked file: unstage and discard changes
         // Unstage first (in case it was added/staged)
-        let _ = Command::new("git")
+        let _ = git_base()
             .args(["reset", "HEAD", "--", &file_path])
             .current_dir(root_path)
             .env("GIT_TERMINAL_PROMPT", "0")
             .output();
 
         // Discard changes in worktree
-        let checkout_output = Command::new("git")
+        let checkout_output = git_base()
             .args(["checkout", "--", &file_path])
             .current_dir(root_path)
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -807,7 +827,7 @@ pub fn workspace_git_discard_file(
         if !checkout_output.status.success() {
             // If checkout failed, it might be a new file that has been reset and is now untracked.
             // Let's check status again, or check if it's untracked now.
-            let status_output2 = Command::new("git")
+            let status_output2 = git_base()
                 .args(["status", "--porcelain", "--", &file_path])
                 .current_dir(root_path)
                 .env("GIT_TERMINAL_PROMPT", "0")
@@ -851,7 +871,7 @@ pub fn workspace_git_discard_all(
     }
 
     // 1. Reset all tracked changes
-    let reset_output = Command::new("git")
+    let reset_output = git_base()
         .args(["reset", "--hard", "HEAD"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -864,7 +884,7 @@ pub fn workspace_git_discard_all(
     }
 
     // 2. Clean untracked files
-    let clean_output = Command::new("git")
+    let clean_output = git_base()
         .args(["clean", "-fd"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -877,6 +897,200 @@ pub fn workspace_git_discard_all(
     }
 
     Ok(())
+}
+
+// ── Agent worktree isolation ────────────────────────────────────────────────
+// Each orchestrator agent works in its own git worktree on a dedicated branch,
+// so multiple agents can edit the same repository concurrently without stepping
+// on each other. Worktrees live in a sibling `.soryq-worktrees/<repo>` directory
+// (outside the main tree) so they never appear in the project's own git status.
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorktreeInfo {
+    pub path: String,
+    pub branch: String,
+    pub base_branch: String,
+    pub base_commit: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WorktreeStatus {
+    pub changed_files: u32,
+    pub branch: String,
+}
+
+fn is_valid_branch_name(branch: &str) -> bool {
+    !branch.is_empty()
+        && !branch.starts_with('-')
+        && !branch.starts_with('/')
+        && !branch.ends_with('/')
+        && !branch.contains("..")
+        && !branch
+            .contains(|c: char| matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\' | ' ' | '\0'))
+}
+
+/// Create an isolated git worktree on a fresh branch (forked from current HEAD)
+/// for one agent. Returns the worktree's absolute path plus branch metadata, or
+/// an error when the project isn't a git repo (the caller then runs the agent in
+/// the project root instead).
+#[tauri::command]
+pub fn workspace_git_create_worktree(
+    project_id: String,
+    branch: String,
+    state: State<AppState>,
+) -> Result<WorktreeInfo, String> {
+    let projects = state.workspace_manager.list_projects();
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+
+    let root_path = &project.root_path;
+    if !root_path.join(".git").exists() {
+        return Err("This project is not a Git repository.".to_string());
+    }
+
+    let branch = branch.trim();
+    if !is_valid_branch_name(branch) {
+        return Err("Invalid branch name".to_string());
+    }
+
+    let base_branch =
+        git_capture(root_path, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|| "HEAD".to_string());
+    let base_commit = git_capture(root_path, &["rev-parse", "HEAD"])
+        .ok_or_else(|| "Could not resolve HEAD — the repository has no commits yet.".to_string())?;
+
+    let repo_name = root_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project")
+        .to_string();
+    let parent = root_path
+        .parent()
+        .ok_or_else(|| "Repository has no parent directory.".to_string())?;
+    let safe_branch = branch.replace('/', "-");
+    let worktree_path =
+        crate::commands::clean_path_buf(parent.join(".soryq-worktrees").join(&repo_name).join(&safe_branch));
+    let path_str = worktree_path.to_string_lossy().to_string();
+
+    // Reuse an existing worktree at this path (idempotent on retry/relaunch).
+    if worktree_path.join(".git").exists() {
+        return Ok(WorktreeInfo {
+            path: path_str,
+            branch: branch.to_string(),
+            base_branch,
+            base_commit,
+        });
+    }
+
+    if let Some(p) = worktree_path.parent() {
+        std::fs::create_dir_all(p).map_err(|e| format!("Failed to create worktree directory: {}", e))?;
+    }
+
+    // Fresh branch from HEAD. If the branch already exists (a prior run), fall
+    // back to checking it out into the new worktree path.
+    let output = git_base()
+        .args(["worktree", "add", "-b", branch, &path_str, "HEAD"])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let retry = git_base()
+            .args(["worktree", "add", &path_str, branch])
+            .current_dir(root_path)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
+        if !retry.status.success() {
+            return Err(format!("Failed to create worktree: {}", sanitize_git_error(&stderr)));
+        }
+    }
+
+    // Defensive: only report success if the checkout actually materialized, so the
+    // frontend can fall back to the project root rather than try to start a shell
+    // in a directory that doesn't exist.
+    if !worktree_path.is_dir() {
+        return Err("Worktree directory was not created.".to_string());
+    }
+
+    Ok(WorktreeInfo {
+        path: path_str,
+        branch: branch.to_string(),
+        base_branch,
+        base_commit,
+    })
+}
+
+/// Remove an agent worktree (and optionally delete its branch). Refuses to touch
+/// anything outside the managed `.soryq-worktrees` area as a safety guard.
+#[tauri::command]
+pub fn workspace_git_remove_worktree(
+    project_id: String,
+    worktree_path: String,
+    delete_branch: Option<bool>,
+    branch: Option<String>,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let projects = state.workspace_manager.list_projects();
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+    let root_path = &project.root_path;
+
+    let cleaned = crate::commands::clean_path_buf(PathBuf::from(&worktree_path));
+    if !cleaned.to_string_lossy().contains(".soryq-worktrees") {
+        return Err("Refusing to remove a path outside the managed worktree area.".to_string());
+    }
+
+    let _ = git_base()
+        .args(["worktree", "remove", "--force", &worktree_path])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output();
+    let _ = git_base()
+        .args(["worktree", "prune"])
+        .current_dir(root_path)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output();
+
+    if delete_branch.unwrap_or(false) {
+        if let Some(b) = branch {
+            let b = b.trim();
+            if is_valid_branch_name(b) {
+                let _ = git_base()
+                    .args(["branch", "-D", b])
+                    .current_dir(root_path)
+                    .env("GIT_TERMINAL_PROMPT", "0")
+                    .output();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Live status for an agent worktree: number of changed files (staged, unstaged,
+/// and untracked) plus the current branch. Used to surface review-readiness.
+#[tauri::command]
+pub fn workspace_git_worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
+    let path = crate::commands::clean_path_buf(PathBuf::from(&worktree_path));
+    if !path.join(".git").exists() {
+        return Err("Not a git worktree.".to_string());
+    }
+
+    let porcelain = git_capture(&path, &["status", "--porcelain"]).unwrap_or_default();
+    let changed_files = porcelain.lines().filter(|l| !l.trim().is_empty()).count() as u32;
+    let branch =
+        git_capture(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|| "HEAD".to_string());
+
+    Ok(WorktreeStatus {
+        changed_files,
+        branch,
+    })
 }
 
 #[tauri::command]
@@ -901,7 +1115,7 @@ pub fn workspace_git_diff(
         if !path.trim().is_empty() {
             validate_relative_path(path)?;
             // First check if the file is tracked in git.
-            let is_tracked = Command::new("git")
+            let is_tracked = git_base()
                 .args(["ls-files", "--error-unmatch", "--", path])
                 .current_dir(root_path)
                 .output()
@@ -939,7 +1153,7 @@ pub fn workspace_git_diff(
             }
 
             // Otherwise, get git diff for this specific file
-            let output = Command::new("git")
+            let output = git_base()
                 .args(["diff", "HEAD", "--", path])
                 .current_dir(root_path)
                 .env("GIT_TERMINAL_PROMPT", "0")
@@ -962,7 +1176,7 @@ pub fn workspace_git_diff(
     }
 
     // Default: get full repo git diff
-    let output = Command::new("git")
+    let output = git_base()
         .args(["diff", "HEAD"])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1021,7 +1235,7 @@ pub fn workspace_resolve_conflict(
     std::fs::write(&absolute_path, resolved)
         .map_err(|e| format!("Failed to write resolved file: {}", e))?;
 
-    let output = Command::new("git")
+    let output = git_base()
         .args(["add", "--", &file_path])
         .current_dir(root_path)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1122,7 +1336,7 @@ pub fn workspace_git_log(
         return Err("This project is not a Git repository.".to_string());
     }
 
-    let output = Command::new("git")
+    let output = git_base()
         .args([
             "log",
             "--graph",
@@ -1244,7 +1458,7 @@ pub fn workspace_git_branches(
     if !root_path.join(".git").exists() {
         return Err("Not a git repository".to_string());
     }
-    let output = Command::new("git")
+    let output = git_base()
         .args(["branch", "-a", "--format=%(refname:short)|||%(HEAD)"])
         .current_dir(&root_path)
         .output()
@@ -1317,7 +1531,7 @@ pub fn workspace_git_checkout(
     if !root_path.join(".git").exists() {
         return Err("This project is not a Git repository.".to_string());
     }
-    let output = Command::new("git")
+    let output = git_base()
         .args(["switch", &branch])
         .current_dir(&root_path)
         .output()
@@ -1348,7 +1562,7 @@ pub fn workspace_git_branch_create(
     if let Some(ref f) = from {
         args.push(f);
     }
-    let output = Command::new("git")
+    let output = git_base()
         .args(&args)
         .current_dir(&root_path)
         .output()
@@ -1373,7 +1587,7 @@ pub fn workspace_git_branch_delete(
         return Err("This project is not a Git repository.".to_string());
     }
     let flag = if force { "-D" } else { "-d" };
-    let output = Command::new("git")
+    let output = git_base()
         .args(["branch", flag, &name])
         .current_dir(&root_path)
         .output()

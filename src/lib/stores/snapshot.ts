@@ -1,5 +1,4 @@
-import { writable, get } from 'svelte/store';
-import type { GridLayout } from '$lib/stores/terminal';
+import { writable, get } from '$lib/stores/storeCompat';
 import type { ActiveView } from '$lib/types/layout';
 import {
   sessions,
@@ -12,46 +11,29 @@ import {
 } from '$lib/stores/terminal';
 import { layout, sanitiseActiveView } from '$lib/stores/layout';
 import { currentUrl, targetPort, previewTabs, activePreviewTabId, restorePreviewTabsState, type PreviewTab } from '$lib/stores/preview';
-import { loadJson } from '$lib/utils/storage';
+import { useSnapshotStore, type WorkspaceSnapshot } from './zustand/snapshot';
 
-const STORAGE_KEY = 'soryq_workspace_snapshots';
+export type { PaneSnapshotInfo, WorkspaceSnapshot } from './zustand/snapshot';
 
-export type PaneSnapshotInfo = {
-  role?: string | null;
-  cwd?: string | null;
-} | null;
-
-export type WorkspaceSnapshot = {
-  id: string;
-  name: string;
-  savedAt: number;
-  gridLayout: GridLayout;
-  panes: PaneSnapshotInfo[];
-  activeView: ActiveView;
-  previewUrl: string;
-  targetPort: number;
-  previewTabs: PreviewTab[];
-  activePreviewTabId: string | null;
-  sidebarWidth: number;
-};
-
-function loadFromStorage(): WorkspaceSnapshot[] {
-  if (typeof window === 'undefined') return [];
-  return loadJson(STORAGE_KEY, [] as WorkspaceSnapshot[]);
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useSnapshotStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useSnapshotStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useSnapshotStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useSnapshotStore.getState() as any)[key] as T;
+      (useSnapshotStore.getState() as any).__set(key, fn(current));
+    },
+  };
 }
 
-function saveToStorage(list: WorkspaceSnapshot[]) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
-
-export const snapshots = writable<WorkspaceSnapshot[]>(loadFromStorage());
-
-let _saveTimer: ReturnType<typeof setTimeout> | null = null;
-snapshots.subscribe((list) => {
-  if (_saveTimer !== null) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => { _saveTimer = null; saveToStorage(list); }, 500);
-});
+export const snapshots = syncWritable<WorkspaceSnapshot[]>('snapshots', []);
 
 export function saveSnapshot(name: string): WorkspaceSnapshot {
   const allSessions = get(sessions);
@@ -63,7 +45,7 @@ export function saveSnapshot(name: string): WorkspaceSnapshot {
   const tabs = get(previewTabs);
   const activeTabId = get(activePreviewTabId);
 
-  const paneInfo: PaneSnapshotInfo[] = panes.map((sessionId) => {
+  const paneInfo = panes.map((sessionId) => {
     if (sessionId === null) return null;
     const session = allSessions.find((s) => s.id === sessionId);
     if (!session) return null;
@@ -89,14 +71,11 @@ export function saveSnapshot(name: string): WorkspaceSnapshot {
 }
 
 export async function restoreSnapshot(snapshot: WorkspaceSnapshot) {
-  // 1. Kill only the active project's sessions
   const allSessions = get(sessions);
   await Promise.all(allSessions.map((session) => killSession(session.id)));
 
-  // 2. Apply grid layout — this sets the pane count
   setGridLayout(snapshot.gridLayout);
 
-  // 3. Create new terminal sessions for each pane that had one
   for (let i = 0; i < snapshot.panes.length; i++) {
     const pane = snapshot.panes[i];
     if (pane === null) continue;
@@ -106,8 +85,6 @@ export async function restoreSnapshot(snapshot: WorkspaceSnapshot) {
     }
   }
 
-  // 4. Restore layout state — bypass setActiveView's toggle logic by patching the store directly.
-  // Sanitise values from stored JSON before applying them.
   const safeView = sanitiseActiveView(snapshot.activeView);
   const safeSidebarWidth = Math.max(100, Math.min(600, snapshot.sidebarWidth ?? 260));
   layout.update((l) => ({
@@ -124,11 +101,9 @@ export async function restoreSnapshot(snapshot: WorkspaceSnapshot) {
     editorSplitPreview: false,
   }));
 
-  // 5. Restore preview URL and port
   if (snapshot.previewTabs?.length) {
     restorePreviewTabsState(snapshot.previewTabs, snapshot.activePreviewTabId);
   } else if (snapshot.previewUrl) {
-    // Only restore relative paths or localhost URLs
     if (/^\/|^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(snapshot.previewUrl)) {
       currentUrl.set(snapshot.previewUrl);
     }

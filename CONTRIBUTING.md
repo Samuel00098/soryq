@@ -18,7 +18,7 @@ Open an issue with the `enhancement` label. Describe the problem you're trying t
 
 1. Fork the repo and create a branch from `main`
 2. Make your changes
-3. Make sure `npm run check` passes (Svelte type-check)
+3. Make sure `npm run check` passes (TypeScript type-check)
 4. Make sure `cargo test` passes (Rust unit tests)
 5. Open a pull request with a clear description of what you changed and why
 
@@ -36,18 +36,18 @@ npm run tauri dev
 ### Project structure
 
 ```
-src/                  # Svelte 5 frontend
+src/                  # React + TypeScript frontend
 src-tauri/            # Rust backend (Tauri commands)
 src-tauri/src/commands/   # All Tauri IPC commands
 src/lib/components/   # UI components
-src/lib/stores/       # Svelte stores (app state)
+src/lib/stores/       # Zustand + writable stores (app state)
 src/lib/services/     # Frontend services (voice, keychain, etc.)
 ```
 
 ## Code style
 
 - Rust: standard `rustfmt` formatting (`cargo fmt`)
-- TypeScript/Svelte: Prettier defaults
+- TypeScript/React: Prettier defaults
 - Keep commits focused — one logical change per commit
 
 ## Licence

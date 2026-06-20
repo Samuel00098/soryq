@@ -5,10 +5,8 @@ import {
   setSessionTaskSummary,
   setSessionAgentName,
   setSessionRole,
-  sendAgentPromptDirect,
-  getSessionOutputBuffer,
-  waitForAgentReady,
 } from '$lib/stores/terminal';
+import { getAgentAdapter, type SendOptions } from '$lib/services/orchestrator/agent-adapter';
 
 export interface LeaseOrchestratorTerminalArgs {
   agentCommand: string;
@@ -66,32 +64,25 @@ export async function leaseOrchestratorTerminal(args: LeaseOrchestratorTerminalA
   return sessionId;
 }
 
+// Agent I/O is funnelled through the per-session AgentAdapter so every send goes
+// through one canonical path (the adapter handles the readiness gate + delivery).
 export async function sendOrchestratorGoalWhenReady(
   sessionId: number,
   goal: string,
-  opts?: { shouldContinue?: () => boolean }
+  opts?: SendOptions
 ): Promise<boolean> {
-  if (!goal.trim()) return false;
-
-  // 'launch-failed' = the shell rejected the agent command (not installed) —
-  // the pane is a plain shell, so sending the goal would execute it as
-  // commands. waitForAgentReady already surfaced the error toast.
-  if ((await waitForAgentReady(sessionId)) === 'launch-failed') return false;
-  if (opts?.shouldContinue && !opts.shouldContinue()) return false;
-
-  return sendAgentPromptDirect(sessionId, goal);
+  return getAgentAdapter(sessionId).sendGoal(goal, opts);
 }
 export async function sendOrchestratorFollowUpWhenReady(
   sessionId: number,
   prompt: string,
-  opts?: { shouldContinue?: () => boolean }
+  opts?: SendOptions
 ): Promise<boolean> {
-  return sendOrchestratorGoalWhenReady(sessionId, prompt, opts);
+  return getAgentAdapter(sessionId).sendFollowUp(prompt, opts);
 }
 
 export function resendOrchestratorGoal(sessionId: number, goal: string): void {
-  if (!goal.trim()) return;
-  void sendAgentPromptDirect(sessionId, goal);
+  getAgentAdapter(sessionId).resend(goal);
 }
 
 export function releaseOrchestratorTerminal(sessionId: number): void {

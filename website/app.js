@@ -29,7 +29,7 @@ if (countBtn) {
     countBtn.textContent = `Clicks: ${clickCount}`;
     
     // Also update the CodeMirror mock code to make it feel extremely responsive!
-    // Svelte mock text lines: we want to update Clicks count there if possible.
+    // Update Clicks count in the code mock to match.
     const codeLines = document.querySelectorAll('.editor-body .code-line');
     codeLines.forEach(line => {
       if (line.textContent.includes('Clicks:')) {

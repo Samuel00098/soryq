@@ -1,23 +1,28 @@
-import { derived, writable } from 'svelte/store';
+import { derived, writable } from '$lib/stores/storeCompat';
 import { invoke } from '@tauri-apps/api/core';
 import { activeProjectId } from './workspace';
+import { useGitBranchStore, type GitBranchInfo } from './zustand/gitBranch';
 
-export interface GitBranchInfo {
-  current: string;
-  local: string[];
-  remote: string[];
-  /** Tracking branch (e.g. "origin/main"), or null if the branch isn't published. */
-  upstream: string | null;
-  /** Local commits not yet pushed to the upstream. */
-  ahead: number;
-  /** Upstream commits not yet pulled locally. */
-  behind: number;
-  /** Whether any remote is configured. */
-  has_remote: boolean;
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useGitBranchStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useGitBranchStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
+  });
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useGitBranchStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useGitBranchStore.getState() as any)[key] as T;
+      (useGitBranchStore.getState() as any).__set(key, fn(current));
+    },
+  };
 }
 
-const branchInfoByProject = writable<Record<string, GitBranchInfo>>({});
-const branchLoadingByProject = writable<Record<string, boolean>>({});
+const branchInfoByProject = syncWritable<Record<string, GitBranchInfo>>('branchInfoByProject', {});
+const branchLoadingByProject = syncWritable<Record<string, boolean>>('branchLoadingByProject', {});
 
 export const branchInfo = derived([branchInfoByProject, activeProjectId], ([$branchInfoByProject, $activeProjectId]) =>
   $activeProjectId ? $branchInfoByProject[$activeProjectId] ?? null : null

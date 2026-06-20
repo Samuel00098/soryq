@@ -4,14 +4,13 @@
 //! through the frontend or written to `.git/config`.
 
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use base64::Engine;
 use keyring::{Entry, Error as KeyringError};
 use tauri::State;
 
-use crate::commands::workspace::{classify_push_error, sanitize_git_error};
+use crate::commands::workspace::{classify_push_error, git_base, sanitize_git_error};
 use crate::state::AppState;
 
 const KEYCHAIN_SERVICE: &str = "com.samue.soryq";
@@ -94,7 +93,7 @@ fn validate_repo_name(name: &str) -> Result<(), String> {
 
 /// Run a git command, mapping failure to a sanitized error string.
 fn run_git(root: &Path, args: &[&str]) -> Result<(), String> {
-    let out = Command::new("git")
+    let out = git_base()
         .args(args)
         .current_dir(root)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -109,7 +108,7 @@ fn run_git(root: &Path, args: &[&str]) -> Result<(), String> {
 
 /// True when the git command exits 0 (used as a predicate, output ignored).
 fn git_ok(root: &Path, args: &[&str]) -> bool {
-    Command::new("git")
+    git_base()
         .args(args)
         .current_dir(root)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -120,7 +119,7 @@ fn git_ok(root: &Path, args: &[&str]) -> bool {
 
 /// Trimmed stdout of a successful git command, else None.
 fn git_capture(root: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
+    let out = git_base()
         .args(args)
         .current_dir(root)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -140,7 +139,7 @@ fn git_capture(root: &Path, args: &[&str]) -> Option<String> {
 /// credential helper is configured.
 fn push_with_token(root: &Path, token: &str, branch: &str) -> Result<(), String> {
     let cred = base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
-    let out = Command::new("git")
+    let out = git_base()
         .args(["push", "-u", "origin", "--", branch])
         .current_dir(root)
         .env("GIT_TERMINAL_PROMPT", "0")

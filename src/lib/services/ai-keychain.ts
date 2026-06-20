@@ -111,14 +111,16 @@ export interface ProviderModelInfo {
 
 /**
  * Ask the backend to fetch the live model catalogue for a provider using its
- * stored key. Throws if no key is configured or the provider rejects the call.
+ * stored key. Optionally filter by purpose ("chat", "stt", "tts") so the
+ * picker shows only usable options. Throws if no key is configured or the
+ * provider rejects the call.
  */
-export async function listProviderModels(provider: AiProviderId): Promise<ProviderModelInfo[]> {
+export async function listProviderModels(provider: AiProviderId, purpose?: 'chat' | 'stt' | 'tts'): Promise<ProviderModelInfo[]> {
   if (isLocalProvider(provider)) {
     const baseUrl = getProviderBaseUrl(provider);
     if (!baseUrl) throw new Error('No server URL configured for this provider.');
-    return await safeInvoke<ProviderModelInfo[]>('list_provider_models', { provider, apiKey: '', baseUrl });
+    return await safeInvoke<ProviderModelInfo[]>('list_provider_models', { provider, apiKey: '', baseUrl, purpose });
   }
   if (!(await providerApiKeyExists(provider))) throw new Error('No API key configured for this provider.');
-  return await safeInvoke<ProviderModelInfo[]>('list_provider_models', { provider, apiKey: '' });
+  return await safeInvoke<ProviderModelInfo[]>('list_provider_models', { provider, apiKey: '', purpose });
 }

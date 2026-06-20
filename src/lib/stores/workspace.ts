@@ -1,36 +1,35 @@
-import { writable, derived, get } from 'svelte/store';
-import type { Project, RecentProject, Workspace } from '$lib/types/workspace';
+import { writable, derived, get } from '$lib/stores/storeCompat';
+import type { Project, Workspace } from '$lib/types/workspace';
 import { openFiles, activeFile, fileCache, activeLine, activeColumn, restoreEditorFiles } from './editor';
 import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex, createTerminalSession, attachTerminalSession, killSession, getTerminalProjectState, restoreTerminalProjectState, setActiveTerminalProject, setTerminalProjectRoot, applyRestoredSessionMetadata, relaunchRestoredAgentSession } from './terminal';
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
 import { expandedPaths, selectedPath, selectedPaths } from './explorer';
 import { resetSettingsToDefault } from './settings';
 import { resetLayoutToDefault, layout, sanitiseActiveView, sanitiseSidebarTab } from './layout';
+import { layoutSnapshot, requestAmbientLayout, type AmbientLayout } from './layoutControl';
 import { isTauriRuntime } from '$lib/utils/tauri';
+import { useWorkspaceStore } from './zustand/workspace';
 
-function persistentWritable<T>(key: string, defaultValue: T): import('svelte/store').Writable<T> {
-  if (typeof window === 'undefined') {
-    return writable(defaultValue);
-  }
-  const storageKey = `soryq_ws_${key}`;
-  let initialValue = defaultValue;
-
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored !== null) {
-      initialValue = JSON.parse(stored);
-    }
-  } catch {}
-
-  const store = writable<T>(initialValue);
-  store.subscribe((val) => {
-    localStorage.setItem(storageKey, JSON.stringify(val));
+function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/storeCompat').Writable<T> {
+  const zustandVal = (useWorkspaceStore.getState() as any)[key];
+  const initial = zustandVal !== undefined ? zustandVal as T : defaultValue;
+  const store = writable<T>(initial);
+  void useWorkspaceStore.subscribe((state) => {
+    const next = (state as any)[key] as T | undefined;
+    if (next !== undefined) store.set(next);
   });
-  return store;
+  return {
+    subscribe: store.subscribe,
+    set(value: T) { (useWorkspaceStore.getState() as any).__set(key, value); },
+    update(fn: (val: T) => T) {
+      const current = (useWorkspaceStore.getState() as any)[key] as T;
+      (useWorkspaceStore.getState() as any).__set(key, fn(current));
+    },
+  };
 }
 
-export const recentWorkspaces = persistentWritable<Workspace[]>('recentWorkspaces', []);
-export const activeWorkspaceId = persistentWritable<string | null>('activeWorkspaceId', null);
+export const recentWorkspaces = syncWritable<Workspace[]>('recentWorkspaces', []);
+export const activeWorkspaceId = syncWritable<string | null>('activeWorkspaceId', null);
 
 export const activeWorkspace = derived(
   [recentWorkspaces, activeWorkspaceId],
@@ -38,10 +37,10 @@ export const activeWorkspace = derived(
     $activeWorkspaceId ? $recentWorkspaces.find((w) => w.id === $activeWorkspaceId) ?? null : null
 );
 
-export const projects = writable<Map<string, Project>>(new Map());
-export const activeProjectId = writable<string | null>(null);
-export const openProjectIds = writable<string[]>([]); // ordered list of open project tabs
-export const isLoading = writable(false);
+export const projects = syncWritable<Map<string, Project>>('projects', new Map());
+export const activeProjectId = syncWritable<string | null>('activeProjectId', null);
+export const openProjectIds = syncWritable<string[]>('openProjectIds', []); // ordered list of open project tabs
+export const isLoading = syncWritable<boolean>('isLoading', false);
 
 export const activeProject = derived(
   [projects, activeProjectId],
@@ -49,7 +48,7 @@ export const activeProject = derived(
     $activeProjectId ? $projects.get($activeProjectId) ?? null : null
 );
 
-export const newWorkspacePromptOpen = writable(false);
+export const newWorkspacePromptOpen = syncWritable<boolean>('newWorkspacePromptOpen', false);
 
 export const openProjectsList = derived(
   [projects, openProjectIds],
@@ -84,6 +83,7 @@ interface ProjectWorkspaceState {
     expandedPaths: Set<string>;
     selectedPath: string | null;
   };
+  ambient: AmbientLayout;
   layout: {
     activeView: string;
     editorVisible: boolean;
@@ -108,7 +108,7 @@ const projectStateCache = new Map<string, ProjectWorkspaceState>();
 let restoreProjectStateGeneration = 0;
 let projectAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let isRestoringProjectState = false;
-export const isProjectSwitching = writable(false);
+export const isProjectSwitching = syncWritable<boolean>('isProjectSwitching', false);
 
 function cancelPendingProjectAutosave() {
   if (projectAutosaveTimer) {
@@ -187,6 +187,8 @@ interface PersistedProjectState {
   expandedPaths: string[];
   terminalLayout?: string;
   terminalPanes?: PersistedTerminalPane[];
+  /** The workspace's ambient room arrangement (Focus / Split / Gallery). */
+  ambient?: AmbientLayout;
   layout?: {
     activeView: string;
     editorVisible: boolean;
@@ -214,27 +216,29 @@ function projectStorageKey(projectId: string) {
 function saveProjectStateToStorage(projectId: string) {
   if (typeof window === 'undefined') return;
   const terminalState = getTerminalProjectState(projectId);
-  const terminalPanes: PersistedTerminalPane[] = terminalState.paneAssignments.map((sessionId) => {
-    const session = sessionId !== null ? terminalState.sessions.find((s) => s.id === sessionId) : undefined;
-    return {
-      backendSessionId: session?.id ?? null,
-      role: session?.role ?? null,
-      cwd: session?.cwd ?? null,
-      hasSession: Boolean(session),
-      title: session?.title ?? null,
-      paneTitle: session?.paneTitle ?? null,
-      agentName: session?.agentName ?? null,
-      agentPreset: session?.agentPreset ?? null,
-      taskSummary: session?.taskSummary ?? null,
-    };
-  });
+  const terminalPanes: PersistedTerminalPane[] = terminalState.sessions
+    .filter((session) => session.isRunning && session.agentPreset)
+    .map((session) => {
+      return {
+        backendSessionId: session.id,
+        role: session.role ?? null,
+        cwd: session.cwd ?? null,
+        hasSession: Boolean(session),
+        title: session.title ?? null,
+        paneTitle: session.paneTitle ?? null,
+        agentName: session.agentName ?? null,
+        agentPreset: session.agentPreset ?? null,
+        taskSummary: session.taskSummary ?? null,
+      };
+    });
   const currentLayout = get(layout);
   const state: PersistedProjectState = {
     openFiles: get(openFiles).slice(0, 100),
     activeFile: get(activeFile),
     expandedPaths: Array.from(get(expandedPaths)).slice(0, 500),
-    terminalLayout: get(gridLayout),
+    terminalLayout: 'single',
     terminalPanes,
+    ambient: get(layoutSnapshot).ambient,
     layout: {
       activeView: currentLayout.activeView,
       editorVisible: currentLayout.editorVisible,
@@ -305,6 +309,9 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
 
   const terminalLayout = typeof r.terminalLayout === 'string' ? r.terminalLayout : undefined;
 
+  const ambient: AmbientLayout | undefined =
+    r.ambient === 'focus' || r.ambient === 'split' || r.ambient === 'gallery' ? r.ambient : undefined;
+
   // Sanitise layout sub-object: clamp numerics, strip unknown view names
   let layout: PersistedProjectState['layout'] | undefined;
   if (r.layout && typeof r.layout === 'object') {
@@ -329,7 +336,7 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
     };
   }
 
-  return { openFiles, activeFile, expandedPaths, terminalPanes, terminalLayout, layout };
+  return { openFiles, activeFile, expandedPaths, terminalPanes, terminalLayout, ambient, layout };
 }
 
 function loadProjectStateFromStorage(projectId: string): PersistedProjectState | null {
@@ -374,6 +381,7 @@ export function saveProjectState(projectId: string) {
       expandedPaths: new Set(get(expandedPaths)),
       selectedPath: get(selectedPath),
     },
+    ambient: get(layoutSnapshot).ambient,
     layout: {
       activeView: get(layout).activeView,
       editorVisible: get(layout).editorVisible,
@@ -491,6 +499,12 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
         sidebarWidth: cached.layout.sidebarWidth,
         sidebarTab: sanitiseSidebarTab(cached.layout.sidebarTab, l.sidebarTab),
       }));
+
+      // Restore the workspace's ambient room arrangement (Focus / Split /
+      // Gallery) for this project via the AppShell command bus, defaulting to
+      // Focus so a project without a saved arrangement doesn't inherit the
+      // previous project's.
+      requestAmbientLayout(cached.ambient ?? 'focus');
     } else {
       const persisted = loadProjectStateFromStorage(projectId);
       if (generation !== restoreProjectStateGeneration) return;
@@ -532,6 +546,10 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
         }));
       }
 
+      // Restore (or default) this project's ambient room arrangement so each
+      // project keeps its own Focus / Split / Gallery layout.
+      requestAmbientLayout(persisted?.ambient ?? 'focus');
+
       const existingTerminalState = getTerminalProjectState(projectId);
       const hasLiveTerminalState =
         existingTerminalState.sessions.length > 0 ||
@@ -560,15 +578,36 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
               role: pane.role,
               taskSummary: pane.taskSummary,
             };
+            if (pane.agentPreset) {
+              // Agents are their own rooms — they must NOT be slotted into the
+              // user's terminal grid, or the mosaic renders their cell as an empty
+              // "Agent is open as a panel" pane (the stray empty terminals seen on
+              // reload). Restore them with assignPane:false so they surface as
+              // rooms; if their backend PTY is gone (cold start), relaunch the CLI
+              // into a fresh room rather than leaving a dead shell behind.
+              const attachedId = pane.backendSessionId
+                ? await attachTerminalSession(pane.backendSessionId, pane.cwd || rootPath, undefined, projectId, metadata, { assignPane: false })
+                : null;
+              if (attachedId !== null) {
+                spawnedIds.push(attachedId);
+              } else {
+                const roomId = await createTerminalSession(pane.cwd || rootPath, undefined, projectId, { assignPane: false, agentPreset: pane.agentPreset });
+                if (roomId !== null) {
+                  spawnedIds.push(roomId);
+                  relaunchRestoredAgentSession(roomId, pane.agentPreset, metadata);
+                }
+              }
+              continue;
+            }
+            // Legacy plain-terminal panes (persisted before only agents were
+            // saved): keep the original behaviour of restoring into the grid.
             const attachedId = pane.backendSessionId
               ? await attachTerminalSession(pane.backendSessionId, pane.cwd || rootPath, i, projectId, metadata)
               : null;
             const id = attachedId ?? await createTerminalSession(pane.cwd || rootPath, i);
             if (id !== null) {
               spawnedIds.push(id);
-              if (attachedId === null && pane.agentPreset) {
-                relaunchRestoredAgentSession(id, pane.agentPreset, metadata);
-              } else if (attachedId === null) {
+              if (attachedId === null) {
                 applyRestoredSessionMetadata(id, metadata);
               }
             }

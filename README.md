@@ -9,13 +9,13 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Proprietary-lightgrey" alt="License"></a>
   <img src="https://img.shields.io/badge/Tauri-2-blue?logo=tauri" alt="Tauri">
   <img src="https://img.shields.io/badge/Rust-2021-orange?logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/Svelte-5-red?logo=svelte" alt="Svelte">
+  <img src="https://img.shields.io/badge/React-19-blue?logo=react" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript" alt="TypeScript">
 </p>
 
 <p align="center"><em>This is a private repository. Soryq is distributed as prebuilt installers from the website.</em></p>
 
-Soryq is a cross-platform desktop application that combines a real PTY terminal grid, a CodeMirror code editor, a hot-reloading web preview proxy, and git integration — all unified inside a single keyboard-driven window. Built with Tauri 2 (Rust) and Svelte 5, it stays lean: no Electron, no Node.js runtime, no background cloud services, sub-second startup.
+Soryq is a cross-platform desktop application that combines a real PTY terminal grid, a CodeMirror code editor, a hot-reloading web preview proxy, and git integration — all unified inside a single keyboard-driven window. Built with Tauri 2 (Rust) and React, it stays lean: no Electron, no Node.js runtime, no background cloud services, sub-second startup.
 
 ---
 

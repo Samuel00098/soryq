@@ -29,7 +29,9 @@ export interface SpeakOptions {
 }
 
 type TtsAudioPayload = {
-  bytes: number[];
+  // Cloud providers return a JSON number[] over IPC; the local Kokoro engine
+  // returns a Uint8Array directly. `new Uint8Array(...)` accepts both.
+  bytes: number[] | Uint8Array;
   mime_type: string;
 };
 
@@ -212,13 +214,13 @@ export async function speak(text: string, options?: SpeakOptions): Promise<void>
   const { provider, model, voice, baseUrl } = config;
   const token = ++speakToken;
 
-  const generate = (chunk: string) => {
+  const generate = (chunk: string): Promise<TtsAudioPayload> => {
     if (provider === 'local') {
-      return invoke<TtsAudioPayload>('local_tts_speak', {
-        text: chunk,
-        modelId: model,
-        voice,
-      });
+      // Lazy-load the Kokoro engine so onnxruntime-web / phonemizer stay out of
+      // the main bundle and only load the first time local speech is used.
+      return import('$lib/services/kokoro-local').then((m) =>
+        m.synthesizeKokoro(chunk, model, voice),
+      );
     }
     return invoke<TtsAudioPayload>('tts_speak', {
       text: chunk,

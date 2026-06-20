@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable } from '$lib/stores/storeCompat';
 import { invoke } from '@tauri-apps/api/core';
 import { loadBoolean } from '$lib/utils/storage';
 
