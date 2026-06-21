@@ -347,6 +347,7 @@ export default function SketchCanvas() {
   const [defaultStrokeStyle, setDefaultStrokeStyle] = useState<'solid' | 'dashed' | 'dotted' | 'none'>('solid');
   const [defaultRoughness, setDefaultRoughness] = useState<number>(1.5);
   const [defaultFontFamily, setDefaultFontFamily] = useState<'handwritten' | 'sans-serif' | 'monospace' | 'serif' | 'playful' | 'marker'>('handwritten');
+  const [defaultBorderRadius, setDefaultBorderRadius] = useState<number>(8);
 
   // Shapes & Text State
   const [sketchShapes, setSketchShapes] = useState<SketchShape[]>([]);
@@ -438,7 +439,8 @@ export default function SketchCanvas() {
     defaultStrokeWidth,
     defaultStrokeStyle,
     defaultRoughness,
-    defaultFontFamily
+    defaultFontFamily,
+    defaultBorderRadius
   });
 
   useEffect(() => {
@@ -466,7 +468,8 @@ export default function SketchCanvas() {
       defaultStrokeWidth,
       defaultStrokeStyle,
       defaultRoughness,
-      defaultFontFamily
+      defaultFontFamily,
+      defaultBorderRadius
     };
   }, [
     zoomScale,
@@ -492,7 +495,8 @@ export default function SketchCanvas() {
     defaultStrokeWidth,
     defaultStrokeStyle,
     defaultRoughness,
-    defaultFontFamily
+    defaultFontFamily,
+    defaultBorderRadius
   ]);
 
   function getSketchStorageKey(projectId: string) {
@@ -1580,7 +1584,7 @@ export default function SketchCanvas() {
             color: currentColor,
             fillColor: defaultFillStyle === 'transparent' ? 'transparent' : (defaultFillStyle === 'solid' ? defaultFillColor : 'tint'),
             borderStyle: defaultStrokeStyle,
-            borderRadius: currentTool === 'circle' ? 9999 : (currentTool === 'diamond' ? 0 : 8),
+            borderRadius: currentTool === 'circle' ? 9999 : (currentTool === 'diamond' ? 0 : defaultBorderRadius),
             opacity: brushOpacity,
             text: '',
             strokeWidth: defaultStrokeWidth,
@@ -2330,6 +2334,7 @@ export default function SketchCanvas() {
       else if (property === 'borderStyle') setDefaultStrokeStyle(value);
       else if (property === 'roughness') setDefaultRoughness(value);
       else if (property === 'fontFamily') setDefaultFontFamily(value);
+      else if (property === 'borderRadius') setDefaultBorderRadius(value);
       else if (property === 'opacity') setBrushOpacity(value);
     }
   }
@@ -3794,6 +3799,29 @@ export default function SketchCanvas() {
                       key={opt.value}
                       className={`style-panel-btn${getSelectedProperty('roughness', defaultRoughness) === opt.value ? ' active' : ''}`}
                       onClick={() => updateSelectedProperty('roughness', opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Edges / Corners Section (only for rectangles) */}
+            {((selectedShapeId && sketchShapes.find(s => s.id === selectedShapeId)?.type === 'rectangle') ||
+              (selectedElementIds.some(id => sketchShapes.some(s => s.id === id && s.type === 'rectangle'))) ||
+              (currentTool === 'rectangle' && !selectedShapeId && !selectedTextId && !selectedArrowId && selectedElementIds.length === 0)) && (
+              <div className="style-panel-section">
+                <span className="style-panel-title">Edges</span>
+                <div className="style-panel-grid">
+                  {[
+                    { value: 0, label: 'Sharp' },
+                    { value: 8, label: 'Curved' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`style-panel-btn${getSelectedProperty('borderRadius', defaultBorderRadius) === opt.value ? ' active' : ''}`}
+                      onClick={() => updateSelectedProperty('borderRadius', opt.value)}
                     >
                       {opt.label}
                     </button>
