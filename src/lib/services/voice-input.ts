@@ -45,7 +45,7 @@ type BrowserSpeechRecognition = {
 };
 
 type AudioContextCtor = new () => AudioContext;
-const GOOGLE_VAD_RMS_THRESHOLD = 0.015;
+const GOOGLE_VAD_RMS_THRESHOLD = 0.025;
 // How long of a silence ends an utterance. Kept tight so transcription fires
 // quickly after the user stops talking; still long enough to ride out the
 // natural mid-sentence pauses that would otherwise cut the user off.
@@ -308,6 +308,7 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
   let speechDetected = false;
   let startTime = 0;
+  let highRmsCount = 0;
 
   function clearSilenceTimer() {
     if (silenceTimer) {
@@ -330,6 +331,7 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
     captureStream = null;
     capturedChunks = [];
     speechDetected = false;
+    highRmsCount = 0;
   }
 
   function autoStopAfterSilence() {
@@ -454,6 +456,7 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
           speechDetected = false;
           clearSilenceTimer();
           startTime = Date.now();
+          highRmsCount = 0;
 
           captureProcessor.onaudioprocess = (event: AudioProcessingEvent) => {
             if (stopRequested) return;
@@ -472,10 +475,14 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
             }
             const rms = Math.sqrt(sumSquares / Math.max(input.length, 1));
             if (rms >= GOOGLE_VAD_RMS_THRESHOLD) {
-              speechDetected = true;
+              highRmsCount++;
+              if (input.length < 128 || highRmsCount >= 2) {
+                speechDetected = true;
+              }
               clearSilenceTimer();
               return;
             }
+            highRmsCount = 0;
             if (!speechDetected || silenceTimer) return;
             silenceTimer = setTimeout(() => {
               silenceTimer = null;
