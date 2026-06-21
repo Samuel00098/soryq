@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import TitleBar from './TitleBar.tsx';
 import UpdateBanner from '$lib/components/shared/UpdateBanner.tsx';
