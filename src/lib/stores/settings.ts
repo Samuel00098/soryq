@@ -287,7 +287,7 @@ export const aiProviders: AiProviderDef[] = [
     keyPlaceholder: '',
     keyUrl: '',
     ttsSupport: 'native',
-    defaultModel: 'whisper-tiny-en',
+    defaultModel: 'parakeet-tdt-v3',
     models: [
       { id: 'whisper-tiny-en', label: 'Whisper Tiny (English)', description: 'Fast offline Speech-to-Text.' },
       { id: 'whisper-base-en', label: 'Whisper Base (English)', description: 'Balanced offline Speech-to-Text.' },
@@ -540,7 +540,7 @@ export function getDefaultVoiceInputModel(provider: VoiceInputProviderId): strin
     case 'lmstudio':
       return 'local-stt-model';
     case 'local':
-      return 'whisper-tiny-en';
+      return 'parakeet-tdt-v3';
     default:
       return '';
   }
@@ -647,6 +647,14 @@ export const voiceConversationAiProvider = persistentWritable<AiProviderId>('voi
 export const voiceConversationAiModelByProvider = persistentWritable<Record<string, string>>('voiceConversationAiModelByProvider', {});
 export const voiceConversationTtsModelByProvider = persistentWritable<Record<string, string>>('voiceConversationTtsModelByProvider', {});
 export const voiceConversationTtsVoiceByProvider = persistentWritable<Record<string, string>>('voiceConversationTtsVoiceByProvider', {});
+/**
+ * The provider that synthesizes spoken replies (TTS). Decoupled from the
+ * conversation *brain* provider (`voiceConversationAiProvider`) so you can run a
+ * cloud brain while keeping local (Kokoro) speech — or any other mix. The TTS
+ * model/voice maps above are keyed by provider, so each provider remembers its
+ * own speech model + voice regardless of which brain is active.
+ */
+export const voiceReplyProvider = persistentWritable<AiProviderId>('voiceReplyProvider', 'openrouter');
 export const ttsVoice = persistentWritable<string>('ttsVoice', 'austin');
 
 /**
@@ -705,7 +713,7 @@ export function setVoiceConversationAiModel(provider: AiProviderId, modelId: str
 }
 
 export const currentVoiceConversationTtsModel = derived(
-  [voiceConversationAiProvider, voiceConversationTtsModelByProvider],
+  [voiceReplyProvider, voiceConversationTtsModelByProvider],
   ([$provider, $map]) => {
     const remembered = $map[$provider];
     return remembered && remembered.trim() ? remembered : getDefaultTtsModel($provider);
@@ -713,7 +721,7 @@ export const currentVoiceConversationTtsModel = derived(
 );
 
 export const currentVoiceConversationTtsVoice = derived(
-  [voiceConversationAiProvider, voiceConversationTtsVoiceByProvider],
+  [voiceReplyProvider, voiceConversationTtsVoiceByProvider],
   ([$provider, $map]) => {
     const remembered = $map[$provider];
     return remembered && remembered.trim() ? remembered : getDefaultTtsVoice($provider);
@@ -806,6 +814,23 @@ if (typeof localStorage !== 'undefined') {
         const modelMap = JSON.parse(legacyModelMap);
         if (modelMap && typeof modelMap === 'object' && !Array.isArray(modelMap)) {
           voiceConversationAiModelByProvider.set(modelMap as Record<string, string>);
+        }
+      } catch {
+        // Ignore malformed legacy value.
+      }
+    }
+  }
+
+  // Reply TTS used to be tied to the conversation brain provider. Seed the new
+  // standalone reply-provider from it so existing users' spoken voice is unchanged
+  // after the split; they can now point the brain elsewhere without losing it.
+  if (!localStorage.getItem('forge_setting_voiceReplyProvider')) {
+    const existing = localStorage.getItem('forge_setting_voiceConversationAiProvider');
+    if (existing) {
+      try {
+        const provider = JSON.parse(existing);
+        if (typeof provider === 'string' && provider) {
+          voiceReplyProvider.set(provider as AiProviderId);
         }
       } catch {
         // Ignore malformed legacy value.
@@ -1138,6 +1163,7 @@ export function updateSetting(key: string, value: unknown) {
     case 'voiceConversationAiModelByProvider': voiceConversationAiModelByProvider.set(value as Record<string, string>); break;
     case 'voiceConversationTtsModelByProvider': voiceConversationTtsModelByProvider.set(value as Record<string, string>); break;
     case 'voiceConversationTtsVoiceByProvider': voiceConversationTtsVoiceByProvider.set(value as Record<string, string>); break;
+    case 'voiceReplyProvider': voiceReplyProvider.set(value as AiProviderId); break;
     case 'aiProvider': aiProvider.set(value as AiProviderId); break;
     case 'aiModelByProvider': aiModelByProvider.set(value as Record<string, string>); break;
     case 'aiBaseUrlByProvider': aiBaseUrlByProvider.set(value as Record<string, string>); break;
@@ -1172,6 +1198,7 @@ export function resetSettingsToDefault() {
   voiceConversationAiModelByProvider.set({});
   voiceConversationTtsModelByProvider.set({});
   voiceConversationTtsVoiceByProvider.set({});
+  voiceReplyProvider.set('openrouter');
   ttsVoice.set('austin');
   aiProvider.set('openrouter');
   aiModelByProvider.set({});

@@ -443,6 +443,7 @@ pub async fn read_model_file_bytes(filename: String) -> Result<tauri::ipc::Respo
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+#[allow(dead_code)]
 fn wav_to_f32_pcm(wav_bytes: &[u8]) -> Result<Vec<f32>, String> {
     if wav_bytes.len() < 44 {
         return Err("WAV file is too short".to_string());
@@ -468,23 +469,10 @@ fn wav_to_f32_pcm(wav_bytes: &[u8]) -> Result<Vec<f32>, String> {
 
 #[tauri::command]
 pub async fn local_stt_transcribe(
-    audio_bytes: Vec<u8>,
-    model_id: String,
+    _audio_bytes: Vec<u8>,
+    _model_id: String,
 ) -> Result<String, String> {
-    let f32_samples = wav_to_f32_pcm(&audio_bytes)?;
-    let model_path = get_model_path(model_id).await?;
-
-    let model_path_clone = model_path.clone();
-    let transcript = tokio::task::spawn_blocking(move || {
-        Ok::<String, String>(format!(
-            "[Offline Mode] Local Whisper / Parakeet transcription mock (Path: {}) for {} audio samples.",
-            model_path_clone, f32_samples.len()
-        ))
-    })
-    .await
-    .map_err(|e| format!("Transcription thread crashed: {}", e))??;
-
-    Ok(transcript)
+    Err("Local Whisper transcription is pending integration. Please select 'NVIDIA Parakeet TDT v3' in Settings for fully offline local voice typing.".to_string())
 }
 
 #[derive(Serialize)]
