@@ -488,9 +488,9 @@ export default function AppShell() {
     const availH = vpH - pad * 2 - (rows - 1) * CANVAS_TILE_GAP;
     const cellW = availW / columns;
     const cellH = availH / rows;
-    // Uniform scale (≤ 1) that fits a default-sized panel into the cell on both
-    // axes, keeping the 760×430 aspect ratio.
-    const scale = Math.min(cellW / GALLERY_DEFAULT_WIDTH, cellH / GALLERY_DEFAULT_HEIGHT, 1);
+    // Uniform scale (≤ 1) that fits a default-sized panel into the cell on the
+    // horizontal axis, keeping the 760×430 aspect ratio.
+    const scale = Math.min(cellW / GALLERY_DEFAULT_WIDTH, 1);
     return {
       width: Math.max(GALLERY_MIN_WIDTH, GALLERY_DEFAULT_WIDTH * scale),
       height: Math.max(GALLERY_MIN_HEIGHT, GALLERY_DEFAULT_HEIGHT * scale),
@@ -1476,7 +1476,7 @@ export default function AppShell() {
     const pad = 48;
     const contentW = Math.max(1, maxX - minX);
     const contentH = Math.max(1, maxY - minY);
-    const zoom = clampZoom(Math.min((rect.width - pad * 2) / contentW, (rect.height - pad * 2) / contentH, 1));
+    const zoom = clampZoom(Math.min((rect.width - pad * 2) / contentW, 1));
     const x = (rect.width - contentW * zoom) / 2 - minX * zoom;
     const y = (rect.height - contentH * zoom) / 2 - minY * zoom;
     setCanvasView({ x, y, zoom });
