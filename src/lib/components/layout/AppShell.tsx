@@ -521,6 +521,77 @@ function SidebarContent({ tab }: { tab: SidebarTab }) {
   return <FileExplorer />;
 }
 
+interface FloatingWidgetProps {
+  title: string;
+  onClose: () => void;
+  defaultPosition?: { x: number; y: number };
+  children: React.ReactNode;
+  className?: string;
+}
+
+function FloatingWidget({ title, onClose, defaultPosition = { x: 100, y: 100 }, children, className = '' }: FloatingWidgetProps) {
+  const [position, setPosition] = useState(defaultPosition);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const positionStart = useRef({ x: 0, y: 0 });
+
+  function handlePointerDown(e: React.PointerEvent) {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (!target.closest('.widget-drag-handle') || target.closest('button')) return;
+
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    positionStart.current = { ...position };
+    target.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    setPosition({
+      x: positionStart.current.x + dx,
+      y: positionStart.current.y + dy,
+    });
+  }
+
+  function handlePointerUp(e: React.PointerEvent) {
+    if (!isDragging) return;
+    setIsDragging(false);
+    const target = e.target as HTMLElement;
+    target.releasePointerCapture(e.pointerId);
+  }
+
+  return (
+    <div
+      className={`floating-widget bento-card ${className}${isDragging ? ' dragging' : ''}`}
+      style={{
+        position: 'absolute',
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        zIndex: 1000,
+      }}
+    >
+      <header
+        className="widget-header widget-drag-handle"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      >
+        <span className="widget-title">{title}</span>
+        <button className="widget-close-btn" onClick={onClose} aria-label="Close widget">
+          <XIcon />
+        </button>
+      </header>
+      <div className="widget-body">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 import { useGlobalTooltips } from '$lib/react/useGlobalTooltips.ts';
 
 export default function AppShell() {
@@ -693,13 +764,7 @@ export default function AppShell() {
         { id: 'editor' as const, visible: layoutState.editorVisible },
         { id: 'preview' as const, visible: layoutState.previewVisible },
         { id: 'review' as const, visible: layoutState.reviewVisible },
-        { id: 'http' as const, visible: layoutState.httpVisible },
         { id: 'tasks' as const, visible: layoutState.tasksVisible },
-        { id: 'db' as const, visible: layoutState.dbVisible },
-        { id: 'containers' as const, visible: layoutState.containersVisible },
-        { id: 'toolbox' as const, visible: layoutState.toolboxVisible },
-        { id: 'pet' as const, visible: layoutState.petVisible },
-        { id: 'youtube' as const, visible: layoutState.youtubeVisible },
         { id: 'android' as const, visible: layoutState.androidVisible },
         { id: 'ios' as const, visible: layoutState.iosVisible },
       ].filter((panel) => panel.visible),
@@ -1004,7 +1069,7 @@ export default function AppShell() {
     const missing = orderedVisibleRooms.filter((room) => !(room in currentPositions));
     if (missing.length === 0) {
       // Check if we need to clean up deleted rooms from states
-      const activeKeys = new Set(orderedVisibleRooms);
+      const activeKeys = new Set<string>(orderedVisibleRooms);
       let needsCleanup = false;
       Object.keys(currentPositions).forEach(key => {
         if (!activeKeys.has(key)) needsCleanup = true;
@@ -1037,7 +1102,7 @@ export default function AppShell() {
     const nextClusters = { ...currentClusters };
 
     // Clean up closed rooms first
-    const activeKeys = new Set(orderedVisibleRooms);
+    const activeKeys = new Set<string>(orderedVisibleRooms);
     Object.keys(nextPositions).forEach(key => {
       if (!activeKeys.has(key)) delete nextPositions[key];
     });
@@ -1151,7 +1216,7 @@ export default function AppShell() {
 
         roomsInCluster.forEach((r, i) => {
           const coord = coords[i];
-          const rSize = gallerySizes[r] ?? getRoomDefaultSizeHelper(r, nextClusters);
+          const rSize = gallerySizes[r] ?? getRoomDefaultSizeHelper(r as RoomId, nextClusters);
           const colIdx = Math.abs(coord.col);
           colWidth[colIdx] = Math.max(colWidth[colIdx], rSize.width);
           rowHeight[coord.row] = Math.max(rowHeight[coord.row], rSize.height);
@@ -2216,6 +2281,116 @@ export default function AppShell() {
     return null;
   }
 
+  function renderUtilityDrawer() {
+    const dbOpen = layoutState.dbVisible;
+    const httpOpen = layoutState.httpVisible;
+    const containersOpen = layoutState.containersVisible;
+    const toolboxOpen = layoutState.toolboxVisible;
+
+    if (!dbOpen && !httpOpen && !containersOpen && !toolboxOpen) return null;
+
+    // Determine the active tab based on which views are open and active
+    let activeTab: AuxPanelId = 'toolbox';
+    const activeView = layoutState.activeView;
+    if (dbOpen && (activeView === 'db' || activeTab === 'toolbox')) activeTab = 'db';
+    if (httpOpen && (activeView === 'http' || activeTab === 'toolbox' || activeTab === 'db')) activeTab = 'http';
+    if (containersOpen && (activeView === 'containers' || activeTab === 'toolbox' || activeTab === 'db' || activeTab === 'http')) activeTab = 'containers';
+    if (toolboxOpen && activeView === 'toolbox') activeTab = 'toolbox';
+
+    // fallback in case activeTab is not actually open
+    if (activeTab === 'db' && !dbOpen) {
+      if (httpOpen) activeTab = 'http';
+      else if (containersOpen) activeTab = 'containers';
+      else if (toolboxOpen) activeTab = 'toolbox';
+    }
+    if (activeTab === 'http' && !httpOpen) {
+      if (dbOpen) activeTab = 'db';
+      else if (containersOpen) activeTab = 'containers';
+      else if (toolboxOpen) activeTab = 'toolbox';
+    }
+    if (activeTab === 'containers' && !containersOpen) {
+      if (dbOpen) activeTab = 'db';
+      else if (httpOpen) activeTab = 'http';
+      else if (toolboxOpen) activeTab = 'toolbox';
+    }
+    if (activeTab === 'toolbox' && !toolboxOpen) {
+      if (dbOpen) activeTab = 'db';
+      else if (httpOpen) activeTab = 'http';
+      else if (containersOpen) activeTab = 'containers';
+    }
+
+    const tabs = [
+      { id: 'toolbox' as const, label: 'Toolbox', open: toolboxOpen },
+      { id: 'http' as const, label: 'HTTP', open: httpOpen },
+      { id: 'db' as const, label: 'Database', open: dbOpen },
+      { id: 'containers' as const, label: 'Docker', open: containersOpen },
+    ].filter((t) => t.open);
+
+    function closeDrawer() {
+      persistLayoutPatch({
+        dbVisible: false,
+        httpVisible: false,
+        containersVisible: false,
+        toolboxVisible: false,
+        activeView: 'terminal',
+      });
+    }
+
+    return (
+      <aside className="utility-drawer bento-card">
+        <header className="drawer-header">
+          <div className="drawer-tabs">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`drawer-tab-btn${activeTab === tab.id ? ' active' : ''}`}
+                onClick={() => persistLayoutPatch({ activeView: tab.id })}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <button className="drawer-close-btn" onClick={closeDrawer} title="Close drawer" aria-label="Close drawer">
+            <XIcon />
+          </button>
+        </header>
+        <div className="drawer-body">
+          <PanelHost id={activeTab} />
+        </div>
+      </aside>
+    );
+  }
+
+  function renderFloatingOverlays() {
+    const petOpen = layoutState.petVisible;
+    const youtubeOpen = layoutState.youtubeVisible;
+
+    return (
+      <>
+        {petOpen && (
+          <FloatingWidget
+            title="DevPet"
+            onClose={() => persistLayoutPatch({ petVisible: false })}
+            defaultPosition={{ x: windowWidth - 320, y: 80 }}
+            className="devpet-widget"
+          >
+            <DevPetPanel />
+          </FloatingWidget>
+        )}
+        {youtubeOpen && (
+          <FloatingWidget
+            title="YouTube Player"
+            onClose={() => persistLayoutPatch({ youtubeVisible: false })}
+            defaultPosition={{ x: windowWidth - 580, y: 260 }}
+            className="youtube-widget"
+          >
+            <YouTubePanel />
+          </FloatingWidget>
+        )}
+      </>
+    );
+  }
+
   function getAgentSessionForRoom(id: AgentRoomId) {
     const sessionId = getAgentRoomSessionId(id);
     return allTerminalSessions.find((session) => session.id === sessionId) ?? null;
@@ -2788,6 +2963,9 @@ export default function AppShell() {
                 )}
               </main>
 
+              {renderUtilityDrawer()}
+              {renderFloatingOverlays()}
+
               <div className="workspace-overlays">
               <nav className="room-dock bento-card" aria-label="Room launcher">
                 <div className="room-dock-group">
@@ -2816,7 +2994,7 @@ export default function AppShell() {
               </div>
               {layoutState.petVisible && (
                 <aside className="welcome-pet-panel bento-card" aria-label="DevPet Playground">
-                  <button className="aux-close-btn" onClick={toggleTerminal} title="Close pet playground" aria-label="Close pet playground">
+                  <button className="aux-close-btn" onClick={togglePetVisible} title="Close pet playground" aria-label="Close pet playground">
                     <XIcon />
                   </button>
                   <DevPetPanel />
