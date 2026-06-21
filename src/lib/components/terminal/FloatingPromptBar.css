@@ -114,6 +114,8 @@
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb, rgba(128,128,128,0.2)) transparent;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%);
 }
 
 .history-item {
@@ -1006,6 +1008,8 @@
   width: 100%;
   position: relative;
   min-height: 24px;
+  /* Shift content a bit to the left */
+  padding-right: 48px;
 }
 
 /* Orb */
@@ -1025,6 +1029,65 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+/* Custom breathing & glowing animations for the voice mode orb */
+.floating-prompt-bar .voice-mode-inner .orb-wrap.listening .orb {
+  animation: promptOrbListen 1.2s ease-in-out infinite;
+}
+.floating-prompt-bar .voice-mode-inner .orb-wrap.speaking .orb {
+  animation: promptOrbSpeak 1.5s ease-in-out infinite;
+}
+.floating-prompt-bar .voice-mode-inner .orb-wrap.thinking .orb {
+  animation: promptOrbThink 2s ease-in-out infinite;
+}
+.floating-prompt-bar .voice-mode-inner .orb-wrap.idle .orb {
+  animation: promptOrbIdle 3.5s ease-in-out infinite;
+}
+
+@keyframes promptOrbListen {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.45), 0 0 14px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 18px rgba(239, 68, 68, 0.8), 0 0 30px rgba(239, 68, 68, 0.4);
+  }
+}
+
+@keyframes promptOrbSpeak {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 14px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 80%, transparent), 0 0 30px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+}
+
+@keyframes promptOrbThink {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 4px rgba(107, 114, 128, 0.15);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 12px rgba(107, 114, 128, 0.4);
+  }
+}
+
+@keyframes promptOrbIdle {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 10px color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 50%, transparent), 0 0 24px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
 }
 
 .floating-prompt-bar .voice-mode-inner .orb svg {

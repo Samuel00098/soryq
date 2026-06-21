@@ -17,7 +17,6 @@ import {
   closeBehavior,
   currentAiModel,
   currentVoiceAiModel,
-  currentVoiceConversationAiModel,
   currentVoiceConversationTtsModel,
   currentVoiceConversationTtsVoice,
   currentVoiceInputModel,
@@ -39,13 +38,11 @@ import {
   setAiModel,
   setProviderBaseUrl,
   setVoiceAiModel,
-  setVoiceConversationAiModel,
   setVoiceConversationTtsModel,
   setVoiceConversationTtsVoice,
   setVoiceInputModel,
   showHidden,
   showSnapshotsTab,
-  swipeNavigationEnabled,
   tabSize,
   terminalCursorStyle,
   terminalFontSize,
@@ -56,7 +53,7 @@ import {
   userShortcuts,
   vimMode,
   voiceAiProvider,
-  voiceConversationAiProvider,
+  voiceReplyProvider,
   voiceInputProvider,
   voiceInputUsesModelTranscription,
   voicePersonality,
@@ -239,7 +236,7 @@ function StyledSelect<T extends string>({
 
   const panel = open
     ? createPortal(
-        <ul
+        <div
           ref={panelRef}
           className="sselect-panel"
           role="listbox"
@@ -266,27 +263,29 @@ function StyledSelect<T extends string>({
               )}
             </div>
           )}
-          {filteredOptions.length === 0 ? (
-            <div className="model-empty">No options found.</div>
-          ) : (
-            filteredOptions.map((opt) => (
-              <li
-                key={opt.id}
-                role="option"
-                aria-selected={opt.id === value}
-                className={`sselect-option${opt.id === value ? ' selected' : ''}`}
-                onMouseDown={() => { onChange(opt.id); setOpen(false); }}
-              >
-                {opt.id === value && (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-                {opt.label}
-              </li>
-            ))
-          )}
-        </ul>,
+          <ul className="sselect-options-list">
+            {filteredOptions.length === 0 ? (
+              <div className="model-empty">No options found.</div>
+            ) : (
+              filteredOptions.map((opt) => (
+                <li
+                  key={opt.id}
+                  role="option"
+                  aria-selected={opt.id === value}
+                  className={`sselect-option${opt.id === value ? ' selected' : ''}`}
+                  onMouseDown={() => { onChange(opt.id); setOpen(false); }}
+                >
+                  {opt.id === value && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  <span>{opt.label}</span>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>,
         document.querySelector('.settings-modal') || document.body,
       )
     : null;
@@ -623,7 +622,6 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const currentEnableLsp = useStore(enableLsp);
   const currentShowHidden = useStore(showHidden);
   const currentShowSnapshotsTab = useStore(showSnapshotsTab);
-  const currentSwipeNav = useStore(swipeNavigationEnabled);
   const currentNotifications = useStore(notificationsEnabled);
   const currentCloseBehavior = useStore(closeBehavior);
   const currentZoom = useStore(uiZoom);
@@ -653,8 +651,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   const voiceRefinement = useStore(voiceRefinementEnabled);
   const refinementProvider = useStore(voiceAiProvider);
   const refinementModel = useStore(currentVoiceAiModel);
-  const conversationProvider = useStore(voiceConversationAiProvider);
-  const conversationModel = useStore(currentVoiceConversationAiModel);
+  const replyProvider = useStore(voiceReplyProvider);
   const ttsModel = useStore(currentVoiceConversationTtsModel);
   const ttsVoice = useStore(currentVoiceConversationTtsVoice);
   const currentPersonality = useStore(voicePersonality);
@@ -687,29 +684,25 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     return providerLiveModels[refinementProvider] ?? getProviderDef(refinementProvider).models;
   }, [refinementProvider, providerLiveModels]);
 
-  const conversationModels = useMemo(() => {
-    return providerLiveModels[conversationProvider] ?? getProviderDef(conversationProvider).models;
-  }, [conversationProvider, providerLiveModels]);
-
-  const liveTtsModels = providerTtsModels[conversationProvider];
+  const liveTtsModels = providerTtsModels[replyProvider];
   const ttsModels = useMemo(() => {
     if (liveTtsModels && liveTtsModels.length > 0) {
       return liveTtsModels.map((m) => {
-        const curated = getTtsModelOptions(conversationProvider).find((d) => d.id === m.id);
+        const curated = getTtsModelOptions(replyProvider).find((d) => d.id === m.id);
         return {
           id: m.id,
           label: curated?.label ?? m.label ?? m.id,
           description: curated?.description ?? m.description ?? '',
-          voices: curated?.voices ?? getTtsVoiceOptionsForModel(conversationProvider, m.id),
+          voices: curated?.voices ?? getTtsVoiceOptionsForModel(replyProvider, m.id),
         };
       });
     }
-    return getTtsModelOptions(conversationProvider);
-  }, [conversationProvider, liveTtsModels]);
+    return getTtsModelOptions(replyProvider);
+  }, [replyProvider, liveTtsModels]);
 
   const ttsVoices = useMemo(() => {
-    return getTtsVoiceOptionsForModel(conversationProvider, ttsModel);
-  }, [conversationProvider, ttsModel]);
+    return getTtsVoiceOptionsForModel(replyProvider, ttsModel);
+  }, [replyProvider, ttsModel]);
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent) {
@@ -901,14 +894,13 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
       } catch { /* ignore */ }
     };
     if (refinementProvider) void loadChatModels(refinementProvider);
-    if (conversationProvider) {
-      void loadChatModels(conversationProvider);
-      void loadTtsModels(conversationProvider);
+    if (replyProvider) {
+      void loadTtsModels(replyProvider);
     }
     if (voiceInput && voiceInput !== 'webspeech') {
       void loadSttModels(voiceInput);
     }
-  }, [activeTab, refinementProvider, conversationProvider, voiceInput, loadLiveModels]);
+  }, [activeTab, refinementProvider, replyProvider, voiceInput, loadLiveModels]);
 
   useEffect(() => {
     setLocalUrlInput(getProviderBaseUrl(provider, baseUrls) || '');
@@ -983,7 +975,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     }
 
     const configError = getVoiceReplyConfigError({
-      provider: conversationProvider,
+      provider: replyProvider,
       model: ttsModel,
       voice: voiceId,
     });
@@ -995,7 +987,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     setPreviewingVoiceId(voiceId);
     try {
       await speak('Hello, this is a quick preview of my voice in Soryq.', {
-        provider: conversationProvider,
+        provider: replyProvider,
         model: ttsModel,
         voice: voiceId,
       });
@@ -1004,7 +996,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     } finally {
       setPreviewingVoiceId(null);
     }
-  }, [conversationProvider, ttsModel, previewingVoiceId]);
+  }, [replyProvider, ttsModel, previewingVoiceId]);
 
   async function checkUpdates() {
     setUpdateMessage('');
@@ -1251,9 +1243,6 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   </SettingRow>
                   <SettingRow title="Show Workspace Snapshots" detail="Show snapshots tab in the sidebar activity bar">
                     <Toggle label="Toggle workspace snapshots" checked={currentShowSnapshotsTab} onChange={showSnapshotsTab.set} />
-                  </SettingRow>
-                  <SettingRow title="Swipe between layouts" detail="Slide between Focus, Split and Gallery with a horizontal swipe (or Shift + wheel). Editors keep their own scrolling.">
-                    <Toggle label="Toggle swipe navigation" checked={currentSwipeNav} onChange={swipeNavigationEnabled.set} />
                   </SettingRow>
                   <SettingRow title="Notifications" detail="System alerts for agent activity and process exits">
                     <Toggle
@@ -1655,16 +1644,22 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                   </SettingRow>
                 </Section>
 
-                <Section title="Conversation replies">
-                  <SettingRow title="Provider">
-                    <SelectField value={conversationProvider} options={aiProviders.map((item) => ({ id: item.id, label: item.label }))} onChange={voiceConversationAiProvider.set} ariaLabel="Conversation provider" />
+                <Section title="Voice replies">
+                  <SettingRow
+                    title="Brain"
+                    detail="Voice conversations are powered by your main AI model (set under AI / Models) — the same engine as typed chat."
+                  >
+                    <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Main AI model</span>
                   </SettingRow>
-                  <SettingRow title="Reply model">
-                    <ModelSelect value={conversationModel} models={conversationModels} onChange={(value) => setVoiceConversationAiModel(conversationProvider, value)} label="Conversation model" />
+                  <SettingRow
+                    title="Speech provider"
+                    detail="Who synthesizes the spoken reply. Independent of the brain — choose Local for offline (Kokoro) speech."
+                  >
+                    <SelectField value={replyProvider} options={aiProviders.map((item) => ({ id: item.id, label: item.label }))} onChange={voiceReplyProvider.set} ariaLabel="Speech provider" />
                   </SettingRow>
                   {ttsModels.length > 0 && (
                     <SettingRow title="Speech model">
-                      <ModelSelect value={ttsModel} models={ttsModels} onChange={(value) => setVoiceConversationTtsModel(conversationProvider, value)} label="TTS model" />
+                      <ModelSelect value={ttsModel} models={ttsModels} onChange={(value) => setVoiceConversationTtsModel(replyProvider, value)} label="TTS model" />
                     </SettingRow>
                   )}
                   {ttsVoices.length > 0 && (
@@ -1674,7 +1669,7 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                           <StyledSelect
                             value={ttsVoice}
                             options={ttsVoices.map((v) => ({ id: v.id, label: v.label }))}
-                            onChange={(value) => setVoiceConversationTtsVoice(conversationProvider, value)}
+                            onChange={(value) => setVoiceConversationTtsVoice(replyProvider, value)}
                             ariaLabel="TTS voice"
                           />
                         </div>

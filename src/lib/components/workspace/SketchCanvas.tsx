@@ -3613,11 +3613,25 @@ export default function SketchCanvas() {
                   })}
                   <button
                     className="custom-color-picker-btn"
-                    onClick={() => colorPickerRef.current?.click()}
+                    onClick={() => {
+                      const picker = document.getElementById('stroke-color-picker');
+                      picker?.click();
+                    }}
                     title="Custom Stroke Color"
                   >
                     <div className="custom-color-preview" style={{ backgroundColor: getSelectedProperty('color', currentColor) }} />
                     Custom
+                    <input
+                      id="stroke-color-picker"
+                      type="color"
+                      value={customColor}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomColor(val);
+                        updateSelectedColor(val);
+                      }}
+                      style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
+                    />
                   </button>
                 </div>
               </div>
@@ -3812,20 +3826,17 @@ export default function SketchCanvas() {
               (selectedElementIds.some(id => sketchShapes.some(s => s.id === id && s.type === 'rectangle'))) ||
               (currentTool === 'rectangle' && !selectedShapeId && !selectedTextId && !selectedArrowId && selectedElementIds.length === 0)) && (
               <div className="style-panel-section">
-                <span className="style-panel-title">Edges</span>
-                <div className="style-panel-grid">
-                  {[
-                    { value: 0, label: 'Sharp' },
-                    { value: 8, label: 'Curved' }
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      className={`style-panel-btn${getSelectedProperty('borderRadius', defaultBorderRadius) === opt.value ? ' active' : ''}`}
-                      onClick={() => updateSelectedProperty('borderRadius', opt.value)}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                <span className="style-panel-title">Corner Radius ({getSelectedProperty('borderRadius', defaultBorderRadius)}px)</span>
+                <div className="edges-slider" style={{ padding: '4px 0' }}>
+                  <input
+                    type="range"
+                    min="0"
+                    max="40"
+                    step="1"
+                    value={getSelectedProperty('borderRadius', defaultBorderRadius)}
+                    onChange={(e) => updateSelectedProperty('borderRadius', Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
                 </div>
               </div>
             )}

@@ -1115,7 +1115,7 @@
   z-index: 99999;
   list-style: none;
   margin: 0;
-  padding: 5px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 12px);
   /* Use the same glass recipe as the modal so it matches the active theme */
@@ -1125,11 +1125,24 @@
   box-shadow:
     var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.7)),
     inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: sselectOpen 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sselect-options-list {
+  list-style: none;
+  margin: 0;
+  padding: 5px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
-  animation: sselectOpen 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%);
 }
 
 /* Solid theme: opaque panel, no blur */
