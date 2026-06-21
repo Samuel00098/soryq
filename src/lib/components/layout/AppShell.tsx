@@ -153,12 +153,33 @@ const CANVAS_COLUMNS = 2;
 const CANVAS_FIT_ALL_THRESHOLD = 8;
 const CANVAS_MOVE_THRESHOLD = 4; // px of pointer travel before a header press becomes a drag
 
-// Columns for the auto-arrange grid. Small boards stay two-wide (so four rooms
-// read as a tidy 2×2); once the board is large enough to be fit-to-window, use a
-// roughly square, capped column count so the block matches the screen shape.
-function galleryColumns(roomCount: number): number {
-  if (roomCount < CANVAS_FIT_ALL_THRESHOLD) return CANVAS_COLUMNS;
-  return Math.min(4, Math.max(CANVAS_COLUMNS, Math.ceil(Math.sqrt(roomCount))));
+function getRoomGridPos(index: number, count: number): { col: number; row: number } {
+  if (index < 4) {
+    if (count === 2) {
+      return { col: index, row: 0 };
+    }
+    return { col: index % 2, row: Math.floor(index / 2) };
+  }
+  if (index < 6) {
+    return { col: 2, row: index - 4 };
+  }
+  if (index < 9) {
+    return { col: index - 6, row: 2 };
+  }
+  return { col: 3 + Math.floor((index - 9) / 3), row: (index - 9) % 3 };
+}
+
+function getGridSize(count: number): { columns: number; rows: number } {
+  if (count === 0) return { columns: 0, rows: 0 };
+  if (count === 1) return { columns: 1, rows: 1 };
+  if (count === 2) return { columns: 2, rows: 1 };
+  if (count === 3) return { columns: 2, rows: 2 };
+  if (count === 4) return { columns: 2, rows: 2 };
+  if (count === 5) return { columns: 3, rows: 2 };
+  if (count === 6) return { columns: 3, rows: 2 };
+  if (count === 7) return { columns: 3, rows: 3 };
+  if (count === 8) return { columns: 3, rows: 3 };
+  return { columns: 3 + Math.ceil((count - 9) / 3), rows: 3 };
 }
 
 type CanvasPos = { x: number; y: number };
@@ -178,17 +199,16 @@ function computeGalleryGrid<T extends string>(
   defaultSize: GallerySize = { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT },
 ): Record<string, CanvasPos> {
   const out: Record<string, CanvasPos> = {};
-  if (rooms.length === 0) return out;
-  const columns = Math.min(galleryColumns(rooms.length), rooms.length);
-  const rowCount = Math.ceil(rooms.length / columns);
+  const count = rooms.length;
+  if (count === 0) return out;
+  const { columns, rows: rowCount } = getGridSize(count);
   const sizeOf = (room: T) => sizes[room] ?? defaultSize;
 
   const colWidth = new Array<number>(columns).fill(0);
   const rowHeight = new Array<number>(rowCount).fill(0);
   rooms.forEach((room, i) => {
     const { width, height } = sizeOf(room);
-    const col = i % columns;
-    const row = Math.floor(i / columns);
+    const { col, row } = getRoomGridPos(i, count);
     colWidth[col] = Math.max(colWidth[col], width);
     rowHeight[row] = Math.max(rowHeight[row], height);
   });
@@ -199,7 +219,8 @@ function computeGalleryGrid<T extends string>(
   for (let r = 1; r < rowCount; r += 1) rowY[r] = rowY[r - 1] + rowHeight[r - 1] + CANVAS_TILE_GAP;
 
   rooms.forEach((room, i) => {
-    out[room] = { x: colX[i % columns], y: rowY[Math.floor(i / columns)] };
+    const { col, row } = getRoomGridPos(i, count);
+    out[room] = { x: colX[col], y: rowY[row] };
   });
   return out;
 }
@@ -481,16 +502,15 @@ export default function AppShell() {
     const count = orderedVisibleRooms.length;
     const { width: vpW, height: vpH } = canvasViewportSize;
     if (count === 0 || vpW <= 0 || vpH <= 0) return fallback;
-    const columns = Math.min(galleryColumns(count), count);
-    const rows = Math.ceil(count / columns);
+    const { columns, rows } = getGridSize(count);
     const pad = 48;
     const availW = vpW - pad * 2 - (columns - 1) * CANVAS_TILE_GAP;
     const availH = vpH - pad * 2 - (rows - 1) * CANVAS_TILE_GAP;
     const cellW = availW / columns;
     const cellH = availH / rows;
-    // Uniform scale (≤ 1) that fits a default-sized panel into the cell on the
-    // horizontal axis, keeping the 760×430 aspect ratio.
-    const scale = Math.min(cellW / GALLERY_DEFAULT_WIDTH, 1);
+    // Uniform scale (≤ 1) that fits a default-sized panel into the cell on both
+    // axes, keeping the 760×430 aspect ratio.
+    const scale = Math.min(cellW / GALLERY_DEFAULT_WIDTH, cellH / GALLERY_DEFAULT_HEIGHT, 1);
     return {
       width: Math.max(GALLERY_MIN_WIDTH, GALLERY_DEFAULT_WIDTH * scale),
       height: Math.max(GALLERY_MIN_HEIGHT, GALLERY_DEFAULT_HEIGHT * scale),
@@ -1370,13 +1390,19 @@ export default function AppShell() {
     let rowRooms: RoomId[] = [];
     if (galleryAutoGrid) {
       const rooms = orderedVisibleRooms;
-      const columns = Math.min(galleryColumns(rooms.length), Math.max(1, rooms.length));
       const index = rooms.indexOf(room);
       if (index >= 0) {
-        const col = index % columns;
-        const gridRow = Math.floor(index / columns);
-        columnRooms = rooms.filter((peer, i) => peer !== room && i % columns === col);
-        rowRooms = rooms.filter((peer, i) => peer !== room && Math.floor(i / columns) === gridRow);
+        const { col, row: gridRow } = getRoomGridPos(index, rooms.length);
+        columnRooms = rooms.filter((peer, i) => {
+          if (peer === room) return false;
+          const pos = getRoomGridPos(i, rooms.length);
+          return pos.col === col;
+        });
+        rowRooms = rooms.filter((peer, i) => {
+          if (peer === room) return false;
+          const pos = getRoomGridPos(i, rooms.length);
+          return pos.row === gridRow;
+        });
       }
     }
     galleryResizeRef.current = {
@@ -1476,7 +1502,7 @@ export default function AppShell() {
     const pad = 48;
     const contentW = Math.max(1, maxX - minX);
     const contentH = Math.max(1, maxY - minY);
-    const zoom = clampZoom(Math.min((rect.width - pad * 2) / contentW, 1));
+    const zoom = clampZoom(Math.min((rect.width - pad * 2) / contentW, (rect.height - pad * 2) / contentH, 1));
     const x = (rect.width - contentW * zoom) / 2 - minX * zoom;
     const y = (rect.height - contentH * zoom) / 2 - minY * zoom;
     setCanvasView({ x, y, zoom });
