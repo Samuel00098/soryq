@@ -782,13 +782,12 @@ export default function AppShell() {
 
   const openRooms = useMemo<RoomId[]>(
     () => [
-      ...(layoutState.sidebarVisible ? (['workspace'] as RoomId[]) : []),
       ...(terminalRoomOpen ? (['terminal'] as RoomId[]) : []),
       ...(centerOpen ? (['orchestrator'] as RoomId[]) : []),
       ...agentRoomIds,
       ...visiblePanels.map((panel) => panel.id),
     ],
-    [agentRoomIds, centerOpen, layoutState.sidebarVisible, terminalRoomOpen, visiblePanels],
+    [agentRoomIds, centerOpen, terminalRoomOpen, visiblePanels],
   );
 
   const visibleRooms = useMemo(
@@ -2068,21 +2067,21 @@ export default function AppShell() {
       id: 'files',
       title: 'Files',
       active: layoutState.sidebarVisible && layoutState.sidebarTab === 'files',
-      onClick: () => { toggleSidebarTab('files'); setFocusedRoom('workspace'); },
+      onClick: () => { toggleSidebarTab('files'); },
       icon: <Icon><path d="M3 7a2 2 0 0 1 2-2h3.586a2 2 0 0 1 1.414.586L11.414 7H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></Icon>,
     },
     {
       id: 'search',
       title: 'Search',
       active: layoutState.sidebarVisible && layoutState.sidebarTab === 'search',
-      onClick: () => { toggleSidebarTab('search'); setFocusedRoom('workspace'); },
+      onClick: () => { toggleSidebarTab('search'); },
       icon: <Icon><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></Icon>,
     },
     {
       id: 'git',
       title: 'Source Control',
       active: layoutState.sidebarVisible && layoutState.sidebarTab === 'git',
-      onClick: () => { toggleSidebarTab('git'); setFocusedRoom('workspace'); },
+      onClick: () => { toggleSidebarTab('git'); },
       icon: <Icon><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 15V9a4 4 0 0 0-4-4H9" /><line x1="6" y1="9" x2="6" y2="15" /></Icon>,
     },
     ...(showSnapshotsTab
@@ -2091,7 +2090,7 @@ export default function AppShell() {
             id: 'snapshots',
             title: 'Workspace Snapshots',
             active: layoutState.sidebarVisible && layoutState.sidebarTab === 'snapshots',
-            onClick: () => { toggleSidebarTab('snapshots'); setFocusedRoom('workspace'); },
+            onClick: () => { toggleSidebarTab('snapshots'); },
             icon: <Icon><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /><circle cx="12" cy="10" r="3" /></Icon>,
           },
         ]
@@ -2100,7 +2099,7 @@ export default function AppShell() {
       id: 'snippets',
       title: 'Shell Snippets',
       active: layoutState.sidebarVisible && layoutState.sidebarTab === 'snippets',
-      onClick: () => { toggleSidebarTab('snippets'); setFocusedRoom('workspace'); },
+      onClick: () => { toggleSidebarTab('snippets'); },
       icon: <Icon><path d="M4 17l6-6-6-6M12 19h8" /></Icon>,
     },
   ];
@@ -2344,6 +2343,50 @@ export default function AppShell() {
         <div className="drawer-body">
           <PanelHost id={activeTab} />
         </div>
+      </aside>
+    );
+  }
+
+  function renderLeftUtilityDrawer() {
+    if (!layoutState.sidebarVisible) return null;
+
+    const tabs = [
+      { id: 'files' as const, label: 'Explorer' },
+      { id: 'search' as const, label: 'Search' },
+      { id: 'git' as const, label: 'Source Control' },
+      ...(showSnapshotsTab ? [{ id: 'snapshots' as const, label: 'Snapshots' }] : []),
+      { id: 'snippets' as const, label: 'Snippets' },
+    ];
+
+    const activeTab = layoutState.sidebarTab;
+
+    return (
+      <aside className={`left-utility-drawer bento-card${sidebarResizing ? ' resizing' : ''}`} style={{ width: `${layoutState.sidebarWidth}px` }}>
+        <header className="drawer-header">
+          <div className="drawer-tabs">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={`drawer-tab-btn${activeTab === tab.id ? ' active' : ''}`}
+                onClick={() => persistLayoutPatch({ sidebarTab: tab.id })}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <button
+            className="drawer-close-btn"
+            onClick={() => persistLayoutPatch({ sidebarVisible: false })}
+            title="Close drawer"
+            aria-label="Close drawer"
+          >
+            <XIcon />
+          </button>
+        </header>
+        <div className="drawer-body">
+          <SidebarContent tab={activeTab} />
+        </div>
+        <div className="left-drawer-resize-handle" onMouseDown={startSidebarResize} />
       </aside>
     );
   }
@@ -2950,6 +2993,7 @@ export default function AppShell() {
                 )}
               </main>
 
+              {renderLeftUtilityDrawer()}
               {renderUtilityDrawer()}
               {renderFloatingOverlays()}
 

@@ -1833,3 +1833,55 @@
   background: transparent;
   border: 0;
 }
+
+/* Left utility flyout drawer */
+.app-shell .left-utility-drawer {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  bottom: calc(var(--overlay-clear) + 14px); /* Clear the floating bottom controls */
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--glass-bg, rgba(23, 23, 25, 0.72));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.6);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
+  animation: slideInLeft 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Ensure no transitions are active while resizing to avoid pointer lag */
+.app-shell .left-utility-drawer.resizing {
+  transition: none !important;
+}
+
+.app-shell .left-drawer-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background 0.2s ease;
+}
+
+.app-shell .left-drawer-resize-handle:hover,
+.app-shell .left-drawer-resize-handle:active {
+  background: var(--accent);
+}
