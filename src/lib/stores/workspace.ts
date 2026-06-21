@@ -207,6 +207,12 @@ interface PersistedProjectState {
     sidebarWidth: number;
     sidebarTab: string;
   };
+  preview?: {
+    tabs: PreviewTab[];
+    activeTabId: string | null;
+    targetPort?: number;
+    proxyStarted?: boolean;
+  };
 }
 
 function projectStorageKey(projectId: string) {
@@ -256,6 +262,12 @@ function saveProjectStateToStorage(projectId: string) {
       sidebarVisible: currentLayout.sidebarVisible,
       sidebarWidth: currentLayout.sidebarWidth,
       sidebarTab: currentLayout.sidebarTab,
+    },
+    preview: {
+      tabs: get(previewTabs),
+      activeTabId: get(activePreviewTabId),
+      targetPort: get(targetPort),
+      proxyStarted: get(proxyStarted),
     },
   };
   try { localStorage.setItem(projectStorageKey(projectId), JSON.stringify(state)); } catch {
@@ -336,7 +348,36 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
     };
   }
 
-  return { openFiles, activeFile, expandedPaths, terminalPanes, terminalLayout, ambient, layout };
+  let preview: PersistedProjectState['preview'] | undefined;
+  if (r.preview && typeof r.preview === 'object') {
+    const p = r.preview as Record<string, unknown>;
+    const rawTabs = Array.isArray(p.tabs) ? p.tabs : [];
+    const tabs: PreviewTab[] = rawTabs.map((t: unknown) => {
+      if (!t || typeof t !== 'object') return null;
+      const tab = t as Record<string, unknown>;
+      return {
+        id: typeof tab.id === 'string' ? tab.id : '',
+        title: typeof tab.title === 'string' ? tab.title : '',
+        url: typeof tab.url === 'string' ? tab.url : '',
+        loadUrl: typeof tab.loadUrl === 'string' ? tab.loadUrl : undefined,
+        history: Array.isArray(tab.history) ? tab.history.filter((h): h is string => typeof h === 'string') : [],
+        historyIndex: typeof tab.historyIndex === 'number' ? tab.historyIndex : 0,
+        mediaPlaybackState: tab.mediaPlaybackState && typeof tab.mediaPlaybackState === 'object'
+          ? {
+              currentTime: typeof (tab.mediaPlaybackState as any).currentTime === 'number' ? (tab.mediaPlaybackState as any).currentTime : 0,
+              paused: typeof (tab.mediaPlaybackState as any).paused === 'boolean' ? (tab.mediaPlaybackState as any).paused : true,
+            }
+          : undefined,
+      };
+    }).filter((t): t is PreviewTab => t !== null && t.url !== '');
+    
+    const activeTabId = typeof p.activeTabId === 'string' ? p.activeTabId : null;
+    const targetPortVal = typeof p.targetPort === 'number' ? p.targetPort : undefined;
+    const proxyStartedVal = typeof p.proxyStarted === 'boolean' ? p.proxyStarted : undefined;
+    preview = { tabs, activeTabId, targetPort: targetPortVal, proxyStarted: proxyStartedVal };
+  }
+
+  return { openFiles, activeFile, expandedPaths, terminalPanes, terminalLayout, ambient, layout, preview };
 }
 
 function loadProjectStateFromStorage(projectId: string): PersistedProjectState | null {
@@ -509,18 +550,38 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       const persisted = loadProjectStateFromStorage(projectId);
       if (generation !== restoreProjectStateGeneration) return;
 
-      try {
-        const port = await invoke<number>('workspace_detect_port', { path: rootPath });
-        if (generation !== restoreProjectStateGeneration) return;
-        await setTargetPort(port, { silent: true });
-      } catch (err) {
-        console.error('Failed to auto-detect/set up preview for new project:', err);
+      if (!persisted?.preview) {
+        try {
+          const port = await invoke<number>('workspace_detect_port', { path: rootPath });
+          if (generation !== restoreProjectStateGeneration) return;
+          await setTargetPort(port, { silent: true });
+        } catch (err) {
+          console.error('Failed to auto-detect/set up preview for new project:', err);
+        }
       }
 
-      if (persisted && persisted.openFiles.length > 0) {
-        if (generation !== restoreProjectStateGeneration) return;
-        await restoreEditorFiles(persisted.openFiles, persisted.activeFile);
-        expandedPaths.set(new Set(persisted.expandedPaths));
+      if (persisted) {
+        if (persisted.openFiles.length > 0) {
+          if (generation !== restoreProjectStateGeneration) return;
+          await restoreEditorFiles(persisted.openFiles, persisted.activeFile);
+          expandedPaths.set(new Set(persisted.expandedPaths));
+        }
+
+        if (persisted.preview) {
+          if (generation !== restoreProjectStateGeneration) return;
+          restorePreviewTabsState(persisted.preview.tabs, persisted.preview.activeTabId);
+          if (persisted.preview.targetPort !== undefined) {
+            targetPort.set(persisted.preview.targetPort);
+            try {
+              await invoke('preview_set_target_port', { port: persisted.preview.targetPort });
+            } catch (e) {
+              console.error('Failed to set target port during storage restore:', e);
+            }
+          }
+          if (persisted.preview.proxyStarted !== undefined) {
+            proxyStarted.set(persisted.preview.proxyStarted);
+          }
+        }
       }
 
       if (generation !== restoreProjectStateGeneration) return;

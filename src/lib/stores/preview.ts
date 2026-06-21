@@ -25,6 +25,10 @@ export type PreviewTab = {
   loadUrl?: string;
   history: string[];
   historyIndex: number;
+  mediaPlaybackState?: {
+    currentTime: number;
+    paused: boolean;
+  };
 };
 
 export const BLANK_PREVIEW_URL = 'about:blank';
