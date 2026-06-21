@@ -323,6 +323,15 @@ export default function SketchCanvas() {
   const undoStackRef = useRef<string[]>([]);
   const redoStackRef = useRef<string[]>([]);
 
+  // Clipboard refs and states
+  const copiedElementsRef = useRef<{
+    shapes: SketchShape[];
+    texts: SketchText[];
+    arrows: SketchArrow[];
+    groups: SketchGroup[];
+  } | null>(null);
+  const [hasCopiedElements, setHasCopiedElements] = useState(false);
+
   // Toolbar and display states
   const [currentTool, setCurrentTool] = useState<'select' | 'pen' | 'eraser' | 'text' | 'pan' | 'connector' | 'rectangle' | 'circle' | 'diamond' | 'line'>('select');
   const [currentColor, setCurrentColor] = useState('#06b6d4');
@@ -2498,6 +2507,333 @@ export default function SketchCanvas() {
     }
   }
 
+  // Clipboard and duplicate functions
+  function copySelected() {
+    const s = stateRef.current;
+    let targetIds: string[] = [];
+    if (s.selectedElementIds.length > 0) {
+      targetIds = [...s.selectedElementIds];
+    } else if (selectedShapeId) {
+      targetIds = [selectedShapeId];
+    } else if (selectedTextId) {
+      targetIds = [selectedTextId];
+    } else if (selectedArrowId) {
+      targetIds = [selectedArrowId];
+    }
+
+    if (targetIds.length === 0) {
+      showToast('No elements selected to copy', 'warning');
+      return;
+    }
+
+    const shapesToCopy = s.sketchShapes.filter(shape => targetIds.includes(shape.id));
+    const textsToCopy = s.sketchTexts.filter(text => targetIds.includes(text.id));
+    const arrowsToCopy = s.arrows.filter(arrow => targetIds.includes(arrow.id));
+
+    // Gather any groups that have elements in the selection
+    const groupsToCopy = s.sketchGroups
+      .map(g => ({
+        id: g.id,
+        elementIds: g.elementIds.filter(id => targetIds.includes(id))
+      }))
+      .filter(g => g.elementIds.length > 0);
+
+    const clipboardData = {
+      shapes: shapesToCopy,
+      texts: textsToCopy,
+      arrows: arrowsToCopy,
+      groups: groupsToCopy
+    };
+
+    copiedElementsRef.current = clipboardData;
+    setHasCopiedElements(true);
+
+    try {
+      const serialized = 'soryq-sketch-clip:' + JSON.stringify(clipboardData);
+      navigator.clipboard.writeText(serialized)
+        .catch(err => console.warn('Could not write to system clipboard', err));
+    } catch (err) {
+      console.warn('System clipboard write failed', err);
+    }
+
+    showToast(`Copied ${shapesToCopy.length + textsToCopy.length + arrowsToCopy.length} element(s)`, 'success');
+  }
+
+  async function pasteSelected() {
+    let clipboardData = copiedElementsRef.current;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.startsWith('soryq-sketch-clip:')) {
+        const jsonStr = text.substring('soryq-sketch-clip:'.length);
+        clipboardData = JSON.parse(jsonStr);
+      }
+    } catch (err) {
+      console.warn('System clipboard read failed, using memory fallback', err);
+    }
+
+    if (!clipboardData || (clipboardData.shapes.length === 0 && clipboardData.texts.length === 0 && clipboardData.arrows.length === 0)) {
+      showToast('Clipboard is empty', 'warning');
+      return;
+    }
+
+    const idMap: { [oldId: string]: string } = {};
+    const offset = 25;
+
+    const newShapes = clipboardData.shapes.map(shape => {
+      const newId = Math.random().toString(36).substring(2, 9);
+      idMap[shape.id] = newId;
+      return {
+        ...shape,
+        id: newId,
+        x: shape.x + offset,
+        y: shape.y + offset
+      };
+    });
+
+    const newTexts = clipboardData.texts.map(text => {
+      const newId = Math.random().toString(36).substring(2, 9);
+      idMap[text.id] = newId;
+      return {
+        ...text,
+        id: newId,
+        x: text.x + offset,
+        y: text.y + offset
+      };
+    });
+
+    const newArrows = clipboardData.arrows.map(arrow => {
+      const newId = Math.random().toString(36).substring(2, 9);
+      idMap[arrow.id] = newId;
+      
+      const nextArrow: SketchArrow = {
+        ...arrow,
+        id: newId,
+        fromTextId: arrow.fromTextId ? (idMap[arrow.fromTextId] || arrow.fromTextId) : undefined,
+        fromShapeId: arrow.fromShapeId ? (idMap[arrow.fromShapeId] || arrow.fromShapeId) : undefined,
+        toTextId: arrow.toTextId ? (idMap[arrow.toTextId] || arrow.toTextId) : undefined,
+        toShapeId: arrow.toShapeId ? (idMap[arrow.toShapeId] || arrow.toShapeId) : undefined
+      };
+
+      if (arrow.fromPoint) {
+        nextArrow.fromPoint = {
+          x: arrow.fromPoint.x + offset,
+          y: arrow.fromPoint.y + offset
+        };
+      }
+      if (arrow.toPoint) {
+        nextArrow.toPoint = {
+          x: arrow.toPoint.x + offset,
+          y: arrow.toPoint.y + offset
+        };
+      }
+      return nextArrow;
+    });
+
+    const newGroups = (clipboardData.groups || []).map(g => {
+      const newGroupId = Math.random().toString(36).substring(2, 9);
+      return {
+        id: newGroupId,
+        elementIds: g.elementIds.map(id => idMap[id] || id).filter(Boolean)
+      };
+    });
+
+    setSketchShapes(prev => [...prev, ...newShapes]);
+    setSketchTexts(prev => [...prev, ...newTexts]);
+    setArrows(prev => [...prev, ...newArrows]);
+    if (newGroups.length > 0) {
+      setSketchGroups(prev => [...prev, ...newGroups]);
+    }
+
+    const newSelectionIds = [...newShapes.map(s => s.id), ...newTexts.map(t => t.id), ...newArrows.map(a => a.id)];
+    setSelectedElementIds(newSelectionIds);
+    setSelectedShapeId(null);
+    setSelectedTextId(null);
+    setSelectedArrowId(null);
+
+    setTimeout(() => {
+      saveState();
+    }, 10);
+
+    showToast(`Pasted ${newSelectionIds.length} element(s)`, 'success');
+  }
+
+  function duplicateSelected() {
+    const s = stateRef.current;
+    let targetIds: string[] = [];
+    if (s.selectedElementIds.length > 0) {
+      targetIds = [...s.selectedElementIds];
+    } else if (selectedShapeId) {
+      targetIds = [selectedShapeId];
+    } else if (selectedTextId) {
+      targetIds = [selectedTextId];
+    } else if (selectedArrowId) {
+      targetIds = [selectedArrowId];
+    }
+
+    if (targetIds.length === 0) {
+      showToast('No elements selected to duplicate', 'warning');
+      return;
+    }
+
+    const shapesToCopy = s.sketchShapes.filter(shape => targetIds.includes(shape.id));
+    const textsToCopy = s.sketchTexts.filter(text => targetIds.includes(text.id));
+    const arrowsToCopy = s.arrows.filter(arrow => targetIds.includes(arrow.id));
+    const groupsToCopy = s.sketchGroups
+      .map(g => ({
+        id: g.id,
+        elementIds: g.elementIds.filter(id => targetIds.includes(id))
+      }))
+      .filter(g => g.elementIds.length > 0);
+
+    const idMap: { [oldId: string]: string } = {};
+    const offset = 25;
+
+    const newShapes = shapesToCopy.map(shape => {
+      const newId = Math.random().toString(36).substring(2, 9);
+      idMap[shape.id] = newId;
+      return {
+        ...shape,
+        id: newId,
+        x: shape.x + offset,
+        y: shape.y + offset
+      };
+    });
+
+    const newTexts = textsToCopy.map(text => {
+      const newId = Math.random().toString(36).substring(2, 9);
+      idMap[text.id] = newId;
+      return {
+        ...text,
+        id: newId,
+        x: text.x + offset,
+        y: text.y + offset
+      };
+    });
+
+    const newArrows = arrowsToCopy.map(arrow => {
+      const newId = Math.random().toString(36).substring(2, 9);
+      idMap[arrow.id] = newId;
+      
+      const nextArrow: SketchArrow = {
+        ...arrow,
+        id: newId,
+        fromTextId: arrow.fromTextId ? (idMap[arrow.fromTextId] || arrow.fromTextId) : undefined,
+        fromShapeId: arrow.fromShapeId ? (idMap[arrow.fromShapeId] || arrow.fromShapeId) : undefined,
+        toTextId: arrow.toTextId ? (idMap[arrow.toTextId] || arrow.toTextId) : undefined,
+        toShapeId: arrow.toShapeId ? (idMap[arrow.toShapeId] || arrow.toShapeId) : undefined
+      };
+
+      if (arrow.fromPoint) {
+        nextArrow.fromPoint = {
+          x: arrow.fromPoint.x + offset,
+          y: arrow.fromPoint.y + offset
+        };
+      }
+      if (arrow.toPoint) {
+        nextArrow.toPoint = {
+          x: arrow.toPoint.x + offset,
+          y: arrow.toPoint.y + offset
+        };
+      }
+      return nextArrow;
+    });
+
+    const newGroups = groupsToCopy.map(g => {
+      const newGroupId = Math.random().toString(36).substring(2, 9);
+      return {
+        id: newGroupId,
+        elementIds: g.elementIds.map(id => idMap[id] || id).filter(Boolean)
+      };
+    });
+
+    setSketchShapes(prev => [...prev, ...newShapes]);
+    setSketchTexts(prev => [...prev, ...newTexts]);
+    setArrows(prev => [...prev, ...newArrows]);
+    if (newGroups.length > 0) {
+      setSketchGroups(prev => [...prev, ...newGroups]);
+    }
+
+    const newSelectionIds = [...newShapes.map(s => s.id), ...newTexts.map(t => t.id), ...newArrows.map(a => a.id)];
+    setSelectedElementIds(newSelectionIds);
+    setSelectedShapeId(null);
+    setSelectedTextId(null);
+    setSelectedArrowId(null);
+
+    setTimeout(() => {
+      saveState();
+    }, 10);
+
+    showToast(`Duplicated ${newSelectionIds.length} element(s)`, 'success');
+  }
+
+  function copyEntireCanvas() {
+    try {
+      const s = stateRef.current;
+      const data = {
+        version: '1.1.0',
+        backgroundStyle: s.backgroundStyle,
+        gridSpacing: s.gridSpacing,
+        snapToGrid: s.snapToGrid,
+        zoomScale: s.zoomScale,
+        panOffset: s.panOffset,
+        strokes: s.strokes,
+        sketchTexts: s.sketchTexts,
+        arrows: s.arrows,
+        sketchShapes: s.sketchShapes
+      };
+      const jsonString = JSON.stringify(data);
+      const serialized = 'soryq-canvas-full:' + jsonString;
+      navigator.clipboard.writeText(serialized)
+        .then(() => {
+          setShowSettingsDropdown(false);
+          showToast('Entire canvas copied to clipboard', 'success');
+        })
+        .catch(err => {
+          console.error('Failed to copy entire canvas:', err);
+          showToast('Failed to copy to clipboard', 'error');
+        });
+    } catch (err) {
+      console.error('Failed to copy entire canvas:', err);
+      showToast('Failed to copy canvas', 'error');
+    }
+  }
+
+  async function pasteEntireCanvas() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text || !text.startsWith('soryq-canvas-full:')) {
+        showToast('Clipboard does not contain a copied Soryq canvas', 'warning');
+        return;
+      }
+
+      const jsonStr = text.substring('soryq-canvas-full:'.length);
+      const data = JSON.parse(jsonStr);
+
+      if (data.backgroundStyle !== undefined) setBackgroundStyle(data.backgroundStyle);
+      if (data.gridSpacing !== undefined) setGridSpacing(data.gridSpacing);
+      if (data.snapToGrid !== undefined) setSnapToGrid(data.snapToGrid);
+      if (data.zoomScale !== undefined) setZoomScale(data.zoomScale);
+      if (data.panOffset !== undefined) setPanOffset(data.panOffset);
+      if (Array.isArray(data.strokes)) setStrokes(data.strokes);
+      if (Array.isArray(data.sketchTexts)) setSketchTexts(data.sketchTexts);
+      if (Array.isArray(data.arrows)) setArrows(data.arrows);
+      if (Array.isArray(data.sketchShapes)) {
+        setSketchShapes(data.sketchShapes);
+      } else {
+        setSketchShapes([]);
+      }
+
+      setTimeout(() => {
+        saveState();
+        setShowSettingsDropdown(false);
+        showToast('Canvas pasted successfully', 'success');
+      }, 10);
+    } catch (err) {
+      console.error('Failed to paste canvas:', err);
+      showToast('Failed to paste canvas from clipboard', 'error');
+    }
+  }
+
   // Edit existing text boxes
   function editExistingText(text: SketchText) {
     commitText();
@@ -2915,6 +3251,15 @@ export default function SketchCanvas() {
         if (selectedShapeId || selectedTextId || selectedArrowId || s.selectedElementIds.length > 0) {
           deleteSelected();
         }
+      } else if ((e.key === 'c' || e.key === 'C') && (e.ctrlKey || e.metaKey) && !isTyping) {
+        e.preventDefault();
+        copySelected();
+      } else if ((e.key === 'v' || e.key === 'V') && (e.ctrlKey || e.metaKey) && !isTyping) {
+        e.preventDefault();
+        void pasteSelected();
+      } else if ((e.key === 'd' || e.key === 'D') && (e.ctrlKey || e.metaKey) && !isTyping) {
+        e.preventDefault();
+        duplicateSelected();
       } else if (e.key.toLowerCase() === 'g' && (e.ctrlKey || e.metaKey) && !isTyping) {
         e.preventDefault();
         if (e.shiftKey) {
@@ -3580,6 +3925,32 @@ export default function SketchCanvas() {
                       </button>
                     )}
                     <button
+                      className="style-panel-btn"
+                      onClick={copySelected}
+                      title="Copy selected elements (Ctrl+C)"
+                      style={{ flex: '1 1 45%' }}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      className="style-panel-btn"
+                      onClick={duplicateSelected}
+                      title="Duplicate selected elements (Ctrl+D)"
+                      style={{ flex: '1 1 45%' }}
+                    >
+                      Duplicate
+                    </button>
+                    {hasCopiedElements && (
+                      <button
+                        className="style-panel-btn"
+                        onClick={() => void pasteSelected()}
+                        title="Paste elements from clipboard (Ctrl+V)"
+                        style={{ flex: '1 1 100%' }}
+                      >
+                        Paste
+                      </button>
+                    )}
+                    <button
                       className="style-panel-btn delete-btn"
                       onClick={deleteSelected}
                       title="Delete Element"
@@ -3591,6 +3962,26 @@ export default function SketchCanvas() {
                       }}
                     >
                       Delete Selected
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* General Clipboard Paste Action (when nothing is selected but has elements) */}
+            {!selectedShapeId && !selectedTextId && !selectedArrowId && selectedElementIds.length === 0 && hasCopiedElements && (
+              <>
+                <div className="menu-divider" style={{ margin: '4px 0', borderBottom: '1.5px solid var(--border)' }} />
+                <div className="style-panel-section">
+                  <span className="style-panel-title">Clipboard</span>
+                  <div className="style-panel-grid">
+                    <button
+                      className="style-panel-btn"
+                      onClick={() => void pasteSelected()}
+                      title="Paste elements from clipboard (Ctrl+V)"
+                      style={{ flex: '1 1 100%' }}
+                    >
+                      Paste Elements
                     </button>
                   </div>
                 </div>
@@ -3957,6 +4348,20 @@ export default function SketchCanvas() {
                         <line x1="12" y1="3" x2="12" y2="15" />
                       </svg>
                       Import JSON
+                    </button>
+                    <button type="button" className="util-btn" onClick={copyEntireCanvas} title="Copy entire drawing to clipboard">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      </svg>
+                      Copy Canvas
+                    </button>
+                    <button type="button" className="util-btn" onClick={pasteEntireCanvas} title="Replace canvas from copied drawing in clipboard">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                      </svg>
+                      Paste Canvas
                     </button>
                   </div>
                 </div>
