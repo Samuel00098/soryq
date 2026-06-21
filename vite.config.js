@@ -48,6 +48,10 @@ export default defineConfig({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
     // Ignore directories the app itself writes into at runtime. Without this,
     // spawning an orchestrator agent — which writes .soryq/orchestrator.json and
     // creates .soryq/worktrees/* (full repo copies) — trips Vite's file watcher
