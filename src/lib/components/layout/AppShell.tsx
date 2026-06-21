@@ -2579,17 +2579,21 @@ export default function AppShell() {
     // landed while one was mid-flight, that frozen snapshot of the old panels
     // stayed ghosting on screen. The settle pass only ever touches elements that
     // are actually in the new layout, so nothing from the former mode can linger.
-    flushSync(() => {
-      setLayoutSwitching(!prefersReducedMotion);
-      setAmbientLayout(nextLayout);
+    // Defer the flushSync update to a microtask if we are currently rendering to
+    // avoid React lifecycle flushSync warnings.
+    queueMicrotask(() => {
+      flushSync(() => {
+        setLayoutSwitching(!prefersReducedMotion);
+        setAmbientLayout(nextLayout);
+      });
+
+      if (prefersReducedMotion) {
+        setLayoutSwitching(false);
+        return;
+      }
+
+      layoutSwitchTimerRef.current = window.setTimeout(finishLayoutSwitch, 360);
     });
-
-    if (prefersReducedMotion) {
-      setLayoutSwitching(false);
-      return;
-    }
-
-    layoutSwitchTimerRef.current = window.setTimeout(finishLayoutSwitch, 360);
   }
 
   function renderSplitSwitcher() {

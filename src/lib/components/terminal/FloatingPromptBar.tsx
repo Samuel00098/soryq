@@ -43,7 +43,7 @@ import {
   agentVoiceModeActive,
   type ChatMessage,
 } from '$lib/stores/orchestrator';
-import { describeTtsError, getVoiceReplyConfigError, speak, stopSpeaking } from '$lib/services/tts';
+import { describeTtsError, getVoiceReplyConfigError, speak, stopSpeaking, warmupLocalTts } from '$lib/services/tts';
 import { openSettings } from '$lib/stores/layout';
 import { requestRoomControl } from '$lib/stores/layoutControl';
 import { addRunEntry } from '$lib/stores/runHistory';
@@ -123,7 +123,7 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
 function stripMarkdown(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]+`/g, '')
+    .replace(/`([^`]+)`/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/#+\s+/g, '')
@@ -694,6 +694,9 @@ export default function FloatingPromptBar() {
     lastSpokenMessageKeyRef.current = lastMsg && lastMsg.role === 'assistant' && !lastMsg.pending ? speechKeyForAssistantMessage(lastMsg) : null;
     setVoiceModeActive(true);
     agentVoiceModeActive.set(true);
+    // Warm the local speech engine now so the first reply isn't stalled on a
+    // cold WASM/ONNX start (no-op for cloud providers).
+    warmupLocalTts();
     void voiceInput.start();
   }, [voiceModeActive, stopAgentVoice, projectChatMessages]);
 

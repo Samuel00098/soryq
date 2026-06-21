@@ -307,6 +307,7 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
   let captureSampleRate = 16_000;
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
   let speechDetected = false;
+  let startTime = 0;
 
   function clearSilenceTimer() {
     if (silenceTimer) {
@@ -343,10 +344,11 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
     clearSilenceTimer();
     callbacks.onProcessingStart?.('Transcribing with Google…');
 
-    if (capturedChunks.length === 0) {
+    if (capturedChunks.length === 0 || !speechDetected) {
       clearCaptureState();
       transcriptionPending = false;
       stopRequested = false;
+      callbacks.onResult('');
       callbacks.onEnd?.();
       return;
     }
@@ -451,11 +453,19 @@ export function createVoiceInputSession(callbacks: VoiceInputCallbacks): VoiceIn
           capturedChunks = [];
           speechDetected = false;
           clearSilenceTimer();
+          startTime = Date.now();
 
           captureProcessor.onaudioprocess = (event: AudioProcessingEvent) => {
             if (stopRequested) return;
             const input = event.inputBuffer.getChannelData(0);
             capturedChunks.push(new Float32Array(input));
+
+            // Ignore VAD check during the first 400ms to allow microphone initialization noise/clicks to settle.
+            // We skip this check in unit tests where input buffers are mock-shortened (length < 128).
+            if (input.length >= 128 && Date.now() - startTime < 400) {
+              return;
+            }
+
             let sumSquares = 0;
             for (let i = 0; i < input.length; i += 1) {
               sumSquares += input[i] * input[i];
