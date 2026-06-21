@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import TitleBar from './TitleBar.tsx';
 import UpdateBanner from '$lib/components/shared/UpdateBanner.tsx';
@@ -445,6 +445,8 @@ export default function AppShell() {
     if (layoutSwitchTimerRef.current !== null) window.clearTimeout(layoutSwitchTimerRef.current);
   }, []);
 
+
+
   const visiblePanels = useMemo(
     () =>
       [
@@ -516,6 +518,62 @@ export default function AppShell() {
       height: Math.max(GALLERY_MIN_HEIGHT, GALLERY_DEFAULT_HEIGHT * scale),
     };
   }, [ambientLayout, galleryAutoGrid, orderedVisibleRooms, canvasViewportSize]);
+
+  const [previewStyle, setPreviewStyle] = useState<React.CSSProperties>({
+    display: 'none',
+  });
+
+  useLayoutEffect(() => {
+    const parent = roomsTableRef.current;
+    const placeholder = parent?.querySelector('.preview-placeholder');
+    if (!parent || !placeholder) {
+      setPreviewStyle({ display: 'none' });
+      return;
+    }
+
+    const updatePosition = () => {
+      const rect = placeholder.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      const uiZoom = parseFloat(getComputedStyle(parent).getPropertyValue('--zoom-factor') || getComputedStyle(parent).zoom || '1') || 1;
+      
+      setPreviewStyle({
+        position: 'absolute',
+        top: (rect.top - parentRect.top) / uiZoom,
+        left: (rect.left - parentRect.left) / uiZoom,
+        width: rect.width / uiZoom,
+        height: rect.height / uiZoom,
+        display: 'block',
+        zIndex: 10,
+        pointerEvents: 'auto',
+      });
+    };
+
+    updatePosition();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updatePosition();
+    });
+    resizeObserver.observe(placeholder);
+
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [
+    canvasView,
+    orderedVisibleRooms,
+    ambientLayout,
+    layoutState.sidebarVisible,
+    layoutState.sidebarWidth,
+    terminalRoomOpen,
+    centerOpen,
+    visiblePanels,
+    canvasPositions,
+    gallerySizes,
+    draggingRoom,
+    resizingRoom,
+  ]);
 
   const activeRoom = focusedRoom && visibleRooms.includes(focusedRoom)
     ? focusedRoom
@@ -1800,6 +1858,14 @@ export default function AppShell() {
         </div>
       );
     }
+    if (id === 'preview') {
+      return (
+        <div
+          className="preview-placeholder"
+          style={{ width: '100%', height: '100%', background: 'transparent' }}
+        />
+      );
+    }
     return <PanelHost id={id} />;
   }
 
@@ -2266,6 +2332,17 @@ export default function AppShell() {
                   <Suspense fallback={null}>
                     <SketchCanvas />
                   </Suspense>
+                )}
+                {layoutState.previewVisible && (
+                  <div
+                    className="persistent-preview-container"
+                    style={{
+                      ...previewStyle,
+                      transition: layoutSwitching ? 'all 0.36s cubic-bezier(0.22, 1, 0.36, 1)' : undefined,
+                    }}
+                  >
+                    <PreviewPanel />
+                  </div>
                 )}
               </main>
 

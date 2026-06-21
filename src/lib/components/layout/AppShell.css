@@ -78,10 +78,11 @@
     gap 0.2s ease;
 }
 
-/* Focus & Split keep their panels above the floating controls. Canvas
+/* Focus, Split & Preview keep their panels above the floating controls. Canvas
    deliberately omits this so windows can be placed behind the bar. */
 .rooms-table.ambient-focus,
-.rooms-table.ambient-split {
+.rooms-table.ambient-split,
+.rooms-table.ambient-preview {
   padding-bottom: var(--overlay-clear);
 }
 
@@ -92,6 +93,16 @@
 .rooms-table.ambient-split {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
+}
+
+/* Preview mode: the live app preview takes the stage with the terminal alongside.
+   When the terminal is closed the preview spans the whole width. */
+.rooms-table.ambient-preview {
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 560px);
+}
+
+.rooms-table.ambient-preview.preview-solo {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .rooms-table.ambient-gallery {
@@ -157,8 +168,34 @@
   box-shadow: var(--glass-shadow, 0 18px 50px -24px rgba(0, 0, 0, 0.55));
 }
 
+/* In auto-grid mode panels glide to their computed slot when the board reflows
+   (a room opens, closes, or one panel is resized). Live drag/resize opt out of
+   this transition below so the panel under the cursor never lags. */
+.ambient-canvas.auto-grid .room-panel.arrangeable {
+  transition:
+    left 0.34s cubic-bezier(0.16, 1, 0.3, 1),
+    top 0.34s cubic-bezier(0.16, 1, 0.3, 1),
+    width 0.34s cubic-bezier(0.16, 1, 0.3, 1),
+    height 0.34s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.ambient-canvas.auto-grid .room-panel.arrangeable.resizing {
+  transition:
+    left 0.34s cubic-bezier(0.16, 1, 0.3, 1),
+    top 0.34s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.18s ease;
+}
+
 .ambient-canvas .room-header.canvas-drag-handle {
   cursor: grab;
+}
+
+/* Auto-grid owns layout, so the header is a button (open in Focus), not a drag
+   handle. */
+.ambient-canvas.auto-grid .room-header {
+  cursor: default;
 }
 
 .ambient-canvas .room-panel.dragging .room-header.canvas-drag-handle {
@@ -171,6 +208,15 @@
   bottom: 12px;
   z-index: 30;
   width: fit-content;
+}
+
+.persistent-preview-container {
+  position: absolute;
+  z-index: 10;
+  pointer-events: auto;
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* Floating zoom + fit control cluster, pinned to the canvas (not the world, so
@@ -210,6 +256,23 @@
 .canvas-zoom-btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.canvas-grid-btn.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.canvas-grid-btn.active:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--accent);
+}
+
+.canvas-control-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: var(--border-subtle);
 }
 
 .canvas-zoom-label {
