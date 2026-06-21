@@ -1957,10 +1957,9 @@ export default function AppShell() {
 
   function resetCanvasLayout() {
     setGallerySizes({});
-    const view = canvasViewRef.current;
     const rect = canvasViewportRef.current?.getBoundingClientRect();
-    const centerX = rect ? (rect.width / 2 - view.x) / view.zoom : 0;
-    const centerY = rect ? (rect.height / 2 - view.y) / view.zoom : 0;
+    const centerX = rect ? rect.width / 2 : 0;
+    const centerY = rect ? rect.height / 2 : 0;
 
     // Resetting everything to a single cluster anchored by the first room
     const initialCount = orderedVisibleRooms.length;
