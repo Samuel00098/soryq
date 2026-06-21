@@ -1810,8 +1810,7 @@
 /* DevPet custom float adjustments */
 .app-shell .devpet-widget {
   width: 300px;
-  height: auto;
-  max-height: 480px;
+  height: 430px;
 }
 
 .app-shell .devpet-widget .devpet-panel {
@@ -1824,6 +1823,9 @@
 .app-shell .youtube-widget {
   width: 380px;
   height: 290px;
+  resize: both;
+  min-width: 280px;
+  min-height: 180px;
 }
 
 .app-shell .youtube-widget .youtube-panel {

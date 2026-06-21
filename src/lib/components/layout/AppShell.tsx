@@ -2290,33 +2290,20 @@ export default function AppShell() {
     if (!dbOpen && !httpOpen && !containersOpen && !toolboxOpen) return null;
 
     // Determine the active tab based on which views are open and active
-    let activeTab: AuxPanelId = 'toolbox';
+    let activeTab: AuxPanelId | null = null;
     const activeView = layoutState.activeView;
-    if (dbOpen && (activeView === 'db' || activeTab === 'toolbox')) activeTab = 'db';
-    if (httpOpen && (activeView === 'http' || activeTab === 'toolbox' || activeTab === 'db')) activeTab = 'http';
-    if (containersOpen && (activeView === 'containers' || activeTab === 'toolbox' || activeTab === 'db' || activeTab === 'http')) activeTab = 'containers';
-    if (toolboxOpen && activeView === 'toolbox') activeTab = 'toolbox';
 
-    // fallback in case activeTab is not actually open
-    if (activeTab === 'db' && !dbOpen) {
-      if (httpOpen) activeTab = 'http';
-      else if (containersOpen) activeTab = 'containers';
-      else if (toolboxOpen) activeTab = 'toolbox';
-    }
-    if (activeTab === 'http' && !httpOpen) {
-      if (dbOpen) activeTab = 'db';
-      else if (containersOpen) activeTab = 'containers';
-      else if (toolboxOpen) activeTab = 'toolbox';
-    }
-    if (activeTab === 'containers' && !containersOpen) {
-      if (dbOpen) activeTab = 'db';
+    if (activeView === 'db' && dbOpen) activeTab = 'db';
+    else if (activeView === 'http' && httpOpen) activeTab = 'http';
+    else if (activeView === 'containers' && containersOpen) activeTab = 'containers';
+    else if (activeView === 'toolbox' && toolboxOpen) activeTab = 'toolbox';
+
+    if (!activeTab) {
+      if (toolboxOpen) activeTab = 'toolbox';
       else if (httpOpen) activeTab = 'http';
-      else if (toolboxOpen) activeTab = 'toolbox';
-    }
-    if (activeTab === 'toolbox' && !toolboxOpen) {
-      if (dbOpen) activeTab = 'db';
-      else if (httpOpen) activeTab = 'http';
+      else if (dbOpen) activeTab = 'db';
       else if (containersOpen) activeTab = 'containers';
+      else activeTab = 'toolbox';
     }
 
     const tabs = [
