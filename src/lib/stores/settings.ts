@@ -989,6 +989,7 @@ export const shortcutActions: ShortcutAction[] = [
   { id: 'canvasZoomIn',   label: 'Canvas Zoom In', category: 'Canvas' },
   { id: 'canvasZoomOut',  label: 'Canvas Zoom Out', category: 'Canvas' },
   { id: 'canvasResetZoom', label: 'Canvas Reset Zoom', category: 'Canvas' },
+  { id: 'cycleAmbientLayout', label: 'Cycle Ambient Layout', category: 'View' },
 ];
 
 export const defaultShortcuts: KeyboardShortcut[] = [
@@ -1024,6 +1025,7 @@ export const defaultShortcuts: KeyboardShortcut[] = [
   { id: 'canvasZoomIn',   label: 'Canvas Zoom In', keys: 'Alt+=' },
   { id: 'canvasZoomOut',  label: 'Canvas Zoom Out', keys: 'Alt+-' },
   { id: 'canvasResetZoom', label: 'Canvas Reset Zoom', keys: 'Alt+0' },
+  { id: 'cycleAmbientLayout', label: 'Cycle Ambient Layout', keys: 'Ctrl+Alt+L' },
 ];
 
 export const userShortcuts = persistentWritable<KeyboardShortcut[]>('userShortcuts', defaultShortcuts);

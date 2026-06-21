@@ -87,7 +87,7 @@ type AuxPanelId =
 
 type AgentRoomId = `agent:${number}`;
 type RoomId = 'workspace' | 'terminal' | 'orchestrator' | AuxPanelId | AgentRoomId;
-type AmbientLayout = 'focus' | 'split' | 'gallery';
+type AmbientLayout = 'focus' | 'split' | 'gallery' | 'preview';
 type GallerySize = { width: number; height: number };
 
 type ActivityItem = {
@@ -133,42 +133,75 @@ const PANEL_VISIBILITY_KEYS: Record<AuxPanelId, keyof ReturnType<typeof useLayou
   pet: 'petVisible',
 };
 
-const AMBIENT_LAYOUTS: Array<{ id: AmbientLayout; label: string; icon: React.ReactNode }> = [
-  {
-    id: 'focus',
-    label: 'Focus',
-    icon: <Icon><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M9 9h6v6H9z" /></Icon>,
-  },
-  {
-    id: 'split',
-    label: 'Split',
-    icon: <Icon><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M12 4v16" /></Icon>,
-  },
-  {
-    id: 'gallery',
-    label: 'Canvas',
-    icon: <Icon><rect x="2.5" y="4" width="9" height="7" rx="1.5" /><rect x="13.5" y="7" width="8" height="9" rx="1.5" /><rect x="6" y="14" width="7" height="6" rx="1.5" /></Icon>,
-  },
-];
-
 const GALLERY_MIN_WIDTH = 280;
-const GALLERY_MIN_HEIGHT = 220;
-const GALLERY_DEFAULT_WIDTH = 540;
-const GALLERY_DEFAULT_HEIGHT = 410;
+const GALLERY_MIN_HEIGHT = 200;
+// Wide landscape rectangles (~16:9) so panels read as rectangles, not squares.
+const GALLERY_DEFAULT_WIDTH = 760;
+const GALLERY_DEFAULT_HEIGHT = 430;
 
 // Freeform canvas ("gallery" mode) — pan/zoom of an infinite board of panels.
 const CANVAS_MIN_ZOOM = 0.3;
 const CANVAS_MAX_ZOOM = 2.4;
 const CANVAS_ZOOM_STEP = 1.2;
 const CANVAS_TILE_GAP = 30;
-const CANVAS_COLUMNS = 3;
+// Two columns so rooms tile as wide rectangles stacked against each other (four
+// rooms → a tidy 2×2 block) rather than a sprawling three-wide row.
+const CANVAS_COLUMNS = 2;
+// At/beyond this many open rooms, the auto-grid packs them into a squarer,
+// multi-column block (instead of the default two-wide) so the board matches the
+// screen shape when its panels are sized to fit the window.
+const CANVAS_FIT_ALL_THRESHOLD = 8;
 const CANVAS_MOVE_THRESHOLD = 4; // px of pointer travel before a header press becomes a drag
+
+// Columns for the auto-arrange grid. Small boards stay two-wide (so four rooms
+// read as a tidy 2×2); once the board is large enough to be fit-to-window, use a
+// roughly square, capped column count so the block matches the screen shape.
+function galleryColumns(roomCount: number): number {
+  if (roomCount < CANVAS_FIT_ALL_THRESHOLD) return CANVAS_COLUMNS;
+  return Math.min(4, Math.max(CANVAS_COLUMNS, Math.ceil(Math.sqrt(roomCount))));
+}
 
 type CanvasPos = { x: number; y: number };
 type CanvasView = { x: number; y: number; zoom: number };
 
 function clampZoom(zoom: number) {
   return Math.min(CANVAS_MAX_ZOOM, Math.max(CANVAS_MIN_ZOOM, zoom));
+}
+
+// Auto-arrange the canvas as a tidy aligned grid: rooms flow left→right and wrap
+// down into rows. Each column is as wide as its widest panel and each row as tall
+// as its tallest, so resizing one panel pushes the rest of its column/row along —
+// the whole board behaves like a single connected grid rather than loose tiles.
+function computeGalleryGrid<T extends string>(
+  rooms: T[],
+  sizes: Record<string, GallerySize>,
+  defaultSize: GallerySize = { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT },
+): Record<string, CanvasPos> {
+  const out: Record<string, CanvasPos> = {};
+  if (rooms.length === 0) return out;
+  const columns = Math.min(galleryColumns(rooms.length), rooms.length);
+  const rowCount = Math.ceil(rooms.length / columns);
+  const sizeOf = (room: T) => sizes[room] ?? defaultSize;
+
+  const colWidth = new Array<number>(columns).fill(0);
+  const rowHeight = new Array<number>(rowCount).fill(0);
+  rooms.forEach((room, i) => {
+    const { width, height } = sizeOf(room);
+    const col = i % columns;
+    const row = Math.floor(i / columns);
+    colWidth[col] = Math.max(colWidth[col], width);
+    rowHeight[row] = Math.max(rowHeight[row], height);
+  });
+
+  const colX = new Array<number>(columns).fill(0);
+  for (let c = 1; c < columns; c += 1) colX[c] = colX[c - 1] + colWidth[c - 1] + CANVAS_TILE_GAP;
+  const rowY = new Array<number>(rowCount).fill(0);
+  for (let r = 1; r < rowCount; r += 1) rowY[r] = rowY[r - 1] + rowHeight[r - 1] + CANVAS_TILE_GAP;
+
+  rooms.forEach((room, i) => {
+    out[room] = { x: colX[i % columns], y: rowY[Math.floor(i / columns)] };
+  });
+  return out;
 }
 
 const SketchCanvas = lazy(() => import('$lib/components/workspace/SketchCanvas.tsx'));
@@ -300,7 +333,6 @@ export default function AppShell() {
     activeSessionIdRef.current = currentActiveSessionId;
   }, [currentActiveSessionId]);
   const zoom = useSettingsStore((s) => s.uiZoom);
-  const swipeNavEnabled = useSettingsStore((s) => s.swipeNavigationEnabled);
   const showSnapshotsTab = useSettingsStore((s) => s.showSnapshotsTab);
 
   useEffect(() => {
@@ -332,9 +364,16 @@ export default function AppShell() {
   const [secondaryRoom, setSecondaryRoom] = useState<RoomId | null>(null);
   const [galleryScrollRoom, setGalleryScrollRoom] = useState<RoomId | null>(null);
   const [gallerySizes, setGallerySizes] = useState<Record<string, GallerySize>>({});
+  // When on (default), the canvas auto-arranges every room into a single aligned
+  // grid that flows in on open and reflows on resize. Turn it off to drag panels
+  // around freely and stake out a separate space on the board.
+  const [galleryAutoGrid, setGalleryAutoGrid] = useState(true);
   const [canvasPositions, setCanvasPositions] = useState<Record<string, CanvasPos>>({});
   const [canvasView, setCanvasView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const [canvasPanning, setCanvasPanning] = useState(false);
+  // Live size of the canvas viewport, so the auto-grid can size its panels to fit
+  // the whole board on screen at 100% zoom (fit-by-sizing, not fit-by-zoom).
+  const [canvasViewportSize, setCanvasViewportSize] = useState({ width: 0, height: 0 });
 
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const canvasViewRef = useRef(canvasView);
@@ -368,25 +407,15 @@ export default function AppShell() {
     nextWidth: number;
     nextHeight: number;
     rafId: number | null;
+    // In grid mode, the other rooms sharing this room's column (whose width should
+    // follow) and its row (whose height should follow). Empty in freeform mode.
+    columnRooms: RoomId[];
+    rowRooms: RoomId[];
   } | null>(null);
   const layoutSwitchTimerRef = useRef<number | null>(null);
   const lastLayoutCommandNonce = useRef(0);
 
-  // Trackpad/mouse swipe-to-switch-mode state. A horizontal two-finger swipe (or
-  // shift + wheel) slides between the ambient layouts, deferring to any inner
-  // content that can still scroll horizontally so it only kicks in at the edge.
   const roomsTableRef = useRef<HTMLElement | null>(null);
-  const swipeAccumRef = useRef(0);
-  const swipeCooldownRef = useRef(false);
-  const swipeResetTimerRef = useRef<number | null>(null);
-  const lastWheelTsRef = useRef(0);
-  const streamEligibleRef = useRef(true);
-  const swipeGestureRef = useRef<{
-    ambientLayout: AmbientLayout;
-    switchAmbientLayout: (next: AmbientLayout) => void;
-    sketchOpen: boolean;
-    swipeEnabled: boolean;
-  }>({ ambientLayout: 'focus', switchAmbientLayout: () => {}, sketchOpen: false, swipeEnabled: true });
   const allTerminalSessions = useStore(terminalSessions);
   const terminalPaneAssignments = useStore(paneAssignments);
   const history = useStore(commandHistory);
@@ -441,6 +470,33 @@ export default function AppShell() {
     [roomOrder, visibleRooms],
   );
 
+  // The default panel size for the auto-arrange grid. Sized so the ENTIRE grid of
+  // open rooms fits the canvas viewport at 100% zoom — preserving the panels'
+  // aspect ratio, never magnifying past the natural default, and never shrinking
+  // below the usable minimum. This is what lets "everything fit on screen" hold
+  // while the zoom indicator stays at 100% (we shrink panels, not the canvas).
+  const autoGridSize = useMemo<GallerySize>(() => {
+    const fallback = { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+    if (ambientLayout !== 'gallery' || !galleryAutoGrid) return fallback;
+    const count = orderedVisibleRooms.length;
+    const { width: vpW, height: vpH } = canvasViewportSize;
+    if (count === 0 || vpW <= 0 || vpH <= 0) return fallback;
+    const columns = Math.min(galleryColumns(count), count);
+    const rows = Math.ceil(count / columns);
+    const pad = 48;
+    const availW = vpW - pad * 2 - (columns - 1) * CANVAS_TILE_GAP;
+    const availH = vpH - pad * 2 - (rows - 1) * CANVAS_TILE_GAP;
+    const cellW = availW / columns;
+    const cellH = availH / rows;
+    // Uniform scale (≤ 1) that fits a default-sized panel into the cell on both
+    // axes, keeping the 760×430 aspect ratio.
+    const scale = Math.min(cellW / GALLERY_DEFAULT_WIDTH, cellH / GALLERY_DEFAULT_HEIGHT, 1);
+    return {
+      width: Math.max(GALLERY_MIN_WIDTH, GALLERY_DEFAULT_WIDTH * scale),
+      height: Math.max(GALLERY_MIN_HEIGHT, GALLERY_DEFAULT_HEIGHT * scale),
+    };
+  }, [ambientLayout, galleryAutoGrid, orderedVisibleRooms, canvasViewportSize]);
+
   const activeRoom = focusedRoom && visibleRooms.includes(focusedRoom)
     ? focusedRoom
     : (visibleRooms[0] ?? null);
@@ -459,6 +515,20 @@ export default function AppShell() {
 
     if (layoutCommand.type === 'ambient') {
       switchAmbientLayout(layoutCommand.mode);
+      return;
+    }
+
+    if (layoutCommand.type === 'canvas') {
+      // Canvas controls only make sense on the freeform board, so switch to it
+      // first if we're not already there.
+      if (ambientLayout !== 'gallery') switchAmbientLayout('gallery');
+      switch (layoutCommand.op) {
+        case 'zoom-in': zoomCanvasBy(CANVAS_ZOOM_STEP); break;
+        case 'zoom-out': zoomCanvasBy(1 / CANVAS_ZOOM_STEP); break;
+        case 'fit': fitCanvasToContent(); break;
+        case 'lock': setGalleryAutoGrid(true); break;
+        case 'unlock': setGalleryAutoGrid(false); break;
+      }
       return;
     }
 
@@ -508,6 +578,15 @@ export default function AppShell() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ambientLayout, openRooms, activeRoom, minimizedRooms, allTerminalSessions]);
+
+  // Preview mode is built around the preview browser; if it gets closed (its X),
+  // the mode has nothing to show, so fall back to Focus.
+  useEffect(() => {
+    if (ambientLayout === 'preview' && !layoutState.previewVisible) {
+      switchAmbientLayout('focus');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ambientLayout, layoutState.previewVisible]);
 
   const auxTabsNarrow = auxPanelWidth < 300;
   const resizing = sidebarResizing || auxResizing || auxRowResizing;
@@ -603,13 +682,52 @@ export default function AppShell() {
     setGalleryScrollRoom((current) => (current && openRooms.includes(current) ? current : null));
   }, [openRooms]);
 
+  // Track the canvas viewport's live size so the auto-grid can fit every panel on
+  // screen at 100% zoom. Re-attaches when entering Canvas (the element mounts then).
+  useEffect(() => {
+    const el = canvasViewportRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setCanvasViewportSize((prev) =>
+        prev.width === rect.width && prev.height === rect.height
+          ? prev
+          : { width: rect.width, height: rect.height },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ambientLayout]);
+
   // Give every room on the canvas a starting position. The first batch (an empty
-  // board) flows into a tidy 3-column grid; any room opened afterwards drops into
+  // board) flows into a tidy two-column grid; any room opened afterwards drops into
   // the centre of whatever the user is currently looking at, so a freshly opened
   // tab never lands off-screen or hidden behind the floating dock. Once placed,
   // the user is free to drag rooms anywhere and the saved position sticks.
   useEffect(() => {
     if (ambientLayout !== 'gallery') return;
+
+    // Auto-grid: every room flows into one aligned grid (left→right, wrapping into
+    // rows). A freshly opened room slots onto the end and the board reflows around
+    // it; resizing a room reflows its column/row so the rest follows along. The CSS
+    // transition on the panels' left/top/width/height makes this glide into place.
+    if (galleryAutoGrid) {
+      const grid = computeGalleryGrid(orderedVisibleRooms, gallerySizes, autoGridSize);
+      setCanvasPositions((current) => {
+        const changed = orderedVisibleRooms.some((room) => {
+          const pos = current[room];
+          const target = grid[room];
+          return !pos || pos.x !== target.x || pos.y !== target.y;
+        });
+        return changed ? { ...current, ...grid } : current;
+      });
+      return;
+    }
+
+    // Freeform: only place rooms that don't have a position yet, leaving anything
+    // the user has dragged exactly where they left it.
     setCanvasPositions((current) => {
       const missing = orderedVisibleRooms.filter((room) => !(room in current));
       if (missing.length === 0) return current;
@@ -648,7 +766,50 @@ export default function AppShell() {
       });
       return next;
     });
-  }, [ambientLayout, orderedVisibleRooms, gallerySizes]);
+  }, [ambientLayout, orderedVisibleRooms, gallerySizes, galleryAutoGrid, autoGridSize]);
+
+  // Keep the auto-grid block centred at 100% zoom in the viewport whenever the set
+  // of open rooms changes — opening, closing, or
+  // entering Canvas recentres the whole block on screen. Resizing a panel only
+  // reflows in place; it doesn't recentre.
+  useEffect(() => {
+    if (ambientLayout !== 'gallery' || !galleryAutoGrid) return;
+    const raf = requestAnimationFrame(() => {
+      const viewport = canvasViewportRef.current;
+      if (!viewport) return;
+      const rooms = orderedVisibleRooms;
+      if (rooms.length === 0) {
+        setCanvasView({ x: 0, y: 0, zoom: 1 });
+        return;
+      }
+      const grid = computeGalleryGrid(rooms, gallerySizes, autoGridSize);
+      // Stay at 100% zoom and frame EVERY room: the auto-grid sizes its panels so
+      // the whole board fits the viewport (see autoGridSize), so centring the full
+      // grid puts everything on screen without zooming out. Use the Fit control to
+      // reframe after manual panning.
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const room of rooms) {
+        const pos = grid[room];
+        const size = gallerySizes[room] ?? autoGridSize;
+        minX = Math.min(minX, pos.x);
+        minY = Math.min(minY, pos.y);
+        maxX = Math.max(maxX, pos.x + size.width);
+        maxY = Math.max(maxY, pos.y + size.height);
+      }
+      const rect = viewport.getBoundingClientRect();
+      const contentW = Math.max(1, maxX - minX);
+      const contentH = Math.max(1, maxY - minY);
+      const zoom = 1;
+      const x = (rect.width - contentW * zoom) / 2 - minX * zoom;
+      const y = (rect.height - contentH * zoom) / 2 - minY * zoom;
+      setCanvasView({ x, y, zoom });
+    });
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ambientLayout, galleryAutoGrid, orderedVisibleRooms, autoGridSize]);
 
   useEffect(() => {
     function handleGalleryResizeMove(event: MouseEvent) {
@@ -678,10 +839,21 @@ export default function AppShell() {
       }
       drag.element.style.width = `${drag.nextWidth}px`;
       drag.element.style.height = `${drag.nextHeight}px`;
-      setGallerySizes((current) => ({
-        ...current,
-        [drag.room]: { width: drag.nextWidth, height: drag.nextHeight },
-      }));
+      setGallerySizes((current) => {
+        const next = { ...current, [drag.room]: { width: drag.nextWidth, height: drag.nextHeight } };
+        // Grid mode: the new width flows to the whole column and the new height to
+        // the whole row, so every panel in line with this one follows along and the
+        // grid stays aligned. (Lists are empty in freeform mode → only this panel.)
+        for (const peer of drag.columnRooms) {
+          const size = next[peer] ?? current[peer] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+          next[peer] = { width: drag.nextWidth, height: size.height };
+        }
+        for (const peer of drag.rowRooms) {
+          const size = next[peer] ?? current[peer] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+          next[peer] = { width: size.width, height: drag.nextHeight };
+        }
+        return next;
+      });
       galleryResizeRef.current = null;
       setResizingRoom(null);
       document.body.style.cursor = '';
@@ -751,30 +923,12 @@ export default function AppShell() {
   }, []);
 
   // Wheel = pan; Ctrl/⌘+wheel = zoom toward the cursor. Bound natively (not via
-  // React) so we can stopPropagation BEFORE the rooms-table swipe-to-switch
-  // handler sees it — on the canvas the wheel belongs to the board, not to mode
-  // switching. Inner panels that can still scroll keep their own wheel.
+  // React) so the canvas board claims the wheel for pan/zoom. Inner panels that
+  // can still scroll keep their own wheel.
   useEffect(() => {
     if (ambientLayout !== 'gallery') return;
     const viewport = canvasViewportRef.current;
     if (!viewport) return;
-
-    const innerCanScrollY = (start: EventTarget | null, dir: number): boolean => {
-      let node = start instanceof HTMLElement ? start : null;
-      while (node && node !== viewport) {
-        const style = window.getComputedStyle(node);
-        if (
-          (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-          node.scrollHeight > node.clientHeight + 1
-        ) {
-          const atTop = node.scrollTop <= 0;
-          const atBottom = node.scrollTop >= node.scrollHeight - node.clientHeight - 1;
-          if (dir > 0 ? !atBottom : !atTop) return true;
-        }
-        node = node.parentElement;
-      }
-      return false;
-    };
 
     const handleWheel = (event: WheelEvent) => {
       // Always claim the gesture so it can never bubble out to switch modes.
@@ -796,13 +950,10 @@ export default function AppShell() {
         return;
       }
 
-      // Let a scrollable panel under the pointer take the wheel first.
-      const dir = event.deltaY > 0 ? 1 : -1;
-      if (
-        event.target instanceof HTMLElement &&
-        event.target.closest('.room-content') &&
-        innerCanScrollY(event.target, dir)
-      ) {
+      // Never pan the canvas while the pointer is over a panel — the panel keeps
+      // its own native wheel (scrolling its content, or nothing if it doesn't
+      // scroll). Only the empty board pans.
+      if (event.target instanceof HTMLElement && event.target.closest('.room-panel')) {
         return;
       }
 
@@ -977,12 +1128,19 @@ export default function AppShell() {
         case 'launchVoiceMode':
           launchPromptBarVoiceMode();
           break;
+        case 'cycleAmbientLayout': {
+          const MODE_ORDER: AmbientLayout[] = ['focus', 'split', 'gallery', 'preview'];
+          const currentIdx = MODE_ORDER.indexOf(ambientLayout);
+          const nextIdx = (currentIdx + 1) % MODE_ORDER.length;
+          switchAmbientLayout(MODE_ORDER[nextIdx]);
+          break;
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, shortcuts]);
+  }, [project, shortcuts, ambientLayout]);
 
   function startSidebarResize(event: React.MouseEvent) {
     setSidebarResizing(true);
@@ -1194,6 +1352,9 @@ export default function AppShell() {
 
   function startGalleryResize(event: React.MouseEvent, room: RoomId) {
     if (ambientLayout !== 'gallery') return;
+    // Grid mode locks every panel in place — no drag, no resize. The grip is also
+    // hidden in this mode, so this is just a belt-and-braces guard.
+    if (galleryAutoGrid) return;
     event.preventDefault();
     event.stopPropagation();
     const element = (event.currentTarget as HTMLElement).closest('.room-panel');
@@ -1202,6 +1363,22 @@ export default function AppShell() {
       width: element.offsetWidth || GALLERY_DEFAULT_WIDTH,
       height: element.offsetHeight || GALLERY_DEFAULT_HEIGHT,
     };
+    // In grid mode, find the other rooms in the same column (resize widens them
+    // too) and the same row (resize makes them taller too) so the grid follows the
+    // drag as one. In freeform mode these stay empty and only this panel resizes.
+    let columnRooms: RoomId[] = [];
+    let rowRooms: RoomId[] = [];
+    if (galleryAutoGrid) {
+      const rooms = orderedVisibleRooms;
+      const columns = Math.min(galleryColumns(rooms.length), Math.max(1, rooms.length));
+      const index = rooms.indexOf(room);
+      if (index >= 0) {
+        const col = index % columns;
+        const gridRow = Math.floor(index / columns);
+        columnRooms = rooms.filter((peer, i) => peer !== room && i % columns === col);
+        rowRooms = rooms.filter((peer, i) => peer !== room && Math.floor(i / columns) === gridRow);
+      }
+    }
     galleryResizeRef.current = {
       room,
       startX: event.clientX,
@@ -1213,6 +1390,8 @@ export default function AppShell() {
       nextWidth: current.width,
       nextHeight: current.height,
       rafId: null,
+      columnRooms,
+      rowRooms,
     };
     setResizingRoom(room);
     focusRoom(room);
@@ -1238,6 +1417,9 @@ export default function AppShell() {
 
   function startPanelMove(event: React.PointerEvent, room: RoomId) {
     if (ambientLayout !== 'gallery') return;
+    // In auto-grid the board owns every panel's position, so free dragging is off
+    // (the header press still activates / opens the room in Focus).
+    if (galleryAutoGrid) return;
     if (event.button !== 0) return;
     // Buttons and the resize grip opt out so they stay clickable.
     if ((event.target as HTMLElement).closest('.room-action, .room-resize-grip')) return;
@@ -1284,7 +1466,7 @@ export default function AppShell() {
     let maxY = -Infinity;
     for (const room of rooms) {
       const pos = canvasPositions[room] ?? { x: 0, y: 0 };
-      const size = gallerySizes[room] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+      const size = gallerySizes[room] ?? (galleryAutoGrid ? autoGridSize : { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT });
       minX = Math.min(minX, pos.x);
       minY = Math.min(minY, pos.y);
       maxX = Math.max(maxX, pos.x + size.width);
@@ -1607,7 +1789,7 @@ export default function AppShell() {
     const canvasStyle = arrangeable
       ? (() => {
           const pos = canvasPositions[id] ?? { x: 0, y: 0 };
-          const size = gallerySizes[id] ?? { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT };
+          const size = gallerySizes[id] ?? (galleryAutoGrid ? autoGridSize : { width: GALLERY_DEFAULT_WIDTH, height: GALLERY_DEFAULT_HEIGHT });
           return {
             position: 'absolute',
             left: `${pos.x}px`,
@@ -1631,13 +1813,19 @@ export default function AppShell() {
         onMouseDown={arrangeable ? () => activateGalleryPanel(id) : undefined}
       >
         <header
-          className={`room-header${arrangeable ? ' canvas-drag-handle' : ''}`}
+          className={`room-header${arrangeable && !galleryAutoGrid ? ' canvas-drag-handle' : ''}`}
           onPointerDown={arrangeable ? (event) => startPanelMove(event, id) : undefined}
         >
           <button
             className="room-title"
             onClick={(event) => (arrangeable ? handleFocusModeClick(event, id) : focusRoom(id))}
-            title={arrangeable ? `Drag to move · click to open ${title} in Focus` : `Focus ${title}`}
+            title={
+              arrangeable
+                ? galleryAutoGrid
+                  ? `Click to open ${title} in Focus`
+                  : `Drag to move · click to open ${title} in Focus`
+                : `Focus ${title}`
+            }
           >
             <span className="room-kind">{roomKind(id)}</span>
             <span className="room-name">{title}</span>
@@ -1670,7 +1858,7 @@ export default function AppShell() {
           </div>
         </header>
         <div className="room-content">{renderRoomContent(id)}</div>
-        {arrangeable && (
+        {arrangeable && !galleryAutoGrid && (
           <button
             className="room-resize-grip"
             onMouseDown={(event) => startGalleryResize(event, id)}
@@ -1821,16 +2009,32 @@ export default function AppShell() {
   function switchAmbientLayout(nextLayout: AmbientLayout) {
     if (nextLayout === ambientLayout) return;
 
+    // Preview mode tests the live web app: make sure the preview browser and a
+    // terminal are open and un-minimized, with the preview focused.
+    if (nextLayout === 'preview') {
+      if (!layoutState.previewVisible) {
+        persistLayoutPatch({ previewVisible: true, activeView: 'preview', lastAuxView: 'preview' });
+      }
+      setTerminalRoomOpen(true);
+      setMinimizedRooms((current) => {
+        if (!current.has('preview') && !current.has('terminal')) return current;
+        const next = new Set(current);
+        next.delete('preview');
+        next.delete('terminal');
+        return next;
+      });
+      setFocusedRoom('preview');
+    }
+
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (layoutSwitchTimerRef.current !== null) window.clearTimeout(layoutSwitchTimerRef.current);
 
     // Animate the switch by letting the new (live) DOM settle in via the
     // `.layout-switching` CSS pass, NOT the View Transition API. View
     // transitions froze a bitmap of the previous layout; when a second switch
-    // landed while one was mid-flight — trivially easy now that you can swipe
-    // between modes — that frozen snapshot of the old panels stayed ghosting on
-    // screen. The settle pass only ever touches elements that are actually in
-    // the new layout, so nothing from the former mode can linger.
+    // landed while one was mid-flight, that frozen snapshot of the old panels
+    // stayed ghosting on screen. The settle pass only ever touches elements that
+    // are actually in the new layout, so nothing from the former mode can linger.
     flushSync(() => {
       setLayoutSwitching(!prefersReducedMotion);
       setAmbientLayout(nextLayout);
@@ -1843,128 +2047,6 @@ export default function AppShell() {
 
     layoutSwitchTimerRef.current = window.setTimeout(finishLayoutSwitch, 360);
   }
-
-  // Keep the latest layout + switcher available to the (mount-stable) wheel
-  // listener without re-binding it on every render.
-  swipeGestureRef.current = { ambientLayout, switchAmbientLayout, sketchOpen, swipeEnabled: swipeNavEnabled };
-
-  // Slide between ambient modes with a horizontal trackpad swipe (or shift +
-  // mouse wheel). We defer to any inner element that can still scroll
-  // horizontally in the swipe direction, so this only takes over at the edge —
-  // editors, terminals and the gallery board keep their own scrolling.
-  useEffect(() => {
-    const el = roomsTableRef.current;
-    if (!el) return;
-
-    const MODE_ORDER: AmbientLayout[] = AMBIENT_LAYOUTS.map((m) => m.id);
-    const SWIPE_THRESHOLD = 130; // accumulated px before a mode change fires
-
-    // A swipe that starts inside the code editor must never switch modes — the
-    // editor owns left/right (caret moves, horizontal scroll) and users found the
-    // layout sliding out from under them while they worked. Walk up to the editor
-    // root if the gesture began on any element within it.
-    const startedInEditor = (start: EventTarget | null): boolean => {
-      const node = start instanceof HTMLElement ? start : null;
-      return !!node?.closest('.cm-editor, .code-editor-container');
-    };
-
-    const innerCanAbsorb = (start: EventTarget | null, dir: number): boolean => {
-      let node = start instanceof HTMLElement ? start : null;
-      while (node && node !== el) {
-        const overflowX = window.getComputedStyle(node).overflowX;
-        if (
-          (overflowX === 'auto' || overflowX === 'scroll') &&
-          node.scrollWidth > node.clientWidth + 1
-        ) {
-          const atStart = node.scrollLeft <= 0;
-          const atEnd = node.scrollLeft >= node.scrollWidth - node.clientWidth - 1;
-          if (dir > 0 ? !atEnd : !atStart) return true;
-        }
-        node = node.parentElement;
-      }
-      return false;
-    };
-
-    const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) return; // reserved for zoom / shortcuts
-      // Honour the user's "Swipe between layouts" setting — when off, scrolling
-      // never slides between modes.
-      if (!swipeGestureRef.current.swipeEnabled) return;
-      // The sketch canvas owns its own pan/zoom while open — never let a swipe
-      // over it switch modes and drag the whole layout sideways underneath it.
-      if (swipeGestureRef.current.sketchOpen) return;
-      // The code editor owns left/right while you're working in it.
-      if (startedInEditor(e.target)) return;
-
-      // A plain mouse usually only has a vertical wheel; treat shift + wheel as
-      // a horizontal swipe so mouse users can slide between modes too.
-      const horizontal = e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX;
-      const vertical = e.shiftKey && e.deltaX === 0 ? 0 : e.deltaY;
-
-      // Only react to clearly horizontal intent — let vertical scrolling pass.
-      if (Math.abs(horizontal) < 2 || Math.abs(horizontal) <= Math.abs(vertical) * 1.2) {
-        swipeAccumRef.current = 0;
-        return;
-      }
-
-      const dir = horizontal > 0 ? 1 : -1;
-
-      // A wheel "stream" is one continuous gesture; a lull marks a new one. Decide
-      // at the start of each stream whether it may switch modes — a stream that
-      // began by scrolling an inner panel stays ineligible, so its inertial tail
-      // can't fling us into another mode once that panel hits its edge.
-      const NEW_GESTURE_GAP = 120; // ms of quiet that marks a fresh, deliberate swipe
-      if (e.timeStamp - lastWheelTsRef.current > NEW_GESTURE_GAP) {
-        streamEligibleRef.current = !innerCanAbsorb(e.target, dir);
-        swipeAccumRef.current = 0;
-      }
-      lastWheelTsRef.current = e.timeStamp;
-
-      if (innerCanAbsorb(e.target, dir)) {
-        swipeAccumRef.current = 0;
-        return;
-      }
-
-      // Momentum tail of an inner-scroll gesture — let it die, don't switch.
-      if (!streamEligibleRef.current) {
-        swipeAccumRef.current = 0;
-        return;
-      }
-
-      e.preventDefault();
-      if (swipeCooldownRef.current) return;
-
-      // Reset if the swipe direction reversed mid-gesture.
-      if (swipeAccumRef.current !== 0 && Math.sign(swipeAccumRef.current) !== dir) {
-        swipeAccumRef.current = 0;
-      }
-      swipeAccumRef.current += horizontal;
-
-      if (swipeResetTimerRef.current !== null) window.clearTimeout(swipeResetTimerRef.current);
-      swipeResetTimerRef.current = window.setTimeout(() => {
-        swipeAccumRef.current = 0;
-      }, 220);
-
-      if (Math.abs(swipeAccumRef.current) >= SWIPE_THRESHOLD) {
-        const { ambientLayout: current, switchAmbientLayout: switchTo } = swipeGestureRef.current;
-        const idx = MODE_ORDER.indexOf(current);
-        const nextIdx = Math.min(MODE_ORDER.length - 1, Math.max(0, idx + dir));
-        if (nextIdx !== idx) switchTo(MODE_ORDER[nextIdx]);
-        swipeAccumRef.current = 0;
-        swipeCooldownRef.current = true;
-        window.setTimeout(() => {
-          swipeCooldownRef.current = false;
-        }, 500);
-      }
-    };
-
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      el.removeEventListener('wheel', handleWheel);
-      if (swipeResetTimerRef.current !== null) window.clearTimeout(swipeResetTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
 
   function renderSplitSwitcher() {
     return (
@@ -2022,7 +2104,7 @@ export default function AppShell() {
       return (
         <div
           ref={canvasViewportRef}
-          className={`ambient-canvas${canvasPanning ? ' panning' : ''}`}
+          className={`ambient-canvas${canvasPanning ? ' panning' : ''}${galleryAutoGrid ? ' auto-grid' : ''}`}
           onPointerDown={startCanvasPan}
         >
           <div
@@ -2035,6 +2117,22 @@ export default function AppShell() {
           </div>
 
           <div className="ambient-canvas-controls bento-card" aria-label="Canvas zoom">
+            <button
+              type="button"
+              className={`canvas-zoom-btn canvas-grid-btn${galleryAutoGrid ? ' active' : ''}`}
+              onClick={() => setGalleryAutoGrid((on) => !on)}
+              title={galleryAutoGrid ? 'Auto-arrange grid: on (panels locked in place)' : 'Auto-arrange grid: off (drag & resize panels freely)'}
+              aria-label="Toggle auto-arrange grid"
+              aria-pressed={galleryAutoGrid}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                <rect x="14" y="14" width="7" height="7" rx="1.5" />
+              </svg>
+            </button>
+            <div className="canvas-control-divider" />
             <button
               type="button"
               className="canvas-zoom-btn"
@@ -2068,6 +2166,24 @@ export default function AppShell() {
 
           {renderMinimizedRooms()}
         </div>
+      );
+    }
+
+    if (ambientLayout === 'preview') {
+      // The live app preview is the stage; the terminal rides alongside so you can
+      // watch the dev server / run commands while testing.
+      return (
+        <>
+          <div className="focused-room">
+            {renderRoomFrame('preview', true)}
+          </div>
+          {terminalRoomOpen && (
+            <div className="ambient-secondary-room">
+              {renderRoomFrame('terminal', true)}
+            </div>
+          )}
+          {renderMinimizedRooms()}
+        </>
       );
     }
 
@@ -2118,7 +2234,7 @@ export default function AppShell() {
             <div className={`app-body rooms-workspace${resizing ? ' resizing' : ''}`}>
               {resizing && <div className={`resize-overlay${auxRowResizing ? ' row-resize' : ''}`} />}
 
-              <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}`} aria-label="Soryq ambient layout">
+              <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}${ambientLayout === 'preview' && !terminalRoomOpen ? ' preview-solo' : ''}`} aria-label="Soryq ambient layout">
                 {renderAmbientLayout()}
                 {sketchOpen && (
                   <Suspense fallback={null}>
@@ -2129,23 +2245,6 @@ export default function AppShell() {
 
               <div className="workspace-overlays">
               <nav className="room-dock bento-card" aria-label="Room launcher">
-                <div className="ambient-switcher" role="tablist" aria-label="Ambient layouts">
-                  {AMBIENT_LAYOUTS.map((mode) => (
-                    <button
-                      key={mode.id}
-                      className={`ambient-switch-btn${ambientLayout === mode.id ? ' active' : ''}`}
-                      onClick={() => switchAmbientLayout(mode.id)}
-                      title={`${mode.label} layout`}
-                      aria-label={`${mode.label} layout`}
-                      aria-selected={ambientLayout === mode.id}
-                      role="tab"
-                    >
-                      {mode.icon}
-                      <span>{mode.label}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="room-dock-separator" />
                 <div className="room-dock-group">
                   {topItems.map((item) => <ActivityButton key={item.id} item={item} />)}
                 </div>

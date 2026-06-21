@@ -71,6 +71,7 @@ function mergeDefaultShortcuts(initial: KeyboardShortcut[]): KeyboardShortcut[] 
     { id: 'canvasZoomIn', label: 'Canvas Zoom In', keys: 'Alt+=' },
     { id: 'canvasZoomOut', label: 'Canvas Zoom Out', keys: 'Alt+-' },
     { id: 'canvasResetZoom', label: 'Canvas Reset Zoom', keys: 'Alt+0' },
+    { id: 'cycleAmbientLayout', label: 'Cycle Ambient Layout', keys: 'Ctrl+Alt+L' },
   ];
   if (!Array.isArray(initial)) return defaultShortcuts;
   const merged = [...initial];
@@ -101,6 +102,18 @@ function migrateLegacySettings() {
       try {
         const p = JSON.parse(legacyProvider);
         if (typeof p === 'string' && p) persistValue('voiceConversationAiProvider', p);
+      } catch {}
+    }
+  }
+
+  // Seed the standalone reply-TTS provider from the (now legacy) coupled voice
+  // provider so existing users keep the same spoken voice after the split.
+  if (persistentValue('voiceReplyProvider', '') === '') {
+    const existing = localStorage.getItem('forge_setting_voiceConversationAiProvider');
+    if (existing) {
+      try {
+        const p = JSON.parse(existing);
+        if (typeof p === 'string' && p) persistValue('voiceReplyProvider', p);
       } catch {}
     }
   }
@@ -164,6 +177,7 @@ function createSettingsState() {
     voiceConversationAiModelByProvider: persistentValue<Record<string, string>>('voiceConversationAiModelByProvider', {}),
     voiceConversationTtsModelByProvider: persistentValue<Record<string, string>>('voiceConversationTtsModelByProvider', {}),
     voiceConversationTtsVoiceByProvider: persistentValue<Record<string, string>>('voiceConversationTtsVoiceByProvider', {}),
+    voiceReplyProvider: persistentValue<AiProviderId>('voiceReplyProvider', 'openrouter'),
     ttsVoice: persistentValue('ttsVoice', 'austin'),
     announceAgentCompletions: persistentValue('announceAgentCompletions', true),
     uiZoom: persistentValue('uiZoom', 100),
@@ -226,6 +240,7 @@ const defaults: SettingsValues = {
   voiceConversationAiModelByProvider: {},
   voiceConversationTtsModelByProvider: {},
   voiceConversationTtsVoiceByProvider: {},
+  voiceReplyProvider: 'openrouter',
   ttsVoice: 'austin',
   announceAgentCompletions: true,
   uiZoom: 100,
@@ -318,6 +333,7 @@ export const useSettingsStore = create<SettingsState>((set, getState) => ({
       voiceConversationAiModelByProvider: 'voiceConversationAiModelByProvider',
       voiceConversationTtsModelByProvider: 'voiceConversationTtsModelByProvider',
       voiceConversationTtsVoiceByProvider: 'voiceConversationTtsVoiceByProvider',
+      voiceReplyProvider: 'voiceReplyProvider',
       announceAgentCompletions: 'announceAgentCompletions',
       aiProvider: 'aiProvider',
       aiModelByProvider: 'aiModelByProvider',
