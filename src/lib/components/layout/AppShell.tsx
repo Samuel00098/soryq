@@ -1008,29 +1008,10 @@ export default function AppShell() {
     const currentClusters = canvasRoomClustersRef.current;
 
     const missing = orderedVisibleRooms.filter((room) => !(room in currentPositions));
-    if (missing.length === 0) {
-      // Check if we need to clean up deleted rooms from states
-      const activeKeys = new Set<string>(orderedVisibleRooms);
-      let needsCleanup = false;
-      Object.keys(currentPositions).forEach(key => {
-        if (!activeKeys.has(key)) needsCleanup = true;
-      });
-      if (needsCleanup) {
-        setCanvasPositions(current => {
-          const next = { ...current };
-          Object.keys(next).forEach(key => {
-            if (!activeKeys.has(key)) delete next[key];
-          });
-          return next;
-        });
-        setCanvasRoomClusters(current => {
-          const next = { ...current };
-          Object.keys(next).forEach(key => {
-            if (!activeKeys.has(key)) delete next[key];
-          });
-          return next;
-        });
-      }
+    const activeKeys = new Set<string>(orderedVisibleRooms);
+    const hasClosed = Object.keys(currentPositions).some(key => !activeKeys.has(key));
+
+    if (missing.length === 0 && !hasClosed) {
       return;
     }
 
@@ -1042,14 +1023,92 @@ export default function AppShell() {
     const nextPositions = { ...currentPositions };
     const nextClusters = { ...currentClusters };
 
-    // Clean up closed rooms first
-    const activeKeys = new Set<string>(orderedVisibleRooms);
-    Object.keys(nextPositions).forEach(key => {
-      if (!activeKeys.has(key)) delete nextPositions[key as RoomId];
-    });
-    Object.keys(nextClusters).forEach(key => {
-      if (!activeKeys.has(key)) delete nextClusters[key as RoomId];
-    });
+    // 1. Clean up and re-index if there are any closed rooms
+    if (hasClosed) {
+      Object.keys(nextPositions).forEach(key => {
+        if (!activeKeys.has(key)) delete nextPositions[key as RoomId];
+      });
+      Object.keys(nextClusters).forEach(key => {
+        if (!activeKeys.has(key)) delete nextClusters[key as RoomId];
+      });
+
+      // Group remaining rooms by anchorRoomId
+      const clusterGroups: Record<string, RoomId[]> = {};
+      Object.keys(nextClusters).forEach(key => {
+        const info = nextClusters[key as RoomId];
+        if (info) {
+          if (!clusterGroups[info.anchorRoomId]) {
+            clusterGroups[info.anchorRoomId] = [];
+          }
+          clusterGroups[info.anchorRoomId].push(key as RoomId);
+        }
+      });
+
+      // Re-index remaining rooms in each cluster
+      Object.keys(clusterGroups).forEach(anchorId => {
+        const roomsInCluster = clusterGroups[anchorId];
+        roomsInCluster.sort((a, b) => (currentClusters[a]?.localIndex ?? 0) - (currentClusters[b]?.localIndex ?? 0));
+        roomsInCluster.forEach((r, idx) => {
+          nextClusters[r] = {
+            ...nextClusters[r]!,
+            localIndex: idx,
+          };
+        });
+      });
+
+      // Align remaining rooms in each cluster to fill the gap
+      Object.keys(clusterGroups).forEach(anchorId => {
+        const roomsInCluster = clusterGroups[anchorId];
+        if (roomsInCluster.length === 0) return;
+
+        const anchorRoom = roomsInCluster.find(r => nextClusters[r]?.localIndex === 0) || roomsInCluster[0];
+        const anchorPos = nextPositions[anchorRoom];
+        if (!anchorPos) return;
+
+        const coords = roomsInCluster.map(r => {
+          const idx = nextClusters[r]!.localIndex;
+          return getFreeformCoordinates(idx + 1)[idx];
+        });
+
+        const colWidths: Record<number, number> = { [-1]: 0, [0]: 0, [1]: 0 };
+        const maxRow = Math.max(0, ...coords.map(c => c.row));
+        const rowHeights = new Array<number>(maxRow + 1).fill(0);
+
+        roomsInCluster.forEach((r, i) => {
+          const coord = coords[i];
+          const rSize = gallerySizes[r] ?? getRoomDefaultSizeHelper(r, nextClusters);
+          colWidths[coord.col] = Math.max(colWidths[coord.col] || 0, rSize.width);
+          rowHeights[coord.row] = Math.max(rowHeights[coord.row], rSize.height);
+        });
+
+        const colX: Record<number, number> = { 0: 0 };
+        colX[1] = (colWidths[0] || GALLERY_DEFAULT_WIDTH) / 2 + (colWidths[1] || GALLERY_DEFAULT_WIDTH) / 2 + CANVAS_TILE_GAP;
+        colX[-1] = -((colWidths[0] || GALLERY_DEFAULT_WIDTH) / 2 + (colWidths[-1] || GALLERY_DEFAULT_WIDTH) / 2 + CANVAS_TILE_GAP);
+
+        const rowY = new Array<number>(maxRow + 1).fill(0);
+        for (let r = 1; r <= maxRow; r += 1) {
+          rowY[r] = rowY[r - 1] + (rowHeights[r - 1] || GALLERY_DEFAULT_HEIGHT) + CANVAS_TILE_GAP;
+        }
+
+        const anchorCoords = getFreeformCoordinates(nextClusters[anchorRoom]!.localIndex + 1)[nextClusters[anchorRoom]!.localIndex];
+        const anchorRoomSize = gallerySizes[anchorRoom] ?? getRoomDefaultSizeHelper(anchorRoom, nextClusters);
+        const idealXAnchor = colX[anchorCoords.col] - anchorRoomSize.width / 2;
+        const idealYAnchor = rowY[anchorCoords.row];
+
+        roomsInCluster.forEach((r, i) => {
+          if (r === anchorRoom) return; // Keep anchor fixed
+          const coord = coords[i];
+          const rSize = gallerySizes[r] ?? getRoomDefaultSizeHelper(r, nextClusters);
+          const idealX = colX[coord.col] - rSize.width / 2;
+          const idealY = rowY[coord.row];
+
+          nextPositions[r] = {
+            x: anchorPos.x + (idealX - idealXAnchor),
+            y: anchorPos.y + (idealY - idealYAnchor),
+          };
+        });
+      });
+    }
 
     const placedCount = Object.keys(nextPositions).length;
 
