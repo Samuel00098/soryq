@@ -7,10 +7,12 @@ import { writable, get } from '$lib/stores/storeCompat';
 // Canvas, but this state — and crucially the loaded video — survives untouched.
 
 export type YouTubeResult = {
-  videoId: string;
+  videoId?: string;
+  playlistId?: string;
   title: string;
   channel: string;
   thumbnail: string;
+  type?: 'video' | 'song' | 'album' | 'playlist';
 };
 
 /** Search/playback surface: regular YouTube videos, or YouTube Music tracks.
@@ -18,17 +20,20 @@ export type YouTubeResult = {
  *  plays — they're just surfaced via the Music InnerTube client so search
  *  returns songs rather than general videos. */
 export type YouTubeMode = 'video' | 'music';
+export type MusicFilter = 'songs' | 'albums' | 'playlists';
 
 export type YouTubeState = {
   /** Optional YouTube Data API v3 key for the rich thumbnail-grid search. */
   apiKey: string;
   /** Whether search/results are scoped to YouTube (video) or YouTube Music. */
   mode: YouTubeMode;
+  /** Whether YouTube Music search results are filtered to Songs, Albums, or Playlists. */
+  musicFilter: MusicFilter;
   /** Current search box text. */
   query: string;
   /** Search results from the Data API (empty when no key / not yet searched). */
   results: YouTubeResult[];
-  /** The video currently loaded in the player (null = nothing playing). */
+  /** The video/playlist currently loaded in the player (null = nothing playing). */
   current: YouTubeResult | null;
   /** Last status/error message to surface in the UI. */
   status: string;
@@ -41,10 +46,10 @@ export type YouTubeState = {
 
 const STORAGE_KEY = 'soryq_youtube';
 
-type Persisted = Pick<YouTubeState, 'apiKey' | 'mode' | 'query' | 'current' | 'position'>;
+type Persisted = Pick<YouTubeState, 'apiKey' | 'mode' | 'musicFilter' | 'query' | 'current' | 'position'>;
 
 function defaultPersisted(): Persisted {
-  return { apiKey: '', mode: 'video', query: '', current: null, position: 0 };
+  return { apiKey: '', mode: 'video', musicFilter: 'songs', query: '', current: null, position: 0 };
 }
 
 function loadPersisted(): Persisted {
@@ -53,12 +58,17 @@ function loadPersisted(): Persisted {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultPersisted();
     const parsed = JSON.parse(raw) as Partial<Persisted>;
+    const base = defaultPersisted();
     return {
-      apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
+      apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : base.apiKey,
       mode: parsed.mode === 'music' ? 'music' : 'video',
-      query: typeof parsed.query === 'string' ? parsed.query : '',
+      musicFilter:
+        parsed.musicFilter === 'albums' || parsed.musicFilter === 'playlists'
+          ? parsed.musicFilter
+          : 'songs',
+      query: typeof parsed.query === 'string' ? parsed.query : base.query,
       current: parsed.current ?? null,
-      position: typeof parsed.position === 'number' ? parsed.position : 0,
+      position: typeof parsed.position === 'number' ? parsed.position : base.position,
     };
   } catch {
     return defaultPersisted();
@@ -70,6 +80,7 @@ const initial = loadPersisted();
 export const youtubeState = writable<YouTubeState>({
   apiKey: initial.apiKey,
   mode: initial.mode,
+  musicFilter: initial.musicFilter,
   query: initial.query,
   results: [],
   current: initial.current,
@@ -81,7 +92,14 @@ export const youtubeState = writable<YouTubeState>({
 function persist() {
   if (typeof window === 'undefined') return;
   const s = get(youtubeState);
-  const toSave: Persisted = { apiKey: s.apiKey, mode: s.mode, query: s.query, current: s.current, position: s.position };
+  const toSave: Persisted = {
+    apiKey: s.apiKey,
+    mode: s.mode,
+    musicFilter: s.musicFilter,
+    query: s.query,
+    current: s.current,
+    position: s.position,
+  };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {
@@ -119,6 +137,17 @@ export function setMode(mode: YouTubeMode) {
   persist();
 }
 
+/** Switch between YouTube Music filters (songs, albums, playlists) and trigger
+ *  re-search if there is an active query. */
+export function setMusicFilter(musicFilter: MusicFilter) {
+  youtubeState.update((s) => ({ ...s, musicFilter }));
+  persist();
+  const s = get(youtubeState);
+  if (s.query.trim()) {
+    void searchVideos(s.query);
+  }
+}
+
 export function setQuery(query: string) {
   youtubeState.update((s) => ({ ...s, query }));
 }
@@ -137,14 +166,19 @@ export function goHome() {
 }
 
 export function playVideo(video: YouTubeResult) {
-  youtubeState.update((s) => ({
-    ...s,
-    current: video,
-    // A different video starts from the beginning; re-selecting the same one
-    // (e.g. after a remount) keeps its saved position so playback resumes.
-    position: s.current?.videoId === video.videoId ? s.position : 0,
-    status: '',
-  }));
+  youtubeState.update((s) => {
+    const isSame =
+      (video.playlistId && s.current?.playlistId === video.playlistId) ||
+      (video.videoId && s.current?.videoId === video.videoId);
+    return {
+      ...s,
+      current: video,
+      // A different video/playlist starts from the beginning; re-selecting the same one
+      // (e.g. after a remount) keeps its saved position so playback resumes.
+      position: isSame ? s.position : 0,
+      status: '',
+    };
+  });
   persist();
 }
 
@@ -167,6 +201,22 @@ export function parseVideoId(input: string): string | null {
       const m = url.pathname.match(/\/(embed|shorts)\/([a-zA-Z0-9_-]{11})/);
       if (m) return m[2];
     }
+  } catch {
+    /* not a URL */
+  }
+  return null;
+}
+
+/** Extract a playlist/album id from a raw YouTube/YouTube Music URL or a bare id. */
+export function parsePlaylistId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  // Bare playlist ID (starts with PL, OLAK, RD, UU, etc., and is 16-42 chars)
+  if (/^(PL|OLAK|RD|UU|FL|LL|MC)[a-zA-Z0-9_-]{16,42}$/.test(trimmed)) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    const list = url.searchParams.get('list');
+    if (list && /^(PL|OLAK|RD|UU|FL|LL|MC)[a-zA-Z0-9_-]{16,42}$/.test(list)) return list;
   } catch {
     /* not a URL */
   }
@@ -199,21 +249,40 @@ export async function searchVideos(query: string): Promise<void> {
   const trimmed = query.trim();
   if (!trimmed) return;
 
-  // A pasted URL/id short-circuits straight to playback.
+  // A pasted playlist URL short-circuits straight to playback.
+  const directPlaylistId = parsePlaylistId(trimmed);
+  if (directPlaylistId) {
+    playVideo({
+      playlistId: directPlaylistId,
+      title: 'Album / Playlist',
+      channel: '',
+      thumbnail: '',
+      type: 'playlist',
+    });
+    return;
+  }
+
+  // A pasted video URL/id short-circuits straight to playback.
   const directId = parseVideoId(trimmed);
   if (directId) {
-    playVideo({ videoId: directId, title: trimmed, channel: '', thumbnail: thumbFor(directId) });
+    playVideo({
+      videoId: directId,
+      title: trimmed,
+      channel: '',
+      thumbnail: thumbFor(directId),
+      type: 'video',
+    });
     return;
   }
 
   youtubeState.update((s) => ({ ...s, loading: true, status: '' }));
   try {
     const snapshot = get(youtubeState);
-    // YouTube Music uses its own InnerTube client so results are songs. The
-    // Data API has no music-scoped search, so music mode always goes keyless.
+    // YouTube Music uses its own InnerTube client so results are songs/albums/playlists.
+    // The Data API has no music-scoped search, so music mode always goes keyless.
     const results =
       snapshot.mode === 'music'
-        ? await musicSearch(trimmed)
+        ? await musicSearch(trimmed, snapshot.musicFilter)
         : snapshot.apiKey.trim()
           ? await dataApiSearch(trimmed, snapshot.apiKey.trim())
           : await innertubeSearch(trimmed);
@@ -254,6 +323,7 @@ async function dataApiSearch(query: string, key: string): Promise<YouTubeResult[
         item.snippet?.thumbnails?.medium?.url ??
         item.snippet?.thumbnails?.default?.url ??
         thumbFor(item.id!.videoId!),
+      type: 'video',
     }));
 }
 
@@ -289,7 +359,7 @@ async function innertubeSearch(query: string): Promise<YouTubeResult[]> {
       vr?.longBylineText?.runs?.[0]?.text ??
       vr?.shortBylineText?.runs?.[0]?.text ??
       '';
-    results.push({ videoId, title, channel, thumbnail: thumbFor(videoId) });
+    results.push({ videoId, title, channel, thumbnail: thumbFor(videoId), type: 'video' });
     if (results.length >= 24) break;
   }
   return results;
@@ -312,21 +382,26 @@ function collectVideoRenderers(node: unknown, out: any[]): void {
 
 /**
  * Keyless YouTube Music search via the Music InnerTube API (`WEB_REMIX`
- * client). Music tracks are ordinary YouTube videos under the hood, so the
- * extracted ids drop straight into the same IFrame player. Results come back
- * as `musicResponsiveListItemRenderer` objects (not `videoRenderer`), so they
- * need their own collector and field extraction.
+ * client). Supports songs, albums, and playlists. Results come back
+ * as `musicResponsiveListItemRenderer` objects, so they are filtered and parsed.
  */
-async function musicSearch(query: string): Promise<YouTubeResult[]> {
+async function musicSearch(query: string, filter: MusicFilter): Promise<YouTubeResult[]> {
   const url = `https://music.youtube.com/youtubei/v1/search?key=${INNERTUBE_KEY}&prettyPrint=false`;
+
+  // Select the appropriate InnerTube search parameter based on the filter
+  let params = 'EgWKAQIIAWoKEAkQBRAKEAMQBA=='; // Songs (default)
+  if (filter === 'albums') {
+    params = 'EgWKAQIIAWoKEAkQBRADEAMQBA=='; // Albums
+  } else if (filter === 'playlists') {
+    params = 'EgWKAQIIAWoKEAkQBRADEAUQBA=='; // Playlists
+  }
+
   const payload = {
     context: {
       client: { clientName: 'WEB_REMIX', clientVersion: '1.20240701.01.00', hl: 'en', gl: 'US' },
     },
     query,
-    // Scope to the "Songs" filter so we get playable tracks, not albums/playlists.
-    // Raw (unescaped) value — this goes in the JSON body, not a URL query string.
-    params: 'EgWKAQIIAWoKEAkQBRAKEAMQBA==',
+    params,
   };
   const body = await httpPost(url, JSON.stringify(payload));
   const data = JSON.parse(body);
@@ -337,25 +412,43 @@ async function musicSearch(query: string): Promise<YouTubeResult[]> {
   const results: YouTubeResult[] = [];
   for (const item of renderers) {
     const videoId = findWatchVideoId(item);
-    if (!videoId || seen.has(videoId)) continue;
-    seen.add(videoId);
+    const playlistId = findPlaylistId(item);
+
+    // If searching for albums/playlists, we need a playlistId. Otherwise we need a videoId.
+    const isList = filter === 'albums' || filter === 'playlists';
+    if (isList && !playlistId) continue;
+    if (!isList && !videoId) continue;
+
+    const idKey = isList ? playlistId! : videoId!;
+    if (seen.has(idKey)) continue;
+    seen.add(idKey);
 
     const cols: any[] = Array.isArray(item?.flexColumns) ? item.flexColumns : [];
     const colText = (i: number): string => {
       const runs = cols[i]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
       if (!Array.isArray(runs)) return '';
-      // Join run texts, dropping the bullet separators Music uses between fields.
       return runs
         .map((r: any) => (typeof r?.text === 'string' ? r.text : ''))
         .join('')
         .trim();
     };
     const title = colText(0) || 'Untitled';
-    // The subtitle column is "Artist • Album • Duration"; the artist is the
-    // first segment.
-    const channel = (colText(1).split('•')[0] ?? '').trim();
+    let channel = (colText(1).split('•')[0] ?? '').trim();
+    
+    // Clean up channel name if it's a playlist starting with "Playlist"
+    if (channel.toLowerCase().startsWith('playlist')) {
+      const parts = colText(1).split('•');
+      channel = (parts[1] || parts[0] || '').trim();
+    }
 
-    results.push({ videoId, title, channel, thumbnail: thumbFor(videoId) });
+    results.push({
+      videoId: videoId || undefined,
+      playlistId: playlistId || undefined,
+      title,
+      channel,
+      thumbnail: findThumbnail(item),
+      type: playlistId ? (filter === 'albums' ? 'album' : 'playlist') : 'song',
+    });
     if (results.length >= 24) break;
   }
   return results;
@@ -376,9 +469,7 @@ function collectMusicRenderers(node: unknown, out: any[]): void {
   for (const value of Object.values(obj)) collectMusicRenderers(value, out);
 }
 
-/** Find the first `watchEndpoint.videoId` anywhere within a node — covers the
- *  several places Music tucks the playable id (playNavigationEndpoint,
- *  playlistItemData, doubleTapCommand, …). */
+/** Find the first `watchEndpoint.videoId` anywhere within a node. */
 function findWatchVideoId(node: unknown): string | null {
   if (!node || typeof node !== 'object') return null;
   const obj = node as Record<string, any>;
@@ -389,6 +480,44 @@ function findWatchVideoId(node: unknown): string | null {
     if (found) return found;
   }
   return null;
+}
+
+/** Find the first playlistId anywhere within a node. */
+function findPlaylistId(node: unknown): string | null {
+  if (!node || typeof node !== 'object') return null;
+  const obj = node as Record<string, any>;
+  if (typeof obj?.playlistId === 'string' && obj.playlistId) return obj.playlistId;
+  if (typeof obj?.watchPlaylistEndpoint?.playlistId === 'string') return obj.watchPlaylistEndpoint.playlistId;
+  if (typeof obj?.watchEndpoint?.playlistId === 'string') return obj.watchEndpoint.playlistId;
+  for (const value of Object.values(obj)) {
+    const found = findPlaylistId(value);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Find the first thumbnail URL anywhere within a node. */
+function findThumbnailUrl(node: unknown): string | null {
+  if (!node || typeof node !== 'object') return null;
+  const obj = node as Record<string, any>;
+  if (Array.isArray(obj.thumbnails) && obj.thumbnails.length > 0) {
+    const t = obj.thumbnails[obj.thumbnails.length - 1];
+    if (typeof t?.url === 'string') return t.url;
+  }
+  for (const value of Object.values(obj)) {
+    const found = findThumbnailUrl(value);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Extracts the thumbnail from a renderer, falling back to mqdefault for videoId. */
+function findThumbnail(item: any): string {
+  const thumbUrl = findThumbnailUrl(item?.thumbnail);
+  if (thumbUrl) return thumbUrl;
+  const videoId = findWatchVideoId(item);
+  if (videoId) return thumbFor(videoId);
+  return '';
 }
 
 type HttpResponse = { status: number; body: string; ok: boolean };

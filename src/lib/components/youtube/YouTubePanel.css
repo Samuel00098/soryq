@@ -43,6 +43,9 @@
   font-weight: 600;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .youtube-panel .yt-mode-btn:hover {
@@ -97,6 +100,9 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .youtube-panel .yt-go:disabled {
@@ -218,6 +224,202 @@
   text-overflow: ellipsis;
 }
 
+/* --- YouTube Music: audio-only player ------------------------------------ */
+/* In music mode the IFrame stays mounted to drive audio, but is pushed off
+   screen (NOT display:none, which would stop playback) so only the music UI
+   shows. */
+.youtube-panel .yt-player-music .yt-player-frame {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  left: -9999px;
+  top: 0;
+  flex: 0 0 auto;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.youtube-panel .yt-music {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 28px;
+  text-align: center;
+}
+
+.youtube-panel .yt-music-art {
+  width: min(240px, 60%);
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  background: var(--bg-secondary);
+  flex: 0 0 auto;
+  transition: all 150ms ease;
+}
+
+.youtube-panel .yt-music-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* hqdefault has black letterbox bars; zoom slightly to crop them out. */
+  transform: scale(1.35);
+}
+
+.youtube-panel .yt-music-details {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+}
+
+.youtube-panel .yt-music-meta {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.youtube-panel .yt-music-title {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.youtube-panel .yt-music-artist {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.youtube-panel .yt-music-controls {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.youtube-panel .yt-music-btns {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.youtube-panel .yt-music-slider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.youtube-panel .yt-music-play {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.youtube-panel .yt-music-play:hover {
+  filter: brightness(1.08);
+  transform: scale(1.05);
+}
+
+.youtube-panel .yt-music-prev,
+.youtube-panel .yt-music-next {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.youtube-panel .yt-music-prev:hover:not(:disabled),
+.youtube-panel .yt-music-next:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: scale(1.05);
+}
+
+.youtube-panel .yt-music-prev:disabled,
+.youtube-panel .yt-music-next:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.youtube-panel .yt-music-time {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  min-width: 34px;
+}
+
+.youtube-panel .yt-music-seek {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* --- YouTube Music: sub-filters toolbar --------------------------------- */
+.youtube-panel .yt-music-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-secondary) 40%, transparent);
+}
+
+.youtube-panel .yt-filter-pill {
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 12px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.youtube-panel .yt-filter-pill:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.youtube-panel .yt-filter-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-primary);
+}
+
+/* --- Search grid cards & dropdown rows ---------------------------------- */
 .youtube-panel .yt-grid {
   flex: 1 1 auto;
   min-height: 0;
@@ -248,6 +450,7 @@
 }
 
 .youtube-panel .yt-thumb {
+  position: relative;
   aspect-ratio: 16 / 9;
   border-radius: 6px;
   overflow: hidden;
@@ -265,6 +468,21 @@
   width: 100%;
   height: 100%;
   background: var(--bg-tertiary);
+}
+
+.youtube-panel .yt-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+  pointer-events: none;
 }
 
 .youtube-panel .yt-card-title {
@@ -389,6 +607,7 @@
 }
 
 .youtube-panel .yt-result-thumb {
+  position: relative;
   flex: 0 0 auto;
   width: 88px;
   aspect-ratio: 16 / 9;
@@ -436,4 +655,112 @@
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
   background: var(--bg-secondary);
+}
+
+/* ========================================================================= */
+/* --- Responsiveness Overrides -------------------------------------------- */
+/* ========================================================================= */
+
+/* --- Narrow Viewports (< 420px width) ------------------------------------- */
+.youtube-panel.yt-width-narrow .yt-mode-btn {
+  padding: 5px 8px;
+  gap: 0;
+}
+
+.youtube-panel.yt-width-narrow .yt-mode-btn span.yt-mode-text {
+  display: none;
+}
+
+.youtube-panel.yt-width-narrow .yt-go-text {
+  display: none;
+}
+
+.youtube-panel.yt-width-narrow .yt-go {
+  padding: 5px 8px;
+}
+
+.youtube-panel.yt-width-narrow .yt-back-text {
+  display: none;
+}
+
+.youtube-panel.yt-width-narrow .yt-back::after {
+  content: 'Back';
+}
+
+.youtube-panel.yt-width-narrow .yt-music-art {
+  width: min(150px, 45%);
+}
+
+.youtube-panel.yt-width-narrow .yt-music-title {
+  font-size: 13.5px;
+}
+
+.youtube-panel.yt-width-narrow .yt-music-artist {
+  font-size: 11px;
+}
+
+/* --- Short Viewports (< 290px height) ------------------------------------ */
+.youtube-panel.yt-height-short .yt-music {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 12px 18px;
+  text-align: left;
+}
+
+.youtube-panel.yt-height-short .yt-music-art {
+  width: 90px;
+  height: 90px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.youtube-panel.yt-height-short .yt-music-details {
+  align-items: flex-start;
+  text-align: left;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.youtube-panel.yt-height-short .yt-music-meta {
+  text-align: left;
+  margin: 0;
+}
+
+.youtube-panel.yt-height-short .yt-music-controls {
+  max-width: none;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.youtube-panel.yt-height-short .yt-music-play {
+  width: 38px;
+  height: 38px;
+}
+
+.youtube-panel.yt-height-short .yt-music-prev,
+.youtube-panel.yt-height-short .yt-music-next {
+  width: 28px;
+  height: 28px;
+}
+
+.youtube-panel.yt-height-short .yt-music-time {
+  min-width: 28px;
+  font-size: 10px;
+}
+
+/* --- Short AND Narrow ---------------------------------------------------- */
+.youtube-panel.yt-height-short.yt-width-narrow .yt-music-art {
+  width: 64px;
+  height: 64px;
+}
+
+/* --- Mini Height (< 200px height) ---------------------------------------- */
+.youtube-panel.yt-height-mini .yt-music-art {
+  display: none;
+}
+
+.youtube-panel.yt-height-mini .yt-music {
+  padding: 8px 12px;
 }
