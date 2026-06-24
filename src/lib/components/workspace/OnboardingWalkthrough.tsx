@@ -10,9 +10,9 @@ const iconSrc = `/icon.png?v=${packageJson.version}`;
 
 const steps = [
   { title: 'Welcome to Soryq', desc: 'Your terminal-first workspace for coding and productivity. Everything in one window, nothing in your way.' },
-  { title: 'Your Layout, Your Way', desc: 'Control your workspace with the Activity Bar. Split between a terminal, editor, preview, database explorer, sketch canvas, and more.' },
+  { title: 'Your Layout, Your Way', desc: 'Control your workspace with the Activity Bar. Split between a terminal, editor, preview, database explorer, and more.' },
   { title: 'AI Agent & Voice Input', desc: 'Engage peer AI agents via the Agent Orchestrator to run tasks, or trigger the Voice Loop to dictate code and commands hands-free.' },
-  { title: 'DB & Canvas Integration', desc: 'Query databases natively with the DB Explorer, and draft flows or sketch system architectures with the built-in Sketch Canvas.' },
+  { title: 'Database Integration', desc: 'Query databases natively with the DB Explorer — browse schema trees and run SQL right inside your workspace.' },
   { title: 'Built-in Productivity', desc: 'A daily note opens each morning, quick capture saves thoughts in a keystroke, and a Kanban board tracks what matters.' },
   { title: 'Command Palette', desc: 'Launch files, switch themes, and open any panel in milliseconds. Everything Soryq can do is one shortcut away.' },
   { title: 'Ready to Go', desc: 'Your workspace is set. Open a folder and start building — or start writing.' },
@@ -274,7 +274,7 @@ export default function OnboardingWalkthrough({ onclose = () => {} }: { onclose?
                 </div>
                 <div className="feature-item">
                   <CheckIcon />
-                  <span>Activity Bar for quick access to database explorer, sketch canvas, AI agents, and settings</span>
+                  <span>Activity Bar for quick access to the database explorer, AI agents, and settings</span>
                 </div>
               </div>
             </div>
@@ -375,11 +375,7 @@ export default function OnboardingWalkthrough({ onclose = () => {} }: { onclose?
                 </div>
                 <div className="feature-item">
                   <CheckIcon />
-                  <span>Sketch Canvas: Vector design and diagrams (rectangles, circles, lines, pen tool) in a dedicated tab</span>
-                </div>
-                <div className="feature-item">
-                  <CheckIcon />
-                  <span>Integrated Workspace: Connect your database schema directly to your AI context or sketch notes</span>
+                  <span>Integrated Workspace: Connect your database schema directly to your AI context</span>
                 </div>
               </div>
             </div>

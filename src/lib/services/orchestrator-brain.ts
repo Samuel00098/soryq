@@ -340,10 +340,6 @@ const VIEW_TERMS: Array<{ view: string; re: RegExp }> = [
   { view: 'db', re: /\b(database|db)\b/i },
   { view: 'containers', re: /\b(containers?|docker)\b/i },
   { view: 'toolbox', re: /\btoolbox\b/i },
-  { view: 'pet', re: /\bpet\b/i },
-  { view: 'youtube', re: /\b(youtube|yt)\b/i },
-  { view: 'android', re: /\b(android|adb|emulator)\b/i },
-  { view: 'ios', re: /\b(ios|iphone|simulator|simctl)\b/i },
 ];
 
 /**
@@ -649,8 +645,8 @@ function buildSystemPrompt(
     '    Stop a running agent and close its terminal. Use when the user wants to close, stop, end, dismiss, release, or shut down an agent they are done with. "close everything"/"stop them all" → one close with target "all".',
     '',
     'APP-CONTROL actions — drive the application UI directly (no agent needed):',
-    '- {"kind": "navigate", "view": "<one of: editor, terminal, preview, review, http, tasks, db, containers, toolbox, pet, youtube, android, ios, settings>"}',
-    '    Switch the active page/panel. "show me the editor" → editor; "open settings" → settings; "go back to the terminal" / "hide that panel" → terminal; "open youtube" → youtube; "android emulator" → android; "ios simulator" → ios.',
+    '- {"kind": "navigate", "view": "<one of: editor, terminal, preview, review, http, tasks, db, containers, toolbox, settings>"}',
+    '    Switch the active page/panel. "show me the editor" → editor; "open settings" → settings; "go back to the terminal" / "hide that panel" → terminal.',
     '- {"kind": "open-file", "path": "<path relative to project root>", "line": <number or null>}',
     '    Open a file in the editor (optionally jump to a line). Use the open-files / project paths shown in the app state. Prefer this over spawning an agent when the user just wants to SEE or go to a file.',
     '- {"kind": "close-file", "path": "<path relative to project root>"}',
@@ -666,7 +662,7 @@ function buildSystemPrompt(
     '- {"kind": "layout", "mode": "focus"|"split"|"gallery"|"preview"}',
     '    Rearrange the whole workspace. Focus = one big room; Split = two rooms side by side; Canvas (mode "gallery") = a freeform, pan/zoom board with every open room; Preview = the live app preview (dev server) with the terminal alongside, for testing web apps. "focus mode" → focus; "split the view" → split; "show everything" / "canvas" / "gallery" / "the board" → gallery; "preview" / "test the app" / "preview mode" / "run the app" → preview.',
     '- {"kind": "room", "op": "focus"|"minimize"|"restore"|"close", "target": "<room name>"}',
-    '    Act on one room. Rooms are the workspace, terminal, an agent (by its name), or a panel (editor, preview, review, http, tasks, db, containers, toolbox, pet). "focus the terminal" → focus terminal; "minimize the editor" → minimize editor; "close the preview" → close preview. Use the workspace layout shown in the app state to pick the right room name.',
+    '    Act on one room. Rooms are the workspace, terminal, an agent (by its name), or a panel (editor, preview, review, http, tasks, db, containers, toolbox). "focus the terminal" → focus terminal; "minimize the editor" → minimize editor; "close the preview" → close preview. Use the workspace layout shown in the app state to pick the right room name.',
     '- {"kind": "canvas", "op": "zoom-in"|"zoom-out"|"fit"|"lock"|"unlock"}',
     '    Control the Canvas board (it auto-switches to Canvas first). "zoom in"/"zoom out" → zoom-in/zoom-out; "fit everything"/"fit to screen"/"reset the view"/"recenter" → fit; "lock the panels"/"snap to grid"/"arrange the panels" → lock (auto-grid on, panels fixed); "unlock"/"let me move the panels"/"free arrange" → unlock (free drag & resize). Use this for the board itself; use "room" to act on one panel and "layout" to switch arrangements.',
     '',

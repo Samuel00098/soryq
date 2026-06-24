@@ -91,10 +91,6 @@ export function toggleContainersVisible() { withTransition(() => { useLayoutStor
 export function toggleToolboxVisible() { withTransition(() => { useLayoutStore.getState().toggleToolboxVisible(); }); }
 export function setRightDrawerTool(tool: import('./zustand/layout').RightDrawerTool | null) { withTransition(() => { useLayoutStore.getState().setRightDrawerTool(tool); }); }
 export function setRightDrawerWidth(width: number) { useLayoutStore.getState().setRightDrawerWidth(width); }
-export function togglePetVisible() { withTransition(() => { useLayoutStore.getState().togglePetVisible(); }); }
-export function toggleYoutubeVisible() { withTransition(() => { useLayoutStore.getState().toggleYoutubeVisible(); }); }
-export function toggleAndroidVisible() { withTransition(() => { useLayoutStore.getState().toggleAndroidVisible(); }); }
-export function toggleIosVisible() { withTransition(() => { useLayoutStore.getState().toggleIosVisible(); }); }
 export function toggleOrchestratorVisible() { withTransition(() => { useLayoutStore.getState().toggleOrchestratorVisible(); }); }
 export function toggleTerminal() { withTransition(() => { useLayoutStore.getState().toggleTerminal(); }); }
 export function setSidebarTab(tab: SidebarTab) { withTransition(() => { useLayoutStore.getState().setSidebarTab(tab); }); }

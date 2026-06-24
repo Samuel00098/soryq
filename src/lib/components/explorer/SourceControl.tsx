@@ -21,7 +21,6 @@ import {
 } from '$lib/stores/settings';
 import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 import { createGithubRepo, githubTokenExists, saveGithubToken } from '$lib/services/github';
-import { devpet } from '$lib/stores/devpet';
 import { useStore } from '$lib/react/useStore';
 import { useGitStatusCache, type GitStatusData as GitStatus, type GitLogEntry } from '$lib/stores/zustand/gitStatus';
 import './SourceControl.css';
@@ -314,7 +313,6 @@ export default function SourceControl() {
     try {
       await invoke<string>('workspace_git_commit', { projectId: id, message: commitMessage.trim(), files });
       showToast('Successfully committed changes!', 'success');
-      devpet.onCommit();
       setCommitMessage('');
       commitMessageRef.current = '';
       await refreshAll();
@@ -335,7 +333,6 @@ export default function SourceControl() {
     try {
       const response = await invoke<string>('workspace_git_push', { projectId: id });
       showToast(response || 'Successfully pushed to GitHub!', 'success');
-      devpet.onPush();
       await refreshAll();
     } catch (err) {
       console.error(err);

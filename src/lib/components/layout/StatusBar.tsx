@@ -2,11 +2,9 @@ import type { CSSProperties } from 'react';
 import { useWorkspaceStore } from '$lib/stores/zustand/workspace';
 import { useEditorStore } from '$lib/stores/zustand/editor';
 import { useLayoutStore } from '$lib/stores/zustand/layout';
-import { setSidebarTab, setActiveView } from '$lib/stores/layout';
+import { setSidebarTab } from '$lib/stores/layout';
 import { branchInfo } from '$lib/stores/gitBranch';
-import { devpet } from '$lib/stores/devpet';
 import { useSettingsStore } from '$lib/stores/zustand/settings';
-import PetAvatar from '$lib/components/pet/PetAvatar.tsx';
 import { useStore } from '$lib/react/useStore';
 import './StatusBar.css';
 
@@ -26,7 +24,6 @@ export default function StatusBar() {
   const layoutState = useLayoutStore();
   const zoom = useSettingsStore((s) => s.uiZoom);
   const branch = useStore(branchInfo);
-  const pet = useStore(devpet);
 
   const activeFileInfo = file ? cache.get(file) : null;
   const languageLabel = activeFileInfo
@@ -72,20 +69,6 @@ export default function StatusBar() {
       </div>
 
       <div className="sb-right">
-        <button
-          type="button"
-          className="sb-item sb-pet"
-          onClick={() => setActiveView('pet')}
-          title={`${pet.name} (Lvl ${pet.level}) | Status: ${pet.status} | WPM: ${pet.wpm}. Click to open playground.`}
-          aria-label="Open DevPet playground"
-        >
-          <div className="sb-pet-avatar">
-            <PetAvatar type={pet.type} status={pet.status} skin={pet.skin} />
-          </div>
-          <span className="sb-pet-text">{pet.name}</span>
-        </button>
-        <span className="sb-sep">.</span>
-
         {activeFileInfo && (
           <>
             {activeFileIsText && (

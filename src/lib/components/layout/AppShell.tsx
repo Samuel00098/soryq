@@ -19,15 +19,10 @@ import AgentWorktreeBadge from '$lib/components/orchestrator/AgentWorktreeBadge.
 import ContainersPanel from '$lib/components/containers/ContainersPanelLazy.tsx';
 import DbExplorerPanel from '$lib/components/db/DbExplorerPanelLazy.tsx';
 import HttpClientPanel from '$lib/components/http/HttpClientPanelLazy.tsx';
-import DevPetPanel from '$lib/components/pet/DevPetPanelLazy.tsx';
 import ReviewPanel from '$lib/components/review/ReviewPanelLazy.tsx';
 import ToolboxPanel from '$lib/components/toolbox/ToolboxPanelLazy.tsx';
 import TasksPanel from '$lib/components/workspace/TasksPanelLazy.tsx';
 import PreviewPanel from '$lib/components/preview/PreviewPanelLazy.tsx';
-import YouTubePanel from '$lib/components/youtube/YouTubePanelLazy.tsx';
-import FloatingYouTube from '$lib/components/youtube/FloatingYouTube.tsx';
-import AndroidPanel from '$lib/components/mobile/AndroidPanelLazy.tsx';
-import IosPanel from '$lib/components/mobile/IosPanelLazy.tsx';
 import { useLayoutStore } from '$lib/stores/zustand/layout';
 import { useEditorStore } from '$lib/stores/zustand/editor';
 import {
@@ -45,11 +40,9 @@ import {
   toggleContainersVisible,
   toggleToolboxVisible,
   RIGHT_DRAWER_TOOLS,
-  toggleYoutubeVisible,
   openQuickCapture,
   openEnvManager,
 } from '$lib/stores/layout';
-import { sketchCanvasOpen, toggleSketchCanvas } from '$lib/stores/sketch';
 import { openDailyNote } from '$lib/stores/dailyNote';
 import { openProject } from '$lib/stores/workspace';
 import { toggleCommandPalette } from '$lib/stores/commandpalette';
@@ -86,11 +79,7 @@ type AuxPanelId =
   | 'tasks'
   | 'db'
   | 'containers'
-  | 'toolbox'
-  | 'pet'
-  | 'youtube'
-  | 'android'
-  | 'ios';
+  | 'toolbox';
 
 type AgentRoomId = `agent:${number}`;
 type RoomId = 'workspace' | 'terminal' | 'orchestrator' | AuxPanelId | AgentRoomId;
@@ -117,10 +106,6 @@ const ROOM_TITLES: Record<Exclude<RoomId, AgentRoomId>, string> = {
   db: 'Database',
   containers: 'Containers',
   toolbox: 'Toolbox',
-  pet: 'DevPet',
-  youtube: 'YouTube',
-  android: 'Android',
-  ios: 'iOS Simulator',
 };
 
 function isAgentRoomId(id: RoomId): id is AgentRoomId {
@@ -140,10 +125,6 @@ const PANEL_VISIBILITY_KEYS: Record<AuxPanelId, keyof ReturnType<typeof useLayou
   db: 'dbVisible',
   containers: 'containersVisible',
   toolbox: 'toolboxVisible',
-  pet: 'petVisible',
-  youtube: 'youtubeVisible',
-  android: 'androidVisible',
-  ios: 'iosVisible',
 };
 
 const GALLERY_MIN_WIDTH = 280;
@@ -441,7 +422,6 @@ function findScrollableY(el: HTMLElement, stop: HTMLElement): HTMLElement | null
   return null;
 }
 
-const SketchCanvas = lazy(() => import('$lib/components/workspace/SketchCanvas.tsx'));
 const EditorPanel = lazy(() => import('$lib/components/editor/EditorPanel.tsx'));
 const EnvManager = lazy(() => import('$lib/components/shared/EnvManager.tsx'));
 
@@ -477,14 +457,6 @@ const DRAWER_TOOL_META: Record<RightDrawerTool, { title: string; icon: React.Rea
     title: 'Environment',
     icon: <Icon><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Icon>,
   },
-  android: {
-    title: 'Android',
-    icon: <Icon><path d="M5 12a7 7 0 0 1 14 0v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" /><path d="M7.6 5 6.1 2.6M16.4 5l1.5-2.4" /><circle cx="9.5" cy="10" r="0.6" fill="currentColor" stroke="none" /><circle cx="14.5" cy="10" r="0.6" fill="currentColor" stroke="none" /></Icon>,
-  },
-  ios: {
-    title: 'iOS Simulator',
-    icon: <Icon><rect x="6" y="2" width="12" height="20" rx="3" /><line x1="10" y1="18" x2="14" y2="18" /></Icon>,
-  },
 };
 
 // Tools hosted in the LEFT utility drawer — the sidebar-content tabs, backed by
@@ -500,14 +472,13 @@ const LEFT_TOOL_META: Record<LeftDrawerTool, { title: string; icon: React.ReactN
 };
 
 // The RIGHT drawer hosts the layout-backed tools (RIGHT_DRAWER_TOOLS: Toolbox /
-// HTTP / DB / Containers / Env) PLUS Orchestrator and DevPet, which render their
-// own panels in the drawer body.
-type RightTool = RightDrawerTool | 'orchestrator' | 'pet';
-const RIGHT_TOOLS_ALL: RightTool[] = [...RIGHT_DRAWER_TOOLS, 'orchestrator', 'pet'];
+// HTTP / DB / Containers / Env) PLUS Orchestrator, which renders its own panel
+// in the drawer body.
+type RightTool = RightDrawerTool | 'orchestrator';
+const RIGHT_TOOLS_ALL: RightTool[] = [...RIGHT_DRAWER_TOOLS, 'orchestrator'];
 const RIGHT_TOOL_META: Record<RightTool, { title: string; icon: React.ReactNode }> = {
   ...DRAWER_TOOL_META,
   orchestrator: { title: 'Orchestrator', icon: <Icon><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M12 7v4" /><circle cx="12" cy="5" r="2" /><path d="M8 16h.01M16 16h.01" /></Icon> },
-  pet: { title: 'DevPet', icon: <Icon><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></Icon> },
 };
 
 function XIcon() {
@@ -562,14 +533,10 @@ function PanelHost({ id }: { id: AuxPanelId }) {
   if (id === 'containers') return <ContainersPanel />;
   if (id === 'db') return <DbExplorerPanel />;
   if (id === 'http') return <HttpClientPanel />;
-  if (id === 'pet') return <DevPetPanel />;
   if (id === 'review') return <ReviewPanel />;
   if (id === 'toolbox') return <ToolboxPanel />;
   if (id === 'tasks') return <TasksPanel />;
   if (id === 'preview') return <PreviewPanel />;
-  if (id === 'youtube') return <YouTubePanel />;
-  if (id === 'android') return <AndroidPanel />;
-  if (id === 'ios') return <IosPanel />;
 
   return null;
 }
@@ -647,7 +614,6 @@ export default function AppShell() {
       toggleSidebarTab('files');
     }
   }, [showSnapshotsTab, layoutState.sidebarTab]);
-  const sketchOpen = useStore(sketchCanvasOpen);
   const centerOpen = useStore(agentCenterOpen);
   const activeFile = useEditorStore((s) => s.activeFile);
   const auxTabsRef = useAction<HTMLDivElement>(clampHorizontalScroll);
@@ -763,9 +729,8 @@ export default function AppShell() {
         { id: 'preview' as const, visible: layoutState.previewVisible },
         { id: 'review' as const, visible: layoutState.reviewVisible },
         { id: 'tasks' as const, visible: layoutState.tasksVisible },
-        // Right utility drawer: http/db/containers/toolbox/env/android/ios +
-        // orchestrator/pet. Left drawer: the nav tabs. YouTube: free-floating
-        // pop-up. None of those are rooms in the ambient grid.
+        // Right utility drawer: http/db/containers/toolbox/env + orchestrator.
+        // Left drawer: the nav tabs. None of those are rooms in the ambient grid.
       ].filter((panel) => panel.visible),
     [layoutState],
   );
@@ -782,8 +747,8 @@ export default function AppShell() {
   const openRooms = useMemo<RoomId[]>(
     () => [
       // 'workspace' and 'orchestrator' are no longer center rooms — their content
-      // renders in the LEFT utility drawer (Files/Search/…, plus Orchestrator and
-      // DevPet as tabs). See renderLeftUtilityDrawer.
+      // renders in the utility drawers (Files/Search/… on the left, Orchestrator
+      // on the right). See renderLeftUtilityDrawer / renderRightUtilityDrawer.
       ...(terminalRoomOpen ? (['terminal'] as RoomId[]) : []),
       ...agentRoomIds,
       ...visiblePanels.map((panel) => panel.id),
@@ -1629,18 +1594,6 @@ export default function AppShell() {
         case 'goToToolbox':
           toggleToolboxVisible();
           break;
-        case 'goToPet':
-          toggleRightTool('pet');
-          break;
-        case 'goToYoutube':
-          toggleYoutubeVisible();
-          break;
-        case 'goToAndroid':
-          toggleRightTool('android');
-          break;
-        case 'goToIos':
-          toggleRightTool('ios');
-          break;
         case 'openSearch':
           toggleSidebarTab('search');
           break;
@@ -1673,9 +1626,6 @@ export default function AppShell() {
           break;
         case 'openDailyNote':
           if (project) openDailyNote(project, true).catch(() => {});
-          break;
-        case 'toggleSketch':
-          toggleSketchCanvas();
           break;
         case 'launchVoiceMode':
           launchPromptBarVoiceMode();
@@ -1776,9 +1726,9 @@ export default function AppShell() {
 
   // --- RIGHT utility drawer (summoned tools) ------------------------------
   // The layout-backed tools (Toolbox/HTTP/DB/Containers/Env) PLUS Orchestrator
-  // (backed by `agentCenterOpen`, a separate store) and DevPet (`petVisible`).
-  // One derived "active tool" + one selection handler that updates every backing
-  // flag together (React batches them) → switching only swaps the body, no glitch.
+  // (backed by `agentCenterOpen`, a separate store). One derived "active tool" +
+  // one selection handler that updates every backing flag together (React
+  // batches them) → switching only swaps the body, no glitch.
   const rightActiveTool: RightTool | null = layoutState.toolboxVisible
     ? 'toolbox'
     : layoutState.httpVisible
@@ -1789,35 +1739,22 @@ export default function AppShell() {
           ? 'containers'
           : layoutState.envManagerOpen
             ? 'env'
-            : layoutState.androidVisible
-              ? 'android'
-              : layoutState.iosVisible
-                ? 'ios'
-                : centerOpen
-                  ? 'orchestrator'
-                  : layoutState.petVisible
-                    ? 'pet'
-                    : null;
+            : centerOpen
+              ? 'orchestrator'
+              : null;
   const rightDrawerOpen = rightActiveTool !== null;
 
   function selectRightTool(tool: RightTool) {
     if (tool === 'orchestrator') {
       useLayoutStore.getState().setRightDrawerTool(null);
-      persistLayoutPatch({ petVisible: false });
       agentCenterOpen.set(true);
-    } else if (tool === 'pet') {
-      useLayoutStore.getState().setRightDrawerTool(null);
-      agentCenterOpen.set(false);
-      persistLayoutPatch({ petVisible: true });
     } else {
       useLayoutStore.getState().setRightDrawerTool(tool);
-      persistLayoutPatch({ petVisible: false });
       agentCenterOpen.set(false);
     }
   }
   function closeRightDrawer() {
     useLayoutStore.getState().setRightDrawerTool(null);
-    persistLayoutPatch({ petVisible: false });
     agentCenterOpen.set(false);
   }
   function toggleRightTool(tool: RightTool) {
@@ -1860,8 +1797,6 @@ export default function AppShell() {
         <div className="drawer-body">
           {rightActiveTool === 'orchestrator' ? (
             <AgentCommandCenter />
-          ) : rightActiveTool === 'pet' ? (
-            <DevPetPanel />
           ) : rightActiveTool === 'env' ? (
             <Suspense fallback={null}>
               <EnvManager embedded />
@@ -2355,24 +2290,9 @@ export default function AppShell() {
       onClick: () => toggleToolboxVisible(),
       icon: <Icon><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></Icon>,
     },
-    {
-      id: 'youtube',
-      title: 'YouTube',
-      active: layoutState.youtubeVisible,
-      // Pops up the free-floating window rather than opening a tiled room.
-      onClick: () => toggleYoutubeVisible(),
-      icon: <Icon><rect x="2" y="5" width="20" height="14" rx="4" /><path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none" /></Icon>,
-    },
   ];
 
   const bottomItems: ActivityItem[] = [
-    {
-      id: 'sketch',
-      title: 'Toggle Sketch Canvas (Ctrl+Shift+N)',
-      active: sketchOpen,
-      onClick: toggleSketchCanvas,
-      icon: <Icon><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z" /></Icon>,
-    },
     ...(project
       ? [{
           id: 'daily-note',
@@ -2395,8 +2315,8 @@ export default function AppShell() {
     icon: LEFT_TOOL_META[tool].icon,
   }));
 
-  // Launcher buttons for the right utility drawer's tools (incl. Orchestrator &
-  // DevPet), grouped together at the right end of the dock.
+  // Launcher buttons for the right utility drawer's tools (incl. Orchestrator),
+  // grouped together at the right end of the dock.
   const drawerToolItems: ActivityItem[] = RIGHT_TOOLS_ALL.map((tool) => ({
     id: tool,
     title: RIGHT_TOOL_META[tool].title,
@@ -2519,8 +2439,6 @@ export default function AppShell() {
         return <Icon><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="M4 12.5 12 17l8-4.5" /><path d="M4 17.5 12 22l8-4.5" /></Icon>;
       case 'toolbox':
         return <Icon><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></Icon>;
-      case 'pet':
-        return <Icon><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></Icon>;
       default:
         return null;
     }
@@ -2752,9 +2670,6 @@ export default function AppShell() {
     }
     if (id === 'toolbox') {
       return <div className="room-card-preview">Dev utility toolbox</div>;
-    }
-    if (id === 'pet') {
-      return <div className="room-card-preview">DevPet companion</div>;
     }
     return null;
   }
@@ -3035,11 +2950,6 @@ export default function AppShell() {
 
               <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}${ambientLayout === 'preview' && !terminalRoomOpen ? ' preview-solo' : ''}`} aria-label="Soryq ambient layout">
                 {renderAmbientLayout()}
-                {sketchOpen && (
-                  <Suspense fallback={null}>
-                    <SketchCanvas />
-                  </Suspense>
-                )}
               </main>
 
               {renderLeftUtilityDrawer()}
@@ -3072,26 +2982,13 @@ export default function AppShell() {
           </div>
         ) : (
           <div className="zoom-content">
-            <div className={`welcome-fullpage${layoutState.petVisible ? ' with-pet-panel' : ''}`}>
+            <div className="welcome-fullpage">
               <div className="welcome-main">
                 <WelcomeScreen />
               </div>
-              {layoutState.petVisible && (
-                <aside className="welcome-pet-panel bento-card" aria-label="DevPet Playground">
-                  <button className="aux-close-btn" onClick={toggleTerminal} title="Close pet playground" aria-label="Close pet playground">
-                    <XIcon />
-                  </button>
-                  <DevPetPanel />
-                </aside>
-              )}
             </div>
           </div>
         )}
-
-        {/* Free-floating YouTube pop-up. Mounted at the app root (outside the
-            ambient rooms grid) so it overlays any page and survives Focus /
-            Split / Canvas switches without unmounting. */}
-        {layoutState.youtubeVisible && <FloatingYouTube onClose={() => toggleYoutubeVisible()} />}
       </div>
     </div>
   );
