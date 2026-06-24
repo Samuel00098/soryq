@@ -50,7 +50,7 @@ import { openDailyNote } from '$lib/stores/dailyNote';
 import { openProject } from '$lib/stores/workspace';
 import { toggleCommandPalette } from '$lib/stores/commandpalette';
 import { saveActiveFile, formatActiveFile } from '$lib/stores/editor';
-import { startProxy, stopProxy } from '$lib/stores/preview';
+import { startProxy, stopProxy, createPreviewBrowserTab } from '$lib/stores/preview';
 import { useSettingsStore } from '$lib/stores/zustand/settings';
 import { matchShortcut } from '$lib/stores/settings';
 import {
@@ -2312,6 +2312,16 @@ export default function AppShell() {
   ];
 
   const bottomItems: ActivityItem[] = [
+    {
+      id: 'excalidraw',
+      title: 'Sketch (Excalidraw)',
+      active: false,
+      onClick: () => {
+        createPreviewBrowserTab('https://excalidraw.com');
+        setPanelRoomOpen('preview', true);
+      },
+      icon: <Icon><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z" /></Icon>,
+    },
     ...(project
       ? [{
           id: 'daily-note',
