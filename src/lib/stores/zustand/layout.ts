@@ -4,7 +4,7 @@ import { loadJson } from '$lib/utils/storage';
 
 export type { ActiveView, SidebarTab };
 
-const VALID_ACTIVE_VIEWS = new Set<ActiveView>(['editor', 'terminal', 'preview', 'settings', 'review', 'http', 'tasks', 'orchestrator', 'db', 'containers', 'toolbox', 'pet', 'youtube', 'android', 'ios']);
+const VALID_ACTIVE_VIEWS = new Set<ActiveView>(['editor', 'terminal', 'preview', 'settings', 'review', 'http', 'tasks', 'orchestrator', 'db', 'containers', 'toolbox', 'youtube']);
 const VALID_SIDEBAR_TABS = new Set<SidebarTab>(['files', 'search', 'git', 'snapshots', 'history', 'snippets']);
 
 export function sanitiseActiveView(v: unknown, fallback: ActiveView = 'terminal'): ActiveView {
@@ -33,10 +33,7 @@ const defaultLayout: LayoutState = {
   dbVisible: false,
   containersVisible: false,
   toolboxVisible: false,
-  petVisible: false,
   youtubeVisible: false,
-  androidVisible: false,
-  iosVisible: false,
   auxPanelWidth: 550,
   auxEditorHeight: 50,
   rightDrawerWidth: 380,
@@ -46,7 +43,7 @@ const defaultLayout: LayoutState = {
 // exclusive among themselves (one drawer body at a time) but, unlike the aux
 // rooms, opening one does NOT disturb the main rooms (editor/preview/etc.) or
 // the active view — the drawer is a right-edge overlay you pop open and dismiss.
-export const RIGHT_DRAWER_TOOLS = ['toolbox', 'http', 'db', 'containers', 'env', 'android', 'ios'] as const;
+export const RIGHT_DRAWER_TOOLS = ['toolbox', 'http', 'db', 'containers', 'env'] as const;
 export type RightDrawerTool = (typeof RIGHT_DRAWER_TOOLS)[number];
 
 // The tools whose open state is a persisted aux flag on LayoutState. 'env' is
@@ -57,8 +54,6 @@ const AUX_DRAWER_FLAGS: Record<Exclude<RightDrawerTool, 'env'>, keyof LayoutStat
   http: 'httpVisible',
   db: 'dbVisible',
   containers: 'containersVisible',
-  android: 'androidVisible',
-  ios: 'iosVisible',
 };
 
 /** Show exactly one right-drawer tool (or none), clearing every other one. */
@@ -109,10 +104,7 @@ interface LayoutActions {
   toggleToolboxVisible: () => void;
   setRightDrawerTool: (tool: RightDrawerTool | null) => void;
   setRightDrawerWidth: (width: number) => void;
-  togglePetVisible: () => void;
   toggleYoutubeVisible: () => void;
-  toggleAndroidVisible: () => void;
-  toggleIosVisible: () => void;
   toggleOrchestratorVisible: () => void;
   toggleTerminal: () => void;
   setSidebarTab: (tab: SidebarTab) => void;
@@ -145,13 +137,6 @@ const AUX_VIEW_FLAGS = {
   db: 'dbVisible',
   containers: 'containersVisible',
   toolbox: 'toolboxVisible',
-  // NOTE: `pet` is intentionally NOT listed here. DevPet is now a LEFT utility
-  // drawer tool (alongside Orchestrator), not an aux room — keeping it out of the
-  // aux-flag system means opening another panel never force-closes the DevPet
-  // tab. Its `petVisible` flag is driven by the left-drawer selection in AppShell.
-  // NOTE: `android` and `ios` are intentionally NOT listed here either — like the
-  // other right-drawer tools they're managed via RIGHT_DRAWER_TOOLS/showRightDrawerTool,
-  // not the aux-room flag system.
   // NOTE: `youtube` is intentionally NOT listed here. It is a free-floating
   // pop-up window (see FloatingYouTube), not an aux room — keeping it out of the
   // aux-flag system means opening another panel never force-closes it, and the
@@ -259,25 +244,10 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
         persistLayout(next);
         return next;
       }
-      if (view === 'pet') {
-        const next: LayoutState = { ...l, activeView: 'pet' as const, lastAuxView: 'pet' as const, petVisible: true };
-        persistLayout(next);
-        return next;
-      }
       if (view === 'youtube') {
         // YouTube is a floating pop-up, not a view to switch to: just open the
         // window and leave the current active view in place.
         const next: LayoutState = { ...l, youtubeVisible: true };
-        persistLayout(next);
-        return next;
-      }
-      if (view === 'android') {
-        const next: LayoutState = { ...l, activeView: 'android' as const, lastAuxView: 'android' as const, androidVisible: true };
-        persistLayout(next);
-        return next;
-      }
-      if (view === 'ios') {
-        const next: LayoutState = { ...l, activeView: 'ios' as const, lastAuxView: 'ios' as const, iosVisible: true };
         persistLayout(next);
         return next;
       }
@@ -390,41 +360,27 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
     });
   },
 
-  togglePetVisible: () => {
-    set((l) => {
-      const next: LayoutState = l.petVisible
-        ? { ...l, petVisible: false, activeView: 'terminal' as const }
-        : { ...l, petVisible: true, lastAuxView: 'pet' as const, editorVisible: false, previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, dbVisible: false, containersVisible: false, toolboxVisible: false, editorSplitPreview: false, activeView: 'pet' as const };
-      persistLayout(next);
-      return next;
-    });
-  },
-
   // YouTube is a free-floating pop-up window, not an aux room: toggling it just
   // flips its own visibility and leaves the rest of the layout (active view,
   // other panels, ambient mode) completely untouched, so it can pop up over any
   // page and persist across mode switches.
   toggleYoutubeVisible: () => {
+    if (getState().youtubeVisible) {
+      try {
+        const raw = localStorage.getItem('soryq_youtube_window');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.minimized) {
+            window.dispatchEvent(new CustomEvent('soryq-youtube-restore'));
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
     set((l) => {
       const next: LayoutState = { ...l, youtubeVisible: !l.youtubeVisible };
-      persistLayout(next);
-      return next;
-    });
-  },
-
-  // Android & iOS are right-drawer tools (like Toolbox/HTTP/…): mutually
-  // exclusive among the drawer's layout-backed tools via showRightDrawerTool.
-  toggleAndroidVisible: () => {
-    set((l) => {
-      const next = showRightDrawerTool(l, l.androidVisible ? null : 'android');
-      persistLayout(next);
-      return next;
-    });
-  },
-
-  toggleIosVisible: () => {
-    set((l) => {
-      const next = showRightDrawerTool(l, l.iosVisible ? null : 'ios');
       persistLayout(next);
       return next;
     });

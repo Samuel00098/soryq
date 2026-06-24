@@ -81,6 +81,18 @@ function clampToViewport(s: WindowState): WindowState {
   };
 }
 
+/** Clamp the full maximized window dimensions within the viewport safety margins. */
+function clampToViewportFull(s: WindowState): WindowState {
+  if (typeof window === 'undefined') return s;
+  const maxX = window.innerWidth - s.width - 24;
+  const maxY = window.innerHeight - s.height - 96;
+  return {
+    ...s,
+    x: Math.min(Math.max(16, s.x), Math.max(16, maxX)),
+    y: Math.min(Math.max(16, s.y), Math.max(16, maxY)),
+  };
+}
+
 export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
   const [state, setState] = useState<WindowState>(loadState);
   const [interacting, setInteracting] = useState<null | 'move' | 'resize'>(null);
@@ -115,6 +127,20 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
     const onResize = () => setState((s) => clampToViewport(s));
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Listen for global restore event (e.g. from clicking dock when minimized)
+  useEffect(() => {
+    const handleRestore = () => {
+      setState((s) => {
+        if (s.minimized) {
+          return clampToViewportFull({ ...s, minimized: false });
+        }
+        return s;
+      });
+    };
+    window.addEventListener('soryq-youtube-restore', handleRestore);
+    return () => window.removeEventListener('soryq-youtube-restore', handleRestore);
   }, []);
 
   const startMove = useCallback(
@@ -222,7 +248,15 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-label="YouTube pop-up player"
     >
-      <header className="fy-titlebar" onPointerDown={startMove}>
+      <header
+        className="fy-titlebar"
+        onPointerDown={startMove}
+        onDoubleClick={() => setState((s) => {
+          const nextMinimized = !s.minimized;
+          const nextState = { ...s, minimized: nextMinimized };
+          return nextMinimized ? nextState : clampToViewportFull(nextState);
+        })}
+      >
         <span className="fy-title">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
             <rect x="2" y="5" width="20" height="14" rx="4" />
@@ -248,7 +282,11 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
           </label>
           <button
             className="fy-control fy-minimize"
-            onClick={() => setState((s) => ({ ...s, minimized: !s.minimized }))}
+            onClick={() => setState((s) => {
+              const nextMinimized = !s.minimized;
+              const nextState = { ...s, minimized: nextMinimized };
+              return nextMinimized ? nextState : clampToViewportFull(nextState);
+            })}
             title={minimized ? 'Restore player' : 'Minimize player'}
             aria-label={minimized ? 'Restore player' : 'Minimize player'}
             aria-pressed={minimized}
