@@ -1237,3 +1237,29 @@
 }
 .preview-panel .history-row:hover .history-remove { opacity: 1; }
 .preview-panel .history-remove:hover { background: rgba(248, 113, 113, 0.14); color: var(--error); }
+
+.preview-panel .terminal-toggle-btn {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.preview-panel .terminal-toggle-btn:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+.preview-panel .terminal-toggle-btn.active {
+  background: rgba(6, 182, 212, 0.15);
+  color: #06b6d4;
+  border-color: rgba(6, 182, 212, 0.3);
+}

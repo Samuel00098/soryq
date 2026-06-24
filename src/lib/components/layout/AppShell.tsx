@@ -45,6 +45,7 @@ import {
   toggleYoutubeVisible,
   openQuickCapture,
   openEnvManager,
+  terminalRoomOpen as terminalRoomOpenStore,
 } from '$lib/stores/layout';
 import { openDailyNote } from '$lib/stores/dailyNote';
 import { openProject } from '$lib/stores/workspace';
@@ -637,7 +638,8 @@ export default function AppShell() {
   const [minimizedRooms, setMinimizedRooms] = useState<Set<RoomId>>(() => new Set());
   const [ambientLayout, setAmbientLayout] = useState<AmbientLayout>('focus');
   const [layoutSwitching, setLayoutSwitching] = useState(false);
-  const [terminalRoomOpen, setTerminalRoomOpen] = useState(true);
+  const terminalRoomOpen = useStore(terminalRoomOpenStore);
+  const setTerminalRoomOpen = (val: boolean) => terminalRoomOpenStore.set(val);
   const [roomOrder, setRoomOrder] = useState<RoomId[]>(['workspace', 'terminal']);
   const [draggingRoom, setDraggingRoom] = useState<RoomId | null>(null);
   const [resizingRoom, setResizingRoom] = useState<RoomId | null>(null);
