@@ -249,24 +249,75 @@ export default function DashboardShowcase() {
             {viewMode === 'canvas' ? (
               /* Canvas visual node graph */
               <div className="canvas-panel">
-                <div className="canvas-container">
-                  <div className="canvas-node active">
+                <div className="canvas-viewport">
+                  {/* Connection Arrows SVG */}
+                  <svg className="connector-svg">
+                    {/* Coordinator to Scout */}
+                    <path 
+                      d="M 320 100 C 400 100, 400 160, 480 160" 
+                      className={`connector-path ${agentState === 'thinking' ? 'active' : ''}`}
+                    />
+                    {/* Scout to Builder */}
+                    <path 
+                      d="M 620 220 C 620 300, 500 380, 340 380" 
+                      className={`connector-path ${agentState === 'coding' ? 'active' : ''}`}
+                    />
+                    {/* Builder to Reviewer */}
+                    <path 
+                      d="M 340 380 C 420 380, 420 440, 500 440" 
+                      className={`connector-path ${agentState === 'testing' ? 'active' : ''}`}
+                    />
+                  </svg>
+
+                  {/* Node 1: Coordinator (Always visible) */}
+                  <div className={`canvas-node node-pos-1 spawned ${agentState === 'thinking' ? 'active' : ''}`}>
                     <div className="canvas-node-header">
-                      <span className="node-title">Prompt: Add Stats Widget</span>
+                      <span className="node-title" style={{ color: '#06b6d4' }}>
+                        CO: Coordinator Swarm
+                      </span>
                       <span className="node-meta">Active</span>
                     </div>
                     <div className="node-content">
-                      Describe layout requirement to swarm: create an interactive metrics widget showcasing statistics with smooth gradients.
+                      Prompt: "Implement a beautiful interactive stats widget." Coordinates workspace tasks and delegates execution.
                     </div>
                   </div>
 
-                  <div className="canvas-node" style={{ borderColor: agentState === 'coding' ? '#8b5cf6' : '' }}>
+                  {/* Node 2: Scout (Spawns during thinking phase) */}
+                  <div className={`canvas-node node-pos-2 ${agentState !== 'idle' ? 'spawned' : ''} ${agentState === 'thinking' ? 'active' : ''}`}>
                     <div className="canvas-node-header">
-                      <span className="node-title">File Node: src/App.tsx</span>
-                      <span className="node-meta">State: {agentState}</span>
+                      <span className="node-title" style={{ color: '#fbbf24' }}>
+                        SC: Scout Context
+                      </span>
+                      <span className="node-meta">{agentState === 'thinking' ? 'Scanning...' : 'Complete'}</span>
                     </div>
                     <div className="node-content">
-                      Tracks edits dynamically. Builder agent updates components using functional React styles.
+                      Analyzes files, reads dependencies, and locates targeted components at <code>src/App.tsx</code>.
+                    </div>
+                  </div>
+
+                  {/* Node 3: Builder (Spawns during coding phase) */}
+                  <div className={`canvas-node node-pos-3 ${agentState === 'coding' || agentState === 'testing' || (agentState === 'idle' && previewLoaded) ? 'spawned' : ''} ${agentState === 'coding' ? 'active' : ''}`}>
+                    <div className="canvas-node-header">
+                      <span className="node-title" style={{ color: '#8b5cf6' }}>
+                        BU: Builder CodeGen
+                      </span>
+                      <span className="node-meta">{agentState === 'coding' ? 'Compiling...' : 'Complete'}</span>
+                    </div>
+                    <div className="node-content">
+                      Applies code refactors, writes component states, and outputs modifications to the editor buffer.
+                    </div>
+                  </div>
+
+                  {/* Node 4: Reviewer (Spawns during testing phase) */}
+                  <div className={`canvas-node node-pos-4 ${agentState === 'testing' || (agentState === 'idle' && previewLoaded) ? 'spawned' : ''} ${agentState === 'testing' ? 'active' : ''}`}>
+                    <div className="canvas-node-header">
+                      <span className="node-title" style={{ color: '#4ade80' }}>
+                        RE: Reviewer Testing
+                      </span>
+                      <span className="node-meta">{agentState === 'testing' ? 'Executing...' : 'Complete'}</span>
+                    </div>
+                    <div className="node-content">
+                      Launches Vitest suites, checks accessibility standards, and validates visual responsiveness.
                     </div>
                   </div>
                 </div>
