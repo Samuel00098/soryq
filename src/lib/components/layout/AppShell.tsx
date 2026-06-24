@@ -2940,7 +2940,7 @@ export default function AppShell() {
     if (ambientLayout === 'preview') {
       // The live app preview is the stage; other open and non-minimized panels
       // (like the terminal and running agents) stack alongside.
-      const secondaryRooms = visibleRooms.filter((room) => room !== 'preview');
+      const secondaryRooms = visibleRooms.filter((room) => room === 'terminal' || isAgentRoomId(room));
       return (
         <>
           <div className="focused-room">
@@ -3007,7 +3007,7 @@ export default function AppShell() {
             <div className={`app-body rooms-workspace${resizing ? ' resizing' : ''}`}>
               {resizing && <div className={`resize-overlay${auxRowResizing ? ' row-resize' : ''}`} />}
 
-              <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}${ambientLayout === 'preview' && visibleRooms.filter((room) => room !== 'preview').length === 0 ? ' preview-solo' : ''}`} aria-label="Soryq ambient layout">
+              <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}${ambientLayout === 'preview' && visibleRooms.filter((room) => room === 'terminal' || isAgentRoomId(room)).length === 0 ? ' preview-solo' : ''}`} aria-label="Soryq ambient layout">
                 {renderAmbientLayout()}
               </main>
 
