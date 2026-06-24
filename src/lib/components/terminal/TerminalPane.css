@@ -1,0 +1,416 @@
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  /* Frosted glass surface — the xterm background is transparent and reads
+     over this translucent layer + the ambient backdrop behind the window. */
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%),
+    rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-surface, 0.72));
+  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--bento-radius, 12px);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07)),
+    var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65));
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s, filter 0.15s;
+}
+
+.terminal-pane.active {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65));
+}
+
+.terminal-pane.dead {
+  opacity: 0.55;
+}
+
+.terminal-pane:not(.active):not(.dead) {
+  opacity: 0.96;
+}
+
+.terminal-pane.maximized {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border-color: var(--accent);
+}
+
+/* ── Floating pill title bar ── */
+.terminal-pane .pane-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  /* Tighter on the left so the close button sits flush inside the cap. */
+  padding: 0 10px 0 9px;
+  /* Float the pill inside the pane rather than spanning edge-to-edge. */
+  margin: 9px 9px 3px;
+  border-radius: 999px;
+  background: rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow:
+    0 2px 8px -2px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  flex-shrink: 0;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.terminal-pane:not(.active) .pane-titlebar {
+  background: rgba(var(--bg-secondary-rgb, 18, 18, 22), calc(var(--frost-chrome, 0.62) * 0.82));
+  border-color: color-mix(in srgb, var(--border) 50%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.05));
+}
+
+.terminal-pane.active .pane-titlebar {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  box-shadow:
+    0 2px 10px -2px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13)),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.terminal-pane .pane-titlebar.draggable {
+  cursor: grab;
+}
+
+.terminal-pane .pane-titlebar.draggable:active {
+  cursor: grabbing;
+}
+
+.terminal-pane .pane-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+
+.terminal-pane .pane-titlebar:hover .pane-close-btn {
+  opacity: 1;
+}
+
+.terminal-pane .pane-close-btn:hover {
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--error);
+}
+
+.terminal-pane .pane-maximize-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  color: var(--text-secondary, #888);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.15s, background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+
+.terminal-pane .pane-titlebar:hover .pane-maximize-btn {
+  opacity: 1;
+  color: var(--text-primary, #ccc);
+}
+
+.terminal-pane.maximized .pane-maximize-btn {
+  opacity: 1;
+  color: var(--accent, #7c6af7);
+}
+
+.terminal-pane .pane-maximize-btn:hover {
+  background: var(--bg-hover, rgba(128,128,128,0.15));
+  color: var(--text-primary, #fff);
+  opacity: 1;
+}
+
+/* ── Pane title ── */
+.terminal-pane .pane-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  overflow: hidden;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.terminal-pane .pane-agent-badge {
+  flex-shrink: 0;
+  max-width: 132px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pane .pane-title-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.terminal-pane .pane-title-main {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pane .pane-title-summary {
+  min-width: 0;
+  flex: 1;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0.82;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pane.active .pane-title {
+  color: var(--text-secondary);
+}
+
+.terminal-pane .pane-title:hover {
+  color: var(--text-primary);
+}
+
+.terminal-pane .pane-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.3;
+  flex-shrink: 0;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.terminal-pane .pane-status-dot.running {
+  background: var(--success);
+  opacity: 1;
+}
+
+/* ── xterm container ── */
+.terminal-pane .xterm-container {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  padding: 6px 6px 8px 6px;
+  background:
+    radial-gradient(140% 120% at 0% 0%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 48%),
+    transparent;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+.terminal-pane:not(.active):not(.dead) .xterm-container {
+  opacity: 0.96;
+  filter: saturate(0.98);
+}
+
+.terminal-pane .xterm-container .xterm,
+.terminal-pane .xterm-container .xterm-rows {
+  font-family: var(--terminal-font-family, monospace) !important;
+}
+
+.terminal-pane .xterm-container .xterm {
+  height: 100%;
+  width: 100%;
+}
+
+.terminal-pane .xterm-container .xterm-screen {
+  height: 100%;
+}
+
+.terminal-pane .xterm-container .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  background-color: transparent !important;
+  overflow-y: scroll;
+}
+
+.terminal-pane .xterm-container .xterm-helper-textarea {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── Per-pane resize handles ── */
+.terminal-pane .pane-resize-handle {
+  position: absolute;
+  z-index: 15;
+  transition: background 0.15s;
+}
+
+.terminal-pane .pane-resize-left,
+.terminal-pane .pane-resize-right {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.terminal-pane .pane-resize-left { left: 0; }
+.terminal-pane .pane-resize-right { right: 0; }
+
+.terminal-pane .pane-resize-top,
+.terminal-pane .pane-resize-bottom {
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+}
+
+.terminal-pane .pane-resize-top { top: 0; }
+.terminal-pane .pane-resize-bottom { bottom: 0; }
+
+.terminal-pane .pane-resize-handle:hover {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* ── Role dot inline with title ── */
+.terminal-pane .role-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+
+/* ── Role picker popover ── */
+.terminal-pane .role-picker {
+  position: absolute;
+  top: 46px;
+  left: 9px;
+  z-index: 50;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%),
+    rgba(var(--bg-secondary-rgb, 18, 18, 22), var(--frost-chrome, 0.62));
+  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--glass-shadow, 0 8px 24px rgba(0, 0, 0, 0.35)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+  min-width: 200px;
+}
+
+.terminal-pane .role-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.terminal-pane .role-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.terminal-pane .role-chip:hover {
+  background: var(--bg-hover, rgba(128,128,128,0.15));
+  color: var(--text-primary);
+  border-color: var(--border-hover, var(--accent-light));
+}
+
+.terminal-pane .role-chip.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--text-primary);
+}
+
+.terminal-pane .role-chip-clear {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.terminal-pane .role-custom-row {
+  display: flex;
+  gap: 4px;
+}
+
+.terminal-pane .role-custom-input {
+  flex: 1;
+  padding: 3px 7px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.terminal-pane .role-custom-input:focus {
+  border-color: var(--accent);
+}
+
+.terminal-pane .role-custom-apply {
+  padding: 3px 10px;
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  color: var(--button-text, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+
+.terminal-pane .role-custom-apply:hover {
+  opacity: 0.85;
+}

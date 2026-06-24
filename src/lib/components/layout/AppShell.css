@@ -63,6 +63,128 @@
   pointer-events: auto;
 }
 
+/* Utility drawers — edge slide-overs that overlay the rooms (not pushing them),
+   each with a tab-strip header + close button. The LEFT drawer hosts the
+   workspace navigation (Files / Search / Source Control / …); the RIGHT drawer
+   hosts the summoned tools (Toolbox / HTTP / DB / Containers / Env). Both share
+   the .utility-drawer chrome and differ only in which edge they dock to. */
+.app-shell .utility-drawer {
+  position: absolute;
+  top: 0;
+  /* Stop above the floating bottom dock/composer cluster instead of running the
+     full height behind it (same clearance the rooms use). */
+  bottom: var(--overlay-clear, 128px);
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell .right-utility-drawer {
+  right: 0;
+  box-shadow: -14px 0 44px rgba(0, 0, 0, 0.34);
+}
+
+.app-shell .left-utility-drawer {
+  left: 0;
+  box-shadow: 14px 0 44px rgba(0, 0, 0, 0.34);
+}
+
+.app-shell .utility-drawer.resizing {
+  user-select: none;
+}
+
+.app-shell .right-drawer-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+/* Left drawer resizes from its right edge (mirror of the right drawer). */
+.app-shell .left-drawer-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.app-shell .utility-drawer .drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.app-shell .utility-drawer .drawer-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.app-shell .utility-drawer .drawer-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.app-shell .utility-drawer .drawer-tab-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.app-shell .utility-drawer .drawer-tab-btn.active {
+  background: color-mix(in srgb, var(--accent, #7c6af7) 22%, transparent);
+  color: var(--text-primary);
+}
+
+.app-shell .utility-drawer .drawer-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.app-shell .utility-drawer .drawer-close-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.app-shell .utility-drawer .drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.app-shell .utility-drawer .drawer-body > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .app-shell .rooms-table {
   flex: 1;
   min-height: 0;
@@ -460,6 +582,46 @@
   opacity: 1;
   background-color: color-mix(in srgb, var(--bg-hover) 86%, transparent);
 }
+
+/* Free-form mode: invisible edge + corner resize hit-targets so a panel can be
+   grabbed from any side or angle. Corners sit above the edges, and all sit
+   below the bottom-right grip so that classic handle stays clickable. */
+.app-shell .room-resize-edge {
+  position: absolute;
+  z-index: 7;
+}
+
+/* Edges — thin strips inset from the corners. */
+.app-shell .room-resize-n,
+.app-shell .room-resize-s {
+  left: 12px;
+  right: 12px;
+  height: 9px;
+  cursor: ns-resize;
+}
+.app-shell .room-resize-e,
+.app-shell .room-resize-w {
+  top: 12px;
+  bottom: 12px;
+  width: 9px;
+  cursor: ew-resize;
+}
+.app-shell .room-resize-n { top: -5px; }
+.app-shell .room-resize-s { bottom: -5px; }
+.app-shell .room-resize-e { right: -5px; }
+.app-shell .room-resize-w { left: -5px; }
+
+/* Corners — small squares overlapping both adjacent edges. */
+.app-shell .room-resize-ne,
+.app-shell .room-resize-nw,
+.app-shell .room-resize-sw {
+  width: 18px;
+  height: 18px;
+  z-index: 8;
+}
+.app-shell .room-resize-ne { top: -5px; right: -5px; cursor: nesw-resize; }
+.app-shell .room-resize-nw { top: -5px; left: -5px; cursor: nwse-resize; }
+.app-shell .room-resize-sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
 
 .app-shell .room-kind,
 .app-shell .room-card-kind {
@@ -1641,247 +1803,4 @@
   .app-shell ::view-transition-new(root) {
     animation-duration: 0.001ms !important;
   }
-}
-
-/* Utility flyout drawer on the right side */
-.app-shell .utility-drawer {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  bottom: calc(var(--overlay-clear) + 14px); /* Clear the floating bottom controls */
-  width: 420px;
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  background: var(--glass-bg, rgba(23, 23, 25, 0.72));
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.6);
-  border-radius: 16px;
-  overflow: hidden;
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
-  animation: slideInRight 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes slideInRight {
-  from {
-    transform: translateX(30px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.app-shell .drawer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.app-shell .drawer-tabs {
-  display: flex;
-  gap: 4px;
-}
-
-.app-shell .drawer-tab-btn {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.16s ease, color 0.16s ease;
-}
-
-.app-shell .drawer-tab-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.app-shell .drawer-tab-btn.active {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.app-shell .drawer-close-btn {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.16s ease, color 0.16s ease;
-}
-
-.app-shell .drawer-close-btn:hover {
-  background: rgba(248, 113, 113, 0.12);
-  color: var(--error);
-}
-
-.app-shell .drawer-body {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Floating widget styling */
-.app-shell .floating-widget {
-  width: 280px;
-  background: var(--glass-bg, rgba(23, 23, 25, 0.8));
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border);
-  box-shadow: 0 16px 48px -12px rgba(0, 0, 0, 0.5);
-  border-radius: 14px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  transition: box-shadow 0.16s ease, border-color 0.16s ease;
-}
-
-.app-shell .floating-widget.dragging {
-  box-shadow: 0 24px 64px -8px rgba(0, 0, 0, 0.6);
-  border-color: var(--accent);
-  cursor: grabbing;
-}
-
-.app-shell .widget-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.03);
-  cursor: grab;
-  user-select: none;
-}
-
-.app-shell .widget-title {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
-.app-shell .widget-close-btn {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.16s ease, color 0.16s ease;
-}
-
-.app-shell .widget-close-btn:hover {
-  background: rgba(248, 113, 113, 0.12);
-  color: var(--error);
-}
-
-.app-shell .widget-body {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-/* DevPet custom float adjustments */
-.app-shell .devpet-widget {
-  width: 300px;
-  height: 430px;
-}
-
-.app-shell .devpet-widget .devpet-panel {
-  border-radius: 0;
-  background: transparent;
-  border: 0;
-}
-
-/* YouTube custom float adjustments */
-.app-shell .youtube-widget {
-  width: 380px;
-  height: 290px;
-  resize: both;
-  min-width: 280px;
-  min-height: 180px;
-}
-
-.app-shell .youtube-widget .youtube-panel {
-  border-radius: 0;
-  background: transparent;
-  border: 0;
-}
-
-/* Left utility flyout drawer */
-.app-shell .left-utility-drawer {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  bottom: calc(var(--overlay-clear) + 14px); /* Clear the floating bottom controls */
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  background: var(--glass-bg, rgba(23, 23, 25, 0.72));
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.6);
-  border-radius: 16px;
-  overflow: hidden;
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
-  animation: slideInLeft 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes slideInLeft {
-  from {
-    transform: translateX(-30px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-/* Ensure no transitions are active while resizing to avoid pointer lag */
-.app-shell .left-utility-drawer.resizing {
-  transition: none !important;
-}
-
-.app-shell .left-drawer-resize-handle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 4px;
-  cursor: col-resize;
-  z-index: 10;
-  transition: background 0.2s ease;
-}
-
-.app-shell .left-drawer-resize-handle:hover,
-.app-shell .left-drawer-resize-handle:active {
-  background: var(--accent);
 }

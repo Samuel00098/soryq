@@ -13,7 +13,7 @@
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
-.orc-header {
+.orc .orc-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -28,7 +28,7 @@
   z-index: 2;
 }
 
-.orc-title {
+.orc .orc-title {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -40,7 +40,7 @@
   pointer-events: none;
 }
 
-.orc-title-dot {
+.orc .orc-title-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -61,7 +61,7 @@
   }
 }
 
-.orc-header-right {
+.orc .orc-header-right {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -69,7 +69,7 @@
   cursor: default;
 }
 
-.orc-reset-btn {
+.orc .orc-reset-btn {
   font-size: 9.5px;
   font-weight: 650;
   text-transform: uppercase;
@@ -84,7 +84,7 @@
   outline: none;
 }
 
-.orc-reset-btn:hover {
+.orc .orc-reset-btn:hover {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
@@ -92,11 +92,11 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
-.orc-reset-btn:active {
+.orc .orc-reset-btn:active {
   transform: translateY(0.5px);
 }
 
-.orc-icon-btn {
+.orc .orc-icon-btn {
   width: 22px;
   height: 22px;
   border-radius: 5px;
@@ -111,20 +111,20 @@
   flex-shrink: 0;
 }
 
-.orc-icon-btn:hover {
+.orc .orc-icon-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
   border-color: var(--border);
 }
 
-.orc-icon-btn.close:hover {
+.orc .orc-icon-btn.close:hover {
   background: color-mix(in srgb, var(--error) 14%, var(--bg-primary));
   color: var(--error);
   border-color: color-mix(in srgb, var(--error) 20%, transparent);
 }
 
 /* ── Lock banner ─────────────────────────────────────────────────────────── */
-.orc-lock-banner {
+.orc .orc-lock-banner {
   padding: 6px 12px;
   font-size: 10.5px;
   color: var(--warning, #fbbf24);
@@ -134,7 +134,7 @@
 }
 
 /* ── Scroll body ─────────────────────────────────────────────────────────── */
-.orc-scroll {
+.orc .orc-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -149,7 +149,7 @@
 }
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
-.orc-empty {
+.orc .orc-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -166,7 +166,7 @@
   border-radius: 16px;
 }
 
-.orc-empty svg {
+.orc .orc-empty svg {
   color: var(--accent);
   opacity: 0.45;
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 30%, transparent));
@@ -182,24 +182,24 @@
   }
 }
 
-.orc-empty span {
+.orc .orc-empty span {
   font-weight: 450;
   color: var(--text-secondary);
   letter-spacing: -0.01em;
 }
 
 /* ── Chat bubbles ────────────────────────────────────────────────────────── */
-.orc-msg {
+.orc .orc-msg {
   display: flex;
   animation: orc-msg-slide 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   opacity: 0;
 }
 
-.orc-msg.user {
+.orc .orc-msg.user {
   justify-content: flex-end;
 }
 
-.orc-msg.assistant {
+.orc .orc-msg.assistant {
   justify-content: flex-start;
 }
 
@@ -214,7 +214,7 @@
   }
 }
 
-.orc-bubble {
+.orc .orc-bubble {
   max-width: 88%;
   font-size: 12px;
   line-height: 1.5;
@@ -224,7 +224,7 @@
   white-space: pre-wrap;
 }
 
-.orc-msg.user .orc-bubble {
+.orc .orc-msg.user .orc-bubble {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, var(--bg-primary)), color-mix(in srgb, var(--accent) 12%, var(--bg-primary)));
   color: var(--text-primary);
   border-radius: 16px 16px 4px 16px;
@@ -232,7 +232,7 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.orc-msg.assistant .orc-bubble {
+.orc .orc-msg.assistant .orc-bubble {
   background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -242,7 +242,7 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.orc-msg.assistant .orc-bubble.completion-bubble {
+.orc .orc-msg.assistant .orc-bubble.completion-bubble {
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -253,13 +253,13 @@
 }
 
 /* ── Typing dots ─────────────────────────────────────────────────────────── */
-.orc-typing {
+.orc .orc-typing {
   display: inline-flex;
   gap: 3px;
   padding: 2px 0;
 }
 
-.orc-typing span {
+.orc .orc-typing span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -267,11 +267,11 @@
   animation: orc-dot 1.2s ease-in-out infinite;
 }
 
-.orc-typing span:nth-child(2) {
+.orc .orc-typing span:nth-child(2) {
   animation-delay: 0.18s;
 }
 
-.orc-typing span:nth-child(3) {
+.orc .orc-typing span:nth-child(3) {
   animation-delay: 0.36s;
 }
 
@@ -287,7 +287,7 @@
 }
 
 /* ── Recon summary ───────────────────────────────────────────────────────── */
-.orc-recon {
+.orc .orc-recon {
   font-size: 10px;
   line-height: 1.5;
   color: var(--text-secondary);
@@ -303,7 +303,7 @@
 }
 
 /* ── Completion cards ────────────────────────────────────────────────────── */
-.orc-completion {
+.orc .orc-completion {
   --cc: var(--success, #4ade80);
   display: flex;
   align-items: flex-start;
@@ -318,33 +318,33 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.orc-completion:hover {
+.orc .orc-completion:hover {
   border-color: color-mix(in srgb, var(--cc) 35%, var(--border));
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 3px color-mix(in srgb, var(--cc) 25%, transparent);
 }
 
-.orc-completion-failed {
+.orc .orc-completion-failed {
   --cc: var(--error, #f87171);
 }
 
-.orc-completion-blocked {
+.orc .orc-completion-blocked {
   --cc: var(--warning, #fbbf24);
 }
 
-.orc-comp-icon {
+.orc .orc-comp-icon {
   font-size: 13px;
   flex-shrink: 0;
   margin-top: 1px;
 }
 
-.orc-comp-body {
+.orc .orc-comp-body {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
 }
 
-.orc-comp-headline {
+.orc .orc-comp-headline {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -354,16 +354,16 @@
   color: var(--text-primary);
 }
 
-.orc-comp-status {
+.orc .orc-comp-status {
   color: var(--cc);
 }
 
-.orc-comp-time {
+.orc .orc-comp-time {
   font-size: 10px;
   color: var(--text-muted);
 }
 
-.orc-comp-task {
+.orc .orc-comp-task {
   font-size: 10.5px;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -371,14 +371,14 @@
   text-overflow: ellipsis;
 }
 
-.orc-comp-reason {
+.orc .orc-comp-reason {
   font-size: 10px;
   color: var(--text-muted);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.orc-comp-summary {
+.orc .orc-comp-summary {
   margin: 4px 0 0;
   font-size: 10.5px;
   line-height: 1.5;
@@ -387,7 +387,7 @@
   word-break: break-word;
 }
 
-.orc-comp-loading {
+.orc .orc-comp-loading {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -397,12 +397,12 @@
   font-style: italic;
 }
 
-.orc-typing-sm {
+.orc .orc-typing-sm {
   display: inline-flex;
   gap: 2px;
 }
 
-.orc-typing-sm span {
+.orc .orc-typing-sm span {
   width: 3px;
   height: 3px;
   border-radius: 50%;
@@ -410,23 +410,23 @@
   animation: orc-dot 1.2s ease-in-out infinite;
 }
 
-.orc-typing-sm span:nth-child(2) {
+.orc .orc-typing-sm span:nth-child(2) {
   animation-delay: 0.2s;
 }
 
-.orc-typing-sm span:nth-child(3) {
+.orc .orc-typing-sm span:nth-child(3) {
   animation-delay: 0.4s;
 }
 
 /* ── Dispatch chips ──────────────────────────────────────────────────────── */
-.orc-chips {
+.orc .orc-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   margin-top: 7px;
 }
 
-.orc-chip {
+.orc .orc-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -441,14 +441,14 @@
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.orc-chip:hover {
+.orc .orc-chip:hover {
   border-color: color-mix(in srgb, var(--c, var(--accent)) 40%, var(--border));
   color: var(--text-primary);
   transform: translateY(-0.5px);
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-.chip-dot {
+.orc .chip-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -457,7 +457,7 @@
 }
 
 /* ── Resize handle ───────────────────────────────────────────────────────── */
-.orc-resize-handle {
+.orc .orc-resize-handle {
   position: absolute;
   bottom: 0;
   right: 0;
@@ -486,6 +486,6 @@
   transition: opacity 0.15s;
 }
 
-.orc-resize-handle:hover {
+.orc .orc-resize-handle:hover {
   opacity: 1;
 }

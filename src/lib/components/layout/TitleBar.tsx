@@ -9,6 +9,7 @@ import { isTauriRuntime } from '$lib/utils/tauri';
 import { useStore } from '$lib/react/useStore';
 import WorkspaceSwitcher from '$lib/components/workspace/WorkspaceSwitcher.tsx';
 import ProjectSwitcher from '$lib/components/workspace/ProjectSwitcher.tsx';
+import AmbientSwitcher from '$lib/components/layout/AmbientSwitcher.tsx';
 import packageJson from '../../../../package.json';
 import './TitleBar.css';
 
@@ -196,8 +197,16 @@ export default function TitleBar() {
         )}
       </div>
 
-      {/* Right side: Settings + Window controls */}
+      {/* Right side: Mode switcher + Settings + Window controls */}
       <div className="titlebar-right">
+        {/* Ambient layout switcher (Focus / Split / Canvas / Preview) */}
+        {workspace && (
+          <>
+            <AmbientSwitcher />
+            <div className="tb-divider" style={dividerStyle}></div>
+          </>
+        )}
+
         {/* Quick Capture button */}
         <button
           className="icon-btn tb-collapse-1"

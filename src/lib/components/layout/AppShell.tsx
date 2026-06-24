@@ -25,6 +25,7 @@ import ToolboxPanel from '$lib/components/toolbox/ToolboxPanelLazy.tsx';
 import TasksPanel from '$lib/components/workspace/TasksPanelLazy.tsx';
 import PreviewPanel from '$lib/components/preview/PreviewPanelLazy.tsx';
 import YouTubePanel from '$lib/components/youtube/YouTubePanelLazy.tsx';
+import FloatingYouTube from '$lib/components/youtube/FloatingYouTube.tsx';
 import AndroidPanel from '$lib/components/mobile/AndroidPanelLazy.tsx';
 import IosPanel from '$lib/components/mobile/IosPanelLazy.tsx';
 import { useLayoutStore } from '$lib/stores/zustand/layout';
@@ -43,14 +44,10 @@ import {
   toggleDbVisible,
   toggleContainersVisible,
   toggleToolboxVisible,
-  toggleOrchestratorVisible,
-  togglePetVisible,
+  RIGHT_DRAWER_TOOLS,
   toggleYoutubeVisible,
-  toggleAndroidVisible,
-  toggleIosVisible,
   openQuickCapture,
   openEnvManager,
-  envManagerOpen,
 } from '$lib/stores/layout';
 import { sketchCanvasOpen, toggleSketchCanvas } from '$lib/stores/sketch';
 import { openDailyNote } from '$lib/stores/dailyNote';
@@ -77,6 +74,7 @@ import { agentCenterOpen } from '$lib/stores/orchestrator';
 import { useUpdaterStore } from '$lib/stores/zustand/updater';
 import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
 import type { ActiveView, SidebarTab } from '$lib/types/layout';
+import type { RightDrawerTool } from '$lib/stores/layout';
 import { layoutControlCommand, publishLayoutSnapshot } from '$lib/stores/layoutControl';
 import './AppShell.css';
 
@@ -153,6 +151,12 @@ const GALLERY_MIN_HEIGHT = 200;
 // Wide landscape rectangles (~16:9) so panels read as rectangles, not squares.
 const GALLERY_DEFAULT_WIDTH = 760;
 const GALLERY_DEFAULT_HEIGHT = 430;
+
+// The eight directions a canvas panel can be resized from: four edges + four
+// corners. Each string encodes which edges the drag moves (n/s/e/w). 'se' is
+// the classic bottom-right grip (and the only one used in auto-grid mode).
+type RoomResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+const ROOM_RESIZE_DIRS: RoomResizeDir[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 
 // Freeform canvas ("gallery" mode) — pan/zoom of an infinite board of panels.
 const CANVAS_MIN_ZOOM = 0.3;
@@ -449,6 +453,63 @@ function Icon({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Title + icon for each right-utility-drawer tool, used by the drawer's tab
+// strip. Icons mirror the dock buttons so the same tool reads identically in
+// both places.
+const DRAWER_TOOL_META: Record<RightDrawerTool, { title: string; icon: React.ReactNode }> = {
+  toolbox: {
+    title: 'Dev Toolbox',
+    icon: <Icon><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></Icon>,
+  },
+  http: {
+    title: 'HTTP Client',
+    icon: <Icon><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></Icon>,
+  },
+  db: {
+    title: 'Database',
+    icon: <Icon><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" /></Icon>,
+  },
+  containers: {
+    title: 'Containers',
+    icon: <Icon><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="M4 12.5 12 17l8-4.5" /><path d="M4 17.5 12 22l8-4.5" /></Icon>,
+  },
+  env: {
+    title: 'Environment',
+    icon: <Icon><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Icon>,
+  },
+  android: {
+    title: 'Android',
+    icon: <Icon><path d="M5 12a7 7 0 0 1 14 0v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" /><path d="M7.6 5 6.1 2.6M16.4 5l1.5-2.4" /><circle cx="9.5" cy="10" r="0.6" fill="currentColor" stroke="none" /><circle cx="14.5" cy="10" r="0.6" fill="currentColor" stroke="none" /></Icon>,
+  },
+  ios: {
+    title: 'iOS Simulator',
+    icon: <Icon><rect x="6" y="2" width="12" height="20" rx="3" /><line x1="10" y1="18" x2="14" y2="18" /></Icon>,
+  },
+};
+
+// Tools hosted in the LEFT utility drawer — the sidebar-content tabs, backed by
+// `sidebarTab`. Order = tab-strip / dock order.
+const LEFT_DRAWER_TOOLS = ['files', 'search', 'git', 'snapshots', 'snippets'] as const;
+type LeftDrawerTool = (typeof LEFT_DRAWER_TOOLS)[number];
+const LEFT_TOOL_META: Record<LeftDrawerTool, { title: string; icon: React.ReactNode }> = {
+  files: { title: 'Files', icon: <Icon><path d="M3 7a2 2 0 0 1 2-2h3.586a2 2 0 0 1 1.414.586L11.414 7H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></Icon> },
+  search: { title: 'Search', icon: <Icon><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></Icon> },
+  git: { title: 'Source Control', icon: <Icon><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 15V9a4 4 0 0 0-4-4H9" /><line x1="6" y1="9" x2="6" y2="15" /></Icon> },
+  snapshots: { title: 'Workspace Snapshots', icon: <Icon><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /><circle cx="12" cy="10" r="3" /></Icon> },
+  snippets: { title: 'Shell Snippets', icon: <Icon><path d="M4 17l6-6-6-6M12 19h8" /></Icon> },
+};
+
+// The RIGHT drawer hosts the layout-backed tools (RIGHT_DRAWER_TOOLS: Toolbox /
+// HTTP / DB / Containers / Env) PLUS Orchestrator and DevPet, which render their
+// own panels in the drawer body.
+type RightTool = RightDrawerTool | 'orchestrator' | 'pet';
+const RIGHT_TOOLS_ALL: RightTool[] = [...RIGHT_DRAWER_TOOLS, 'orchestrator', 'pet'];
+const RIGHT_TOOL_META: Record<RightTool, { title: string; icon: React.ReactNode }> = {
+  ...DRAWER_TOOL_META,
+  orchestrator: { title: 'Orchestrator', icon: <Icon><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M12 7v4" /><circle cx="12" cy="5" r="2" /><path d="M8 16h.01M16 16h.01" /></Icon> },
+  pet: { title: 'DevPet', icon: <Icon><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></Icon> },
+};
+
 function XIcon() {
   return (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -521,77 +582,6 @@ function SidebarContent({ tab }: { tab: SidebarTab }) {
   return <FileExplorer />;
 }
 
-interface FloatingWidgetProps {
-  title: string;
-  onClose: () => void;
-  defaultPosition?: { x: number; y: number };
-  children: React.ReactNode;
-  className?: string;
-}
-
-function FloatingWidget({ title, onClose, defaultPosition = { x: 100, y: 100 }, children, className = '' }: FloatingWidgetProps) {
-  const [position, setPosition] = useState(defaultPosition);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const positionStart = useRef({ x: 0, y: 0 });
-
-  function handlePointerDown(e: React.PointerEvent) {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (!target.closest('.widget-drag-handle') || target.closest('button')) return;
-
-    setIsDragging(true);
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    positionStart.current = { ...position };
-    target.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  }
-
-  function handlePointerMove(e: React.PointerEvent) {
-    if (!isDragging) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    setPosition({
-      x: positionStart.current.x + dx,
-      y: positionStart.current.y + dy,
-    });
-  }
-
-  function handlePointerUp(e: React.PointerEvent) {
-    if (!isDragging) return;
-    setIsDragging(false);
-    const target = e.target as HTMLElement;
-    target.releasePointerCapture(e.pointerId);
-  }
-
-  return (
-    <div
-      className={`floating-widget bento-card ${className}${isDragging ? ' dragging' : ''}`}
-      style={{
-        position: 'absolute',
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        zIndex: 1000,
-      }}
-    >
-      <header
-        className="widget-header widget-drag-handle"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-      >
-        <span className="widget-title">{title}</span>
-        <button className="widget-close-btn" onClick={onClose} aria-label="Close widget">
-          <XIcon />
-        </button>
-      </header>
-      <div className="widget-body">
-        {children}
-      </div>
-    </div>
-  );
-}
-
 import { useGlobalTooltips } from '$lib/react/useGlobalTooltips.ts';
 
 export default function AppShell() {
@@ -662,10 +652,10 @@ export default function AppShell() {
   const activeFile = useEditorStore((s) => s.activeFile);
   const auxTabsRef = useAction<HTMLDivElement>(clampHorizontalScroll);
   const layoutCommand = useStore(layoutControlCommand);
-  const isEnvManagerOpen = useStore(envManagerOpen);
 
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [rightDrawerResizing, setRightDrawerResizing] = useState(false);
   const [auxResizing, setAuxResizing] = useState(false);
   const [auxRowResizing, setAuxRowResizing] = useState(false);
   const [auxPanelWidth, setAuxPanelWidth] = useState(layoutState.auxPanelWidth);
@@ -721,14 +711,22 @@ export default function AppShell() {
   }, [canvasRoomClusters]);
 
   const sidebarResizeRef = useRef({ startX: 0, startWidth: 0 });
+  const rightDrawerResizeRef = useRef({ startX: 0, startWidth: 0 });
   const auxResizeRef = useRef({ startX: 0, startWidth: 0 });
   const auxRowResizeRef = useRef({ startY: 0, startHeight: 0 });
   const galleryResizeRef = useRef<{
     room: RoomId;
+    dir: RoomResizeDir;
     startX: number;
     startY: number;
     width: number;
     height: number;
+    // The panel's world position at gesture start, and the live next position —
+    // dragging the top/left edges moves the anchor so the opposite edge holds.
+    origX: number;
+    origY: number;
+    nextX: number;
+    nextY: number;
     zoom: number;
     element: HTMLElement;
     nextWidth: number;
@@ -765,8 +763,9 @@ export default function AppShell() {
         { id: 'preview' as const, visible: layoutState.previewVisible },
         { id: 'review' as const, visible: layoutState.reviewVisible },
         { id: 'tasks' as const, visible: layoutState.tasksVisible },
-        { id: 'android' as const, visible: layoutState.androidVisible },
-        { id: 'ios' as const, visible: layoutState.iosVisible },
+        // Right utility drawer: http/db/containers/toolbox/env/android/ios +
+        // orchestrator/pet. Left drawer: the nav tabs. YouTube: free-floating
+        // pop-up. None of those are rooms in the ambient grid.
       ].filter((panel) => panel.visible),
     [layoutState],
   );
@@ -782,12 +781,14 @@ export default function AppShell() {
 
   const openRooms = useMemo<RoomId[]>(
     () => [
+      // 'workspace' and 'orchestrator' are no longer center rooms — their content
+      // renders in the LEFT utility drawer (Files/Search/…, plus Orchestrator and
+      // DevPet as tabs). See renderLeftUtilityDrawer.
       ...(terminalRoomOpen ? (['terminal'] as RoomId[]) : []),
-      ...(centerOpen ? (['orchestrator'] as RoomId[]) : []),
       ...agentRoomIds,
       ...visiblePanels.map((panel) => panel.id),
     ],
-    [agentRoomIds, centerOpen, terminalRoomOpen, visiblePanels],
+    [agentRoomIds, terminalRoomOpen, visiblePanels],
   );
 
   const visibleRooms = useMemo(
@@ -942,7 +943,7 @@ export default function AppShell() {
   }, [ambientLayout, layoutState.previewVisible]);
 
   const auxTabsNarrow = auxPanelWidth < 300;
-  const resizing = sidebarResizing || auxResizing || auxRowResizing;
+  const resizing = sidebarResizing || auxResizing || auxRowResizing || rightDrawerResizing;
 
   function auxMaxWidth(width = windowWidth) {
     const sidebar = 48 + (layoutState.sidebarVisible ? layoutState.sidebarWidth : 0);
@@ -1068,7 +1069,7 @@ export default function AppShell() {
     const missing = orderedVisibleRooms.filter((room) => !(room in currentPositions));
     if (missing.length === 0) {
       // Check if we need to clean up deleted rooms from states
-      const activeKeys = new Set<string>(orderedVisibleRooms);
+      const activeKeys = new Set(orderedVisibleRooms);
       let needsCleanup = false;
       Object.keys(currentPositions).forEach(key => {
         if (!activeKeys.has(key)) needsCleanup = true;
@@ -1101,7 +1102,7 @@ export default function AppShell() {
     const nextClusters = { ...currentClusters };
 
     // Clean up closed rooms first
-    const activeKeys = new Set<string>(orderedVisibleRooms);
+    const activeKeys = new Set(orderedVisibleRooms);
     Object.keys(nextPositions).forEach(key => {
       if (!activeKeys.has(key)) delete nextPositions[key];
     });
@@ -1215,7 +1216,7 @@ export default function AppShell() {
 
         roomsInCluster.forEach((r, i) => {
           const coord = coords[i];
-          const rSize = gallerySizes[r] ?? getRoomDefaultSizeHelper(r as RoomId, nextClusters);
+          const rSize = gallerySizes[r] ?? getRoomDefaultSizeHelper(r, nextClusters);
           const colIdx = Math.abs(coord.col);
           colWidth[colIdx] = Math.max(colWidth[colIdx], rSize.width);
           rowHeight[coord.row] = Math.max(rowHeight[coord.row], rSize.height);
@@ -1267,8 +1268,31 @@ export default function AppShell() {
       const drag = galleryResizeRef.current;
       if (!drag) return;
       const scale = drag.zoom || 1;
-      drag.nextWidth = Math.max(GALLERY_MIN_WIDTH, drag.width + (event.clientX - drag.startX) / scale);
-      drag.nextHeight = Math.max(GALLERY_MIN_HEIGHT, drag.height + (event.clientY - drag.startY) / scale);
+      const dir = drag.dir;
+      // Pointer delta in world units (divided by zoom).
+      const dx = (event.clientX - drag.startX) / scale;
+      const dy = (event.clientY - drag.startY) / scale;
+
+      // East/south edges grow from the top-left anchor; west/north edges shrink
+      // the width/height and slide the anchor so the opposite edge stays put.
+      let w = drag.width;
+      let h = drag.height;
+      let x = drag.origX;
+      let y = drag.origY;
+      if (dir.includes('e')) w = Math.max(GALLERY_MIN_WIDTH, drag.width + dx);
+      if (dir.includes('s')) h = Math.max(GALLERY_MIN_HEIGHT, drag.height + dy);
+      if (dir.includes('w')) {
+        w = Math.max(GALLERY_MIN_WIDTH, drag.width - dx);
+        x = drag.origX + (drag.width - w);
+      }
+      if (dir.includes('n')) {
+        h = Math.max(GALLERY_MIN_HEIGHT, drag.height - dy);
+        y = drag.origY + (drag.height - h);
+      }
+      drag.nextWidth = w;
+      drag.nextHeight = h;
+      drag.nextX = x;
+      drag.nextY = y;
 
       if (drag.rafId !== null) return;
       drag.rafId = requestAnimationFrame(() => {
@@ -1277,6 +1301,9 @@ export default function AppShell() {
         latest.rafId = null;
         latest.element.style.width = `${latest.nextWidth}px`;
         latest.element.style.height = `${latest.nextHeight}px`;
+        // Only the west/north edges move the panel's own anchor.
+        if (latest.dir.includes('w')) latest.element.style.left = `${latest.nextX}px`;
+        if (latest.dir.includes('n')) latest.element.style.top = `${latest.nextY}px`;
 
         const dW = latest.nextWidth - latest.width;
         const dH = latest.nextHeight - latest.height;
@@ -1305,9 +1332,12 @@ export default function AppShell() {
       }
       drag.element.style.width = `${drag.nextWidth}px`;
       drag.element.style.height = `${drag.nextHeight}px`;
+      if (drag.dir.includes('w')) drag.element.style.left = `${drag.nextX}px`;
+      if (drag.dir.includes('n')) drag.element.style.top = `${drag.nextY}px`;
 
       const dW = drag.nextWidth - drag.width;
       const dH = drag.nextHeight - drag.height;
+      const movedAnchor = drag.dir.includes('w') || drag.dir.includes('n');
 
       setGallerySizes((current) => ({
         ...current,
@@ -1316,6 +1346,8 @@ export default function AppShell() {
 
       setCanvasPositions((current) => {
         const next = { ...current };
+        // Commit the resized panel's own anchor when a top/left edge moved it.
+        if (movedAnchor) next[drag.room] = { x: drag.nextX, y: drag.nextY };
         drag.shiftPanels.forEach((shift) => {
           if (shift.dir === 'left') {
             next[shift.room] = { x: shift.origX - dW, y: shift.origY };
@@ -1478,6 +1510,14 @@ export default function AppShell() {
         useLayoutStore.setState({
           sidebarWidth: Math.max(180, Math.min(maxAllowedWidth, sidebarResizeRef.current.startWidth + delta)),
         });
+      } else if (rightDrawerResizing) {
+        // Drawer is anchored to the right edge, so dragging its left handle
+        // leftwards (negative deltaX) widens it.
+        const delta = (rightDrawerResizeRef.current.startX - event.clientX) / scale;
+        const maxAllowedWidth = Math.min(720, windowWidth / scale - 250 - 48);
+        useLayoutStore.setState({
+          rightDrawerWidth: Math.max(280, Math.min(maxAllowedWidth, rightDrawerResizeRef.current.startWidth + delta)),
+        });
       } else if (auxResizing) {
         const delta = (event.clientX - auxResizeRef.current.startX) / scale;
         const nextWidth = auxResizeRef.current.startWidth - delta;
@@ -1495,13 +1535,19 @@ export default function AppShell() {
 
     function handleMouseUp() {
       const wasAuxResize = auxResizing || auxRowResizing;
+      const wasRightDrawerResize = rightDrawerResizing;
       setSidebarResizing(false);
+      setRightDrawerResizing(false);
       setAuxResizing(false);
       setAuxRowResizing(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       if (wasAuxResize) {
         useLayoutStore.setState({ auxPanelWidth, auxEditorHeight });
+      }
+      if (wasRightDrawerResize) {
+        // Persist the final width (the live drag wrote straight to the store).
+        useLayoutStore.getState().setRightDrawerWidth(useLayoutStore.getState().rightDrawerWidth);
       }
     }
 
@@ -1511,7 +1557,7 @@ export default function AppShell() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [auxEditorHeight, auxPanelWidth, auxResizing, auxRowResizing, sidebarResizing, windowWidth, zoom]);
+  }, [auxEditorHeight, auxPanelWidth, auxResizing, auxRowResizing, sidebarResizing, rightDrawerResizing, windowWidth, zoom]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1563,7 +1609,7 @@ export default function AppShell() {
           setFocusedRoom('preview');
           break;
         case 'goToOrchestrator':
-          toggleOrchestratorVisible();
+          toggleRightTool('orchestrator');
           break;
         case 'goToReview':
           toggleReviewVisible();
@@ -1584,16 +1630,16 @@ export default function AppShell() {
           toggleToolboxVisible();
           break;
         case 'goToPet':
-          togglePetVisible();
+          toggleRightTool('pet');
           break;
         case 'goToYoutube':
           toggleYoutubeVisible();
           break;
         case 'goToAndroid':
-          toggleAndroidVisible();
+          toggleRightTool('android');
           break;
         case 'goToIos':
-          toggleIosVisible();
+          toggleRightTool('ios');
           break;
         case 'openSearch':
           toggleSidebarTab('search');
@@ -1653,6 +1699,179 @@ export default function AppShell() {
     sidebarResizeRef.current = { startX: event.clientX, startWidth: layoutState.sidebarWidth };
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+  }
+
+  function startRightDrawerResize(event: React.MouseEvent) {
+    event.preventDefault();
+    setRightDrawerResizing(true);
+    rightDrawerResizeRef.current = { startX: event.clientX, startWidth: layoutState.rightDrawerWidth };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
+
+  // --- LEFT utility drawer (workspace navigation) -------------------------
+  // Sidebar-content tabs only. Open == sidebarVisible; switching tabs only swaps
+  // the body (the frame stays mounted), so there's no close/reopen glitch.
+  const leftDrawerOpen = layoutState.sidebarVisible;
+  const leftActiveTool: LeftDrawerTool | null =
+    layoutState.sidebarVisible && (LEFT_DRAWER_TOOLS as readonly string[]).includes(layoutState.sidebarTab)
+      ? (layoutState.sidebarTab as LeftDrawerTool)
+      : null;
+  const leftDrawerTools = LEFT_DRAWER_TOOLS.filter((t) => t !== 'snapshots' || showSnapshotsTab);
+
+  function selectLeftTool(tool: LeftDrawerTool) {
+    persistLayoutPatch({ sidebarVisible: true, sidebarTab: tool as SidebarTab });
+  }
+  function closeLeftDrawer() {
+    persistLayoutPatch({ sidebarVisible: false });
+  }
+  function toggleLeftTool(tool: LeftDrawerTool) {
+    if (leftActiveTool === tool) closeLeftDrawer();
+    else selectLeftTool(tool);
+  }
+
+  function renderLeftUtilityDrawer() {
+    if (!leftDrawerOpen) return null;
+    return (
+      <aside
+        className={`utility-drawer left-utility-drawer bento-card${sidebarResizing ? ' resizing' : ''}`}
+        style={{ width: `${layoutState.sidebarWidth}px` }}
+        aria-label="Workspace navigation"
+      >
+        <header className="drawer-header">
+          <div className="drawer-tabs">
+            {leftDrawerTools.map((tool) => (
+              <button
+                key={tool}
+                className={`drawer-tab-btn${leftActiveTool === tool ? ' active' : ''}`}
+                onClick={() => selectLeftTool(tool)}
+                title={LEFT_TOOL_META[tool].title}
+                aria-label={LEFT_TOOL_META[tool].title}
+              >
+                {LEFT_TOOL_META[tool].icon}
+              </button>
+            ))}
+          </div>
+          <button
+            className="drawer-close-btn"
+            onClick={() => closeLeftDrawer()}
+            title="Close panel"
+            aria-label="Close panel"
+          >
+            <XIcon />
+          </button>
+        </header>
+        <div className="drawer-body">
+          <SidebarContent tab={layoutState.sidebarTab} />
+        </div>
+        <div
+          className="left-drawer-resize-handle"
+          onMouseDown={startSidebarResize}
+          role="separator"
+          aria-label="Resize panel"
+        />
+      </aside>
+    );
+  }
+
+  // --- RIGHT utility drawer (summoned tools) ------------------------------
+  // The layout-backed tools (Toolbox/HTTP/DB/Containers/Env) PLUS Orchestrator
+  // (backed by `agentCenterOpen`, a separate store) and DevPet (`petVisible`).
+  // One derived "active tool" + one selection handler that updates every backing
+  // flag together (React batches them) → switching only swaps the body, no glitch.
+  const rightActiveTool: RightTool | null = layoutState.toolboxVisible
+    ? 'toolbox'
+    : layoutState.httpVisible
+      ? 'http'
+      : layoutState.dbVisible
+        ? 'db'
+        : layoutState.containersVisible
+          ? 'containers'
+          : layoutState.envManagerOpen
+            ? 'env'
+            : layoutState.androidVisible
+              ? 'android'
+              : layoutState.iosVisible
+                ? 'ios'
+                : centerOpen
+                  ? 'orchestrator'
+                  : layoutState.petVisible
+                    ? 'pet'
+                    : null;
+  const rightDrawerOpen = rightActiveTool !== null;
+
+  function selectRightTool(tool: RightTool) {
+    if (tool === 'orchestrator') {
+      useLayoutStore.getState().setRightDrawerTool(null);
+      persistLayoutPatch({ petVisible: false });
+      agentCenterOpen.set(true);
+    } else if (tool === 'pet') {
+      useLayoutStore.getState().setRightDrawerTool(null);
+      agentCenterOpen.set(false);
+      persistLayoutPatch({ petVisible: true });
+    } else {
+      useLayoutStore.getState().setRightDrawerTool(tool);
+      persistLayoutPatch({ petVisible: false });
+      agentCenterOpen.set(false);
+    }
+  }
+  function closeRightDrawer() {
+    useLayoutStore.getState().setRightDrawerTool(null);
+    persistLayoutPatch({ petVisible: false });
+    agentCenterOpen.set(false);
+  }
+  function toggleRightTool(tool: RightTool) {
+    if (rightActiveTool === tool) closeRightDrawer();
+    else selectRightTool(tool);
+  }
+
+  function renderRightUtilityDrawer() {
+    if (!rightDrawerOpen) return null;
+    return (
+      <aside
+        className={`utility-drawer right-utility-drawer bento-card${rightDrawerResizing ? ' resizing' : ''}`}
+        style={{ width: `${layoutState.rightDrawerWidth}px` }}
+        aria-label="Utility drawer"
+      >
+        <div className="right-drawer-resize-handle" onMouseDown={startRightDrawerResize} />
+        <header className="drawer-header">
+          <div className="drawer-tabs">
+            {RIGHT_TOOLS_ALL.map((tool) => (
+              <button
+                key={tool}
+                className={`drawer-tab-btn${rightActiveTool === tool ? ' active' : ''}`}
+                onClick={() => selectRightTool(tool)}
+                title={RIGHT_TOOL_META[tool].title}
+                aria-label={RIGHT_TOOL_META[tool].title}
+              >
+                {RIGHT_TOOL_META[tool].icon}
+              </button>
+            ))}
+          </div>
+          <button
+            className="drawer-close-btn"
+            onClick={() => closeRightDrawer()}
+            title="Close drawer"
+            aria-label="Close drawer"
+          >
+            <XIcon />
+          </button>
+        </header>
+        <div className="drawer-body">
+          {rightActiveTool === 'orchestrator' ? (
+            <AgentCommandCenter />
+          ) : rightActiveTool === 'pet' ? (
+            <DevPetPanel />
+          ) : rightActiveTool === 'env' ? (
+            <Suspense fallback={null}>
+              <EnvManager embedded />
+            </Suspense>
+          ) : (
+            <PanelHost id={rightActiveTool} />
+          )}
+        </div>
+      </aside>
+    );
   }
 
   function startAuxResize(event: React.MouseEvent) {
@@ -1856,7 +2075,7 @@ export default function AppShell() {
     });
   }
 
-  function startGalleryResize(event: React.MouseEvent, room: RoomId) {
+  function startGalleryResize(event: React.MouseEvent, room: RoomId, dir: RoomResizeDir = 'se') {
     if (ambientLayout !== 'gallery') return;
     event.preventDefault();
     event.stopPropagation();
@@ -1866,6 +2085,7 @@ export default function AppShell() {
       width: element.offsetWidth || GALLERY_DEFAULT_WIDTH,
       height: element.offsetHeight || GALLERY_DEFAULT_HEIGHT,
     };
+    const pos = canvasPositions[room] ?? { x: 0, y: 0 };
     let columnRooms: RoomId[] = [];
     let rowRooms: RoomId[] = [];
     if (galleryAutoGrid) {
@@ -1888,7 +2108,9 @@ export default function AppShell() {
 
     const shiftPanels: Array<{ room: RoomId; dir: 'left' | 'down' | 'both'; origX: number; origY: number }> = [];
     const clusterId = canvasRoomClusters[room]?.anchorRoomId;
-    if (clusterId) {
+    // Neighbour reflow only makes sense for bottom-right growth; the new edge and
+    // corner handles resize (and reposition) just the panel itself.
+    if (dir === 'se' && clusterId) {
       const roomInfo = canvasRoomClusters[room];
       const roomCoord = getFreeformCoordinates(roomInfo.localIndex + 1)[roomInfo.localIndex];
       orderedVisibleRooms.forEach((peer) => {
@@ -1912,10 +2134,15 @@ export default function AppShell() {
 
     galleryResizeRef.current = {
       room,
+      dir,
       startX: event.clientX,
       startY: event.clientY,
       width: current.width,
       height: current.height,
+      origX: pos.x,
+      origY: pos.y,
+      nextX: pos.x,
+      nextY: pos.y,
       zoom: canvasView.zoom,
       element,
       nextWidth: current.width,
@@ -2062,56 +2289,9 @@ export default function AppShell() {
     setCanvasView({ x: 0, y: 0, zoom: 1 });
   }
 
-  const topItems: ActivityItem[] = [
-    {
-      id: 'files',
-      title: 'Files',
-      active: layoutState.sidebarVisible && layoutState.sidebarTab === 'files',
-      onClick: () => { toggleSidebarTab('files'); },
-      icon: <Icon><path d="M3 7a2 2 0 0 1 2-2h3.586a2 2 0 0 1 1.414.586L11.414 7H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /></Icon>,
-    },
-    {
-      id: 'search',
-      title: 'Search',
-      active: layoutState.sidebarVisible && layoutState.sidebarTab === 'search',
-      onClick: () => { toggleSidebarTab('search'); },
-      icon: <Icon><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></Icon>,
-    },
-    {
-      id: 'git',
-      title: 'Source Control',
-      active: layoutState.sidebarVisible && layoutState.sidebarTab === 'git',
-      onClick: () => { toggleSidebarTab('git'); },
-      icon: <Icon><circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 15V9a4 4 0 0 0-4-4H9" /><line x1="6" y1="9" x2="6" y2="15" /></Icon>,
-    },
-    ...(showSnapshotsTab
-      ? [
-          {
-            id: 'snapshots',
-            title: 'Workspace Snapshots',
-            active: layoutState.sidebarVisible && layoutState.sidebarTab === 'snapshots',
-            onClick: () => { toggleSidebarTab('snapshots'); },
-            icon: <Icon><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /><circle cx="12" cy="10" r="3" /></Icon>,
-          },
-        ]
-      : []),
-    {
-      id: 'snippets',
-      title: 'Shell Snippets',
-      active: layoutState.sidebarVisible && layoutState.sidebarTab === 'snippets',
-      onClick: () => { toggleSidebarTab('snippets'); },
-      icon: <Icon><path d="M4 17l6-6-6-6M12 19h8" /></Icon>,
-    },
-  ];
-
+  // The left-bar nav launchers now come from `leftNavDockItems` (built from
+  // LEFT_DRAWER_TOOLS); the center-room launchers live in `panelItems` below.
   const panelItems: ActivityItem[] = [
-    {
-      id: 'orchestrator',
-      title: 'Orchestrator',
-      active: centerOpen,
-      onClick: () => { agentCenterOpen.set(!centerOpen); if (!centerOpen) focusRoom('orchestrator'); },
-      icon: <Icon><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M12 7v4" /><circle cx="12" cy="5" r="2" /><path d="M8 16h.01M16 16h.01" /></Icon>,
-    },
     {
       id: 'editor',
       title: 'Editor',
@@ -2144,7 +2324,7 @@ export default function AppShell() {
       id: 'http',
       title: 'HTTP Client',
       active: layoutState.httpVisible,
-      onClick: () => togglePanelRoom('http'),
+      onClick: () => toggleHttpVisible(),
       icon: <Icon><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></Icon>,
     },
     {
@@ -2158,57 +2338,30 @@ export default function AppShell() {
       id: 'db',
       title: 'Database Explorer',
       active: layoutState.dbVisible,
-      onClick: () => togglePanelRoom('db'),
+      onClick: () => toggleDbVisible(),
       icon: <Icon><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" /></Icon>,
     },
     {
       id: 'containers',
       title: 'Containers',
       active: layoutState.containersVisible,
-      onClick: () => togglePanelRoom('containers'),
+      onClick: () => toggleContainersVisible(),
       icon: <Icon><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="M4 12.5 12 17l8-4.5" /><path d="M4 17.5 12 22l8-4.5" /></Icon>,
     },
     {
       id: 'toolbox',
       title: 'Dev Toolbox',
       active: layoutState.toolboxVisible,
-      onClick: () => togglePanelRoom('toolbox'),
+      onClick: () => toggleToolboxVisible(),
       icon: <Icon><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></Icon>,
-    },
-    {
-      id: 'pet',
-      title: 'DevPet',
-      active: layoutState.petVisible,
-      onClick: () => togglePanelRoom('pet'),
-      icon: <Icon><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></Icon>,
     },
     {
       id: 'youtube',
       title: 'YouTube',
       active: layoutState.youtubeVisible,
-      onClick: () => togglePanelRoom('youtube'),
+      // Pops up the free-floating window rather than opening a tiled room.
+      onClick: () => toggleYoutubeVisible(),
       icon: <Icon><rect x="2" y="5" width="20" height="14" rx="4" /><path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none" /></Icon>,
-    },
-    {
-      id: 'android',
-      title: 'Android',
-      active: layoutState.androidVisible,
-      onClick: () => togglePanelRoom('android'),
-      icon: (
-        <Icon>
-          <path d="M5 12a7 7 0 0 1 14 0v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-          <path d="M7.6 5 6.1 2.6M16.4 5l1.5-2.4" />
-          <circle cx="9.5" cy="10" r="0.6" fill="currentColor" stroke="none" />
-          <circle cx="14.5" cy="10" r="0.6" fill="currentColor" stroke="none" />
-        </Icon>
-      ),
-    },
-    {
-      id: 'ios',
-      title: 'iOS Simulator',
-      active: layoutState.iosVisible,
-      onClick: () => togglePanelRoom('ios'),
-      icon: <Icon><rect x="6" y="2" width="12" height="20" rx="3" /><line x1="10" y1="18" x2="14" y2="18" /></Icon>,
     },
   ];
 
@@ -2230,6 +2383,31 @@ export default function AppShell() {
         } satisfies ActivityItem]
       : []),
   ];
+
+  // Launcher buttons for the LEFT utility drawer's tools, grouped at the left
+  // end of the dock (mirror of the right tools group). Toggling re-uses the
+  // unified left-drawer selection so it never closes/reopens the frame.
+  const leftNavDockItems: ActivityItem[] = leftDrawerTools.map((tool) => ({
+    id: tool,
+    title: LEFT_TOOL_META[tool].title,
+    active: leftActiveTool === tool,
+    onClick: () => toggleLeftTool(tool),
+    icon: LEFT_TOOL_META[tool].icon,
+  }));
+
+  // Launcher buttons for the right utility drawer's tools (incl. Orchestrator &
+  // DevPet), grouped together at the right end of the dock.
+  const drawerToolItems: ActivityItem[] = RIGHT_TOOLS_ALL.map((tool) => ({
+    id: tool,
+    title: RIGHT_TOOL_META[tool].title,
+    active: rightActiveTool === tool,
+    onClick: () => toggleRightTool(tool),
+    icon: RIGHT_TOOL_META[tool].icon,
+  }));
+  const drawerToolIds = new Set<string>(RIGHT_DRAWER_TOOLS);
+  // The remaining dock buttons launch center rooms; the drawer tools are pulled
+  // out into their own right-aligned group.
+  const roomLauncherItems = panelItems.filter((item) => !drawerToolIds.has(item.id));
 
   function renderAuxPanes() {
     if (visiblePanels.length === 3) {
@@ -2278,147 +2456,6 @@ export default function AppShell() {
     }
 
     return null;
-  }
-
-  function renderUtilityDrawer() {
-    const dbOpen = layoutState.dbVisible;
-    const httpOpen = layoutState.httpVisible;
-    const containersOpen = layoutState.containersVisible;
-    const toolboxOpen = layoutState.toolboxVisible;
-
-    if (!dbOpen && !httpOpen && !containersOpen && !toolboxOpen) return null;
-
-    // Determine the active tab based on which views are open and active
-    let activeTab: AuxPanelId | null = null;
-    const activeView = layoutState.activeView;
-
-    if (activeView === 'db' && dbOpen) activeTab = 'db';
-    else if (activeView === 'http' && httpOpen) activeTab = 'http';
-    else if (activeView === 'containers' && containersOpen) activeTab = 'containers';
-    else if (activeView === 'toolbox' && toolboxOpen) activeTab = 'toolbox';
-
-    if (!activeTab) {
-      if (toolboxOpen) activeTab = 'toolbox';
-      else if (httpOpen) activeTab = 'http';
-      else if (dbOpen) activeTab = 'db';
-      else if (containersOpen) activeTab = 'containers';
-      else activeTab = 'toolbox';
-    }
-
-    const tabs = [
-      { id: 'toolbox' as const, label: 'Toolbox', open: toolboxOpen },
-      { id: 'http' as const, label: 'HTTP', open: httpOpen },
-      { id: 'db' as const, label: 'Database', open: dbOpen },
-      { id: 'containers' as const, label: 'Docker', open: containersOpen },
-    ].filter((t) => t.open);
-
-    function closeDrawer() {
-      persistLayoutPatch({
-        dbVisible: false,
-        httpVisible: false,
-        containersVisible: false,
-        toolboxVisible: false,
-        activeView: 'terminal',
-      });
-    }
-
-    return (
-      <aside className="utility-drawer bento-card">
-        <header className="drawer-header">
-          <div className="drawer-tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                className={`drawer-tab-btn${activeTab === tab.id ? ' active' : ''}`}
-                onClick={() => persistLayoutPatch({ activeView: tab.id })}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <button className="drawer-close-btn" onClick={closeDrawer} title="Close drawer" aria-label="Close drawer">
-            <XIcon />
-          </button>
-        </header>
-        <div className="drawer-body">
-          <PanelHost id={activeTab} />
-        </div>
-      </aside>
-    );
-  }
-
-  function renderLeftUtilityDrawer() {
-    if (!layoutState.sidebarVisible) return null;
-
-    const tabs = [
-      { id: 'files' as const, label: 'Explorer' },
-      { id: 'search' as const, label: 'Search' },
-      { id: 'git' as const, label: 'Source Control' },
-      ...(showSnapshotsTab ? [{ id: 'snapshots' as const, label: 'Snapshots' }] : []),
-      { id: 'snippets' as const, label: 'Snippets' },
-    ];
-
-    const activeTab = layoutState.sidebarTab;
-
-    return (
-      <aside className={`left-utility-drawer bento-card${sidebarResizing ? ' resizing' : ''}`} style={{ width: `${layoutState.sidebarWidth}px` }}>
-        <header className="drawer-header">
-          <div className="drawer-tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                className={`drawer-tab-btn${activeTab === tab.id ? ' active' : ''}`}
-                onClick={() => persistLayoutPatch({ sidebarTab: tab.id })}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <button
-            className="drawer-close-btn"
-            onClick={() => persistLayoutPatch({ sidebarVisible: false })}
-            title="Close drawer"
-            aria-label="Close drawer"
-          >
-            <XIcon />
-          </button>
-        </header>
-        <div className="drawer-body">
-          <SidebarContent tab={activeTab} />
-        </div>
-        <div className="left-drawer-resize-handle" onMouseDown={startSidebarResize} />
-      </aside>
-    );
-  }
-
-  function renderFloatingOverlays() {
-    const petOpen = layoutState.petVisible;
-    const youtubeOpen = layoutState.youtubeVisible;
-
-    return (
-      <>
-        {petOpen && (
-          <FloatingWidget
-            title="DevPet"
-            onClose={() => persistLayoutPatch({ petVisible: false })}
-            defaultPosition={{ x: windowWidth - 320, y: 80 }}
-            className="devpet-widget"
-          >
-            <DevPetPanel />
-          </FloatingWidget>
-        )}
-        {youtubeOpen && (
-          <FloatingWidget
-            title="YouTube Player"
-            onClose={() => persistLayoutPatch({ youtubeVisible: false })}
-            defaultPosition={{ x: windowWidth - 580, y: 260 }}
-            className="youtube-widget"
-          >
-            <YouTubePanel />
-          </FloatingWidget>
-        )}
-      </>
-    );
   }
 
   function getAgentSessionForRoom(id: AgentRoomId) {
@@ -2610,11 +2647,23 @@ export default function AppShell() {
         {arrangeable && (
           <button
             className="room-resize-grip"
-            onMouseDown={(event) => startGalleryResize(event, id)}
+            onMouseDown={(event) => startGalleryResize(event, id, 'se')}
             title={`Resize ${title}`}
             aria-label={`Resize ${title}`}
           />
         )}
+        {/* In free-form mode, edge and corner handles let the panel be resized
+            from any side or angle. Auto-grid keeps just the bottom-right grip so
+            its column/row reflow stays predictable. */}
+        {arrangeable && !galleryAutoGrid &&
+          ROOM_RESIZE_DIRS.filter((dir) => dir !== 'se').map((dir) => (
+            <div
+              key={dir}
+              className={`room-resize-edge room-resize-${dir}`}
+              onMouseDown={(event) => startGalleryResize(event, id, dir)}
+              role="presentation"
+            />
+          ))}
       </section>
     );
   }
@@ -2994,21 +3043,25 @@ export default function AppShell() {
               </main>
 
               {renderLeftUtilityDrawer()}
-              {renderUtilityDrawer()}
-              {renderFloatingOverlays()}
+
+              {renderRightUtilityDrawer()}
 
               <div className="workspace-overlays">
               <nav className="room-dock bento-card" aria-label="Room launcher">
-                <div className="room-dock-group">
-                  {topItems.map((item) => <ActivityButton key={item.id} item={item} />)}
+                <div className="room-dock-group nav">
+                  {leftNavDockItems.map((item) => <ActivityButton key={item.id} item={item} />)}
                 </div>
                 <div className="room-dock-separator" />
                 <div className="room-dock-group tools">
-                  {panelItems.map((item) => <ActivityButton key={item.id} item={item} />)}
+                  {roomLauncherItems.map((item) => <ActivityButton key={item.id} item={item} />)}
                 </div>
                 <div className="room-dock-separator" />
                 <div className="room-dock-group">
                   {bottomItems.map((item) => <ActivityButton key={item.id} item={item} />)}
+                </div>
+                <div className="room-dock-separator" />
+                <div className="room-dock-group utilities">
+                  {drawerToolItems.map((item) => <ActivityButton key={item.id} item={item} />)}
                 </div>
               </nav>
               <div className="composer-strip">
@@ -3025,7 +3078,7 @@ export default function AppShell() {
               </div>
               {layoutState.petVisible && (
                 <aside className="welcome-pet-panel bento-card" aria-label="DevPet Playground">
-                  <button className="aux-close-btn" onClick={togglePetVisible} title="Close pet playground" aria-label="Close pet playground">
+                  <button className="aux-close-btn" onClick={toggleTerminal} title="Close pet playground" aria-label="Close pet playground">
                     <XIcon />
                   </button>
                   <DevPetPanel />
@@ -3035,11 +3088,10 @@ export default function AppShell() {
           </div>
         )}
 
-        {isEnvManagerOpen && (
-          <Suspense fallback={null}>
-            <EnvManager />
-          </Suspense>
-        )}
+        {/* Free-floating YouTube pop-up. Mounted at the app root (outside the
+            ambient rooms grid) so it overlays any page and survives Focus /
+            Split / Canvas switches without unmounting. */}
+        {layoutState.youtubeVisible && <FloatingYouTube onClose={() => toggleYoutubeVisible()} />}
       </div>
     </div>
   );

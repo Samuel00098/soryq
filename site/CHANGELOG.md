@@ -3,6 +3,104 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.4] - 2026-06-24
+
+This release is a large rebuild of the Soryq interface on React, with a new infinite-canvas workspace, on-device voice, and a substantially upgraded Sketch Canvas and Settings experience.
+
+### Added
+
+- **Infinite-canvas workspace** — the workspace is now an interactive, pan-and-zoom infinite canvas (the "gallery" layout) where editor, terminal, preview, and tool panels live as cards you arrange spatially rather than in fixed slots. It's the default layout and your choice persists. The canvas supports camera zoom/pan controls, cluster-based panel sizing, a 3-row grid auto-arrange that fits both dimensions, and a centred "reset layout" that re-fits everything in the viewport. `Ctrl+Alt+L` cycles the ambient layout mode.
+
+- **Left utility drawer & right tool drawer** — the file explorer and Source Control now live in a slide-out left utility drawer, and the secondary tools (Toolbox, HTTP Client, Database, Containers) live in a right slide-over drawer instead of taking over the main view. DevPet and the YouTube panel are now free-floating overlays you can position over the workspace.
+
+- **On-device offline voice** — local Kokoro (text-to-speech) and Parakeet (speech-to-text) models now run fully on your machine as in-browser WASM, no cloud round-trip required. The model downloader moved into the AI Models settings tab, and Cross-Origin Isolation headers are enabled to unlock multi-threaded WASM for fast local synthesis.
+
+- **Voice personalities** — choose a customizable voice personality in Settings that's injected into the assistant's system prompt, with a voice preview button to hear each option before committing.
+
+- **Custom terminal command shortcuts** — create your own named terminal command shortcuts in Settings and run them on demand.
+
+- **Sketch Canvas overhaul** — multi-selection, grouping, deep selection, and proportional resizing; copy, paste, and duplicate for elements and whole drawings; image import (with high-quality smoothing and aspect-ratio lock during corner resize); multiple fonts and font-size selection; brush and eraser size presets; toggleable sharp/curved rectangle edges with an edge-radius slider; and a fixed custom stroke-colour picker. The renderer now matches the Excalidraw-style hand-drawn look across every shape.
+
+- **Preview remembers more** — preview tabs, plus video and audio playback positions, now persist across project and workspace switches, and the preview panel stays mounted across layout changes so it doesn't reload.
+
+- **Smarter Settings** — model dropdowns gain an interactive search/filter input and live catalog loading (including for the inline-completion provider), agents moved to a dedicated Settings tab with live model fetching, and you can hide preset agents you don't use while keeping your custom CLI agents.
+
+### Changed
+
+- **React interface rebuild** — the UI has been ported from Svelte to React, with a redesigned glassmorphic Settings modal (custom Dropdown components in place of native selects, interactive tab accents), a redesigned, centralized Welcome screen, a redesigned Assistant Orchestrator panel, and smooth global CSS View Transitions for layout and modal animations.
+
+- **Voice mode lives in the prompt bar** — speaking/listening indicators are integrated directly into the floating prompt bar instead of a separate overlay, and the left-Alt key toggles voice mode.
+
+- **Cleaner title bar** — the search bar and brand text were removed from the TitleBar, and the Settings icon now lives there.
+
+- **Default local STT is Parakeet** — the default offline speech-to-text model is now Parakeet; the unimplemented Whisper path returns a clear error instead of failing silently.
+
+- **Diff views consolidated** — inline and split diff views are now unified in the Review panel.
+
+- **Workspace Snapshots hidden by default** — the Snapshots tab is off by default and can be re-enabled with a settings toggle; the sidebar room title now renames itself to match the active tab.
+
+- **Version bumped to 0.4.4** — app metadata and native package metadata now point at v0.4.4.
+
+### Fixed
+
+- **Voice agent audio glitches** — fixed the VAD startup click/pop, inline-code being dropped from TTS, and `flushSync` lifecycle warnings; VAD speech detection was refined with a 0.025 RMS threshold and consecutive-frame validation to cut false triggers.
+
+- **Terminal on Windows** — fixed resize truncation, optimised the fit debounce, corrected the canvas-addon loading lifecycle order, synced `windowsPty` options, and added a warning notification when PowerShell 7 is missing.
+
+- **Layout & canvas stability** — resolved view-transition residue and layout-switch animation flicker via a global transition guard, fixed database tab switching, DevPet height queries, YouTube PIP resizing, duplicate-image double-rendering on the canvas, and a DevPet animation glitch on rapid clicks.
+
+- **Settings scrolling** — contained Settings scrolling and disabled the elastic overscroll bounce, and the settings modal now positions correctly below the title bar.
+
+## [v0.4.3] - 2026-06-16
+
+### Fixed
+
+- **Local dev previews no longer fail behind a VPN or system proxy** — previewing `http://localhost:…` could error with a TLS `BadRecordMac` or "localhost refused to connect" when a corporate/VPN proxy was active, because the loopback request was being routed through that proxy (your normal browser bypasses proxies for localhost, which is why it worked there). The preview now connects straight to your dev server.
+
+- **Authentication-gated apps now load and let you sign in inside the preview** — apps that hand off to a hosted auth provider (Clerk, Auth0, NextAuth, Supabase, and similar) previously broke with a blocked frame or a connection error, because the provider's sign-in handshake bounced the page off the proxy to your raw dev origin, whose embedding policy then refused the frame. The preview now lets the browser perform the handshake itself and keeps the whole flow on the proxy origin (where embedding restrictions are stripped), so the app renders and the login round-trip completes.
+
+- **Copy buttons work inside previewed apps** — clipboard access (used by things like the Next.js dev overlay) was blocked by the preview frame's permissions policy. The preview iframe now grants clipboard read/write, so in-app copy actions succeed instead of throwing.
+
+### Changed
+
+- **Version bumped to 0.4.3** — app metadata and native package metadata now point at v0.4.3.
+
+## [v0.4.2] - 2026-06-15
+
+### Added
+
+- **New "Cream" light theme** — a warm, paper-like light theme that swaps the stark white background for a soft cream, so dark text reads with less glare and better contrast than on pure white. Available in Settings → Themes.
+
+- **Preview remembers where you were** — the web preview now restores your per-page scroll position when you return to a page, and a new history dropdown (clock icon in the preview toolbar) lets you jump back to pages you've visited. Scroll positions and browsing history persist across sessions.
+
+- **"Local & development previews work best" indicator** — the Web Preview empty state now makes clear it's built primarily for previewing your local dev server. External pages still open, but the copy sets expectations up front (many full websites block embedding and won't load in an embedded view), so trying to browse a normal site isn't a surprise.
+
+### Changed
+
+- **Graphite-grey brand refresh** — the accent palette moved from teal/sky to a calmer light graphite grey across the app's default light/dark themes, logo and icons, and the marketing site. On-disk custom themes built on the previous defaults are migrated once to the new palette (key-aware, so any colour you customised and the semantic `warning` colour are left untouched).
+
+- **Voice refinement is now off by default** — the AI voice-refinement step starts disabled on fresh installs and after "Reset to default"; enable it in Settings if you want it.
+
+- **App window icon follows the installed version** — the in-app logo's cache-buster is now tied to the app version, so the window/About icon refreshes correctly after an update instead of showing a stale image.
+
+- **Faster marketing site** — removed per-frame shape re-rasterisation on the landing page's blurred background orbs (transform-only animation stays on the GPU) and batched the scroll-progress handler into a single rAF, smoothing out scroll lag.
+
+### Fixed
+
+- **Onboarding no longer re-appears after an abrupt shutdown** — the "onboarding completed" flag is now mirrored to a durable backend file (`app_flags.json`), because WebView2 flushes `localStorage` to disk lazily and could lose the write when the machine was switched off. On startup the flag is reconciled from the durable store, so the walkthrough stays dismissed once you've finished it.
+
+- **Preview Back/Forward returns to the previous page, not the main menu** — in-page navigations (a site's own search box, pagination, local-dev route changes) are now recorded without reloading the iframe, so Back returns to the page you were actually on instead of jumping to the last typed URL or the blank placeholder. `PreviewTab` tracks the displayed `url` and the committed `loadUrl` separately.
+
+- **DuckDuckGo search returns results again** — the preview's search and "Browse Web" button now use the server-rendered `html.duckduckgo.com/html/` endpoint. The main DuckDuckGo SPA fetches results over a cross-origin request the preview proxy can't serve, which left the results page blank.
+
+- **Preview console panel captures local-dev logs from the first call** — the injected console hook no longer waits for a parent handshake before forwarding messages, so logs emitted during page load are captured instead of being dropped (which made the panel look empty). Console capture remains scoped to local-dev pages.
+
+- **Terminal text stays readable in light mode** — in light themes the ANSI `white` and `bright-white` colors were mapped to near-white, so shell output drawn in those colors (e.g. command tokens like `cd`) rendered white-on-light and was invisible. They now map to dark, readable tones in light mode (dark themes are unchanged).
+
+- **Settings no longer rubber-bands when scrolling** — taller Settings tabs used to overscroll past the top/bottom with an elastic "over-pull" bounce (and could chain the scroll to the page behind). The Settings body now contains its own scroll, so it stops cleanly at each edge.
+
+- **Sketch Canvas rectangles honor the hand-drawn roughness** — rounded rectangles ignored the Pencil/Loose roughness and always rendered CAD-clean (the rounded-rect path used a no-op jitter hook), while circles, diamonds, and arrows were correctly sketchy. Rectangles now draw with the same perturbed double-stroke edges (keeping smooth rounded corners), so the Pencil style is consistent across every shape.
+
 ## [v0.4.1] - 2026-06-14
 
 ### Changed

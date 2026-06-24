@@ -8,22 +8,22 @@
   overflow: hidden;
 }
 
-.customizer-section {
+.theme-customizer .customizer-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.selection-section {
+.theme-customizer .selection-section {
   padding: 16px 16px 8px;
 }
 
-.details-section {
+.theme-customizer .details-section {
   padding: 8px 16px;
 }
 
-.section-label {
+.theme-customizer .section-label {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -31,18 +31,18 @@
   letter-spacing: 0.5px;
 }
 
-.form-group {
+.theme-customizer .form-group {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.form-label {
+.theme-customizer .form-label {
   color: var(--text-secondary);
 }
 
-.customizer-input {
+.theme-customizer .customizer-input {
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   color: var(--text-primary);
@@ -54,16 +54,16 @@
   transition: border-color 0.15s;
 }
 
-.customizer-input:focus {
+.theme-customizer .customizer-input:focus {
   border-color: var(--input-focus-border);
 }
 
-.customizer-input:disabled {
+.theme-customizer .customizer-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.customizer-tabs {
+.theme-customizer .customizer-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
   gap: 8px;
@@ -71,7 +71,7 @@
   padding: 8px 16px 0;
 }
 
-.tab-btn {
+.theme-customizer .tab-btn {
   padding: 6px 12px;
   background: transparent;
   border: none;
@@ -83,16 +83,16 @@
   transition: color 0.15s, border-color 0.15s;
 }
 
-.tab-btn:hover {
+.theme-customizer .tab-btn:hover {
   color: var(--text-primary);
 }
 
-.tab-btn.active {
+.theme-customizer .tab-btn.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
 
-.colors-list {
+.theme-customizer .colors-list {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -102,7 +102,7 @@
   margin: 0;
 }
 
-.color-item {
+.theme-customizer .color-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -110,18 +110,18 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
-.color-name {
+.theme-customizer .color-name {
   color: var(--text-primary);
   font-size: 12px;
 }
 
-.color-inputs {
+.theme-customizer .color-inputs {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.color-picker {
+.theme-customizer .color-picker {
   width: 24px;
   height: 24px;
   border: none;
@@ -131,21 +131,21 @@
   padding: 0;
 }
 
-.color-picker::-webkit-color-swatch-wrapper {
+.theme-customizer .color-picker::-webkit-color-swatch-wrapper {
   padding: 0;
 }
 
-.color-picker::-webkit-color-swatch {
+.theme-customizer .color-picker::-webkit-color-swatch {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
 
-.color-picker:disabled {
+.theme-customizer .color-picker:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.hex-input {
+.theme-customizer .hex-input {
   width: 70px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
@@ -157,16 +157,16 @@
   outline: none;
 }
 
-.hex-input:focus {
+.theme-customizer .hex-input:focus {
   border-color: var(--input-focus-border);
 }
 
-.hex-input:disabled {
+.theme-customizer .hex-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.customizer-actions {
+.theme-customizer .customizer-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -176,7 +176,7 @@
   flex-shrink: 0;
 }
 
-.action-btn {
+.theme-customizer .action-btn {
   padding: 8px 14px;
   border-radius: 6px;
   font-size: 12px;
@@ -188,27 +188,27 @@
   flex-shrink: 0;
 }
 
-.action-btn:hover {
+.theme-customizer .action-btn:hover {
   filter: brightness(1.1);
 }
 
-.action-btn.primary {
+.theme-customizer .action-btn.primary {
   background: var(--button-bg);
   color: var(--button-text);
 }
 
-.action-btn.danger {
+.theme-customizer .action-btn.danger {
   background: var(--error);
   color: var(--button-text, #fff);
 }
 
-.action-btn.secondary {
+.theme-customizer .action-btn.secondary {
   background: var(--bg-hover);
   color: var(--text-primary);
   border: 1px solid var(--border);
 }
 
-.no-theme-placeholder {
+.theme-customizer .no-theme-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;

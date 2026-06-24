@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soryq — Proportional tiling (one spatial model)</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────────────────
+     SORYQ · PROPORTIONAL TILING — clickable mockup (design-first)
+     One rule, no presets: every card owns a SHARE of the row. Siblings always
+     sum to 100%. Add a card → everyone shrinks to fill. Remove → the rest grow.
+     Drag a gutter → trade share between two neighbours. Double-click a gutter
+     → even out. "Keep the shape, just reduced to fill the screen" falls out of
+     flex for free. Nothing here touches the live app.
+     ───────────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#14120e; --panel:#1b1813; --raised:#231f18;
+    --cream:#ece3d2; --dim:#a89d88; --faint:#716958;
+    --line:rgba(236,227,210,.08); --line-soft:rgba(236,227,210,.045);
+    --sage:#8fb2a4; --sage-soft:rgba(143,178,164,.12); --clay:#cda06b;
+    --teal:#7fc8bf; --sky:#8db4e2; --green:#9bc995; --pink:#d99bb6;
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;background:#0d0b08;color:var(--cream);
+    -webkit-font-smoothing:antialiased;overflow:hidden;display:grid;place-items:center;min-height:100vh;padding:26px}
+  code,.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+
+  .app{width:min(1240px,96vw);height:min(780px,92vh);background:var(--bg);border:1px solid var(--line);
+    border-radius:18px;overflow:hidden;display:grid;grid-template-rows:auto auto 1fr auto;
+    box-shadow:0 40px 90px -50px rgba(0,0,0,.9)}
+
+  /* top bar */
+  .top{display:flex;align-items:center;gap:13px;padding:13px 20px;border-bottom:1px solid var(--line)}
+  .lights{display:flex;gap:7px}.lights i{width:10px;height:10px;border-radius:50%;background:#332e25;display:block}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:.04em}
+  .brand .mark{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--sage)}
+  .top .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
+
+  /* toolbar — ways to add a card */
+  .bar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .bar .lbl{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-right:2px}
+  .chip{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--dim);
+    border:1px solid var(--line);border-radius:9px;padding:6px 12px;transition:.13s;background:var(--panel)}
+  .chip:hover{color:var(--cream);border-color:rgba(143,178,164,.45);background:var(--raised)}
+  .chip .dot{width:8px;height:8px;border-radius:50%}
+  .bar .spacer{flex:1}
+  .bar .ghost{all:unset;cursor:pointer;font-size:12px;color:var(--faint);padding:6px 10px;border-radius:8px}
+  .bar .ghost:hover{color:var(--dim);background:var(--raised)}
+
+  /* THE WORKSPACE — one flex row, no presets */
+  .stage{padding:14px;min-height:0;position:relative}
+  .row{height:100%;display:flex;align-items:stretch}
+
+  .card{flex-grow:var(--share,1);flex-basis:0;flex-shrink:1;min-width:0;background:var(--panel);
+    border:1px solid var(--line);border-radius:13px;overflow:hidden;display:flex;flex-direction:column;
+    position:relative;transition:flex-grow .26s cubic-bezier(.22,1,.36,1)}
+  .row.dragging .card{transition:none}
+  .card.hero{--share:1.9}
+  .card::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--accent,var(--sage));opacity:.8}
+  .card .head{display:flex;align-items:center;gap:9px;padding:11px 13px;border-bottom:1px solid var(--line-soft)}
+  .card .head .name{font-size:12.5px;font-weight:600;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .head .kind{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .card .head .x{all:unset;cursor:pointer;margin-left:auto;color:var(--faint);font-size:15px;line-height:1;
+    width:22px;height:22px;display:grid;place-items:center;border-radius:7px;transition:.12s}
+  .card .head .x:hover{color:var(--cream);background:var(--raised)}
+  .card .body{flex:1;min-height:0;padding:13px;overflow:hidden;font-size:12px;line-height:1.7;color:var(--dim)}
+  .card .body .ln{white-space:pre;overflow:hidden;text-overflow:ellipsis}
+  .card .share-tag{position:absolute;right:11px;bottom:9px;font-size:10px;color:var(--faint);
+    background:rgba(13,11,8,.6);padding:2px 7px;border-radius:6px;letter-spacing:.04em}
+
+  /* gutter — drag to trade share, double-click to even out */
+  .gutter{flex:0 0 14px;cursor:col-resize;position:relative;align-self:stretch}
+  .gutter::after{content:"";position:absolute;left:50%;top:14px;bottom:14px;width:2px;transform:translateX(-50%);
+    background:var(--line);border-radius:2px;transition:.13s}
+  .gutter:hover::after,.gutter.live::after{background:var(--sage);width:3px;box-shadow:0 0 12px rgba(143,178,164,.5)}
+
+  .empty{position:absolute;inset:14px;display:grid;place-items:center;color:var(--faint);font-size:13px;
+    border:1px dashed var(--line);border-radius:13px;text-align:center;line-height:1.8}
+
+  /* status */
+  .status{display:flex;align-items:center;gap:16px;padding:9px 18px;border-top:1px solid var(--line);
+    font-size:11px;color:var(--faint)}
+  .status b{color:var(--dim);font-weight:600}
+  .status .right{margin-left:auto;display:flex;gap:14px}
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="top">
+      <span class="lights"><i></i><i></i><i></i></span>
+      <span class="brand"><span class="mark"></span>soryq</span>
+      <span class="hint">one spatial model — add cards, drag the gutters, watch the shape hold</span>
+    </div>
+
+    <div class="bar">
+      <span class="lbl">summon</span>
+      <button class="chip" data-add="editor"><span class="dot" style="background:var(--teal)"></span>Editor</button>
+      <button class="chip" data-add="terminal"><span class="dot" style="background:var(--green)"></span>Terminal</button>
+      <button class="chip" data-add="preview"><span class="dot" style="background:var(--sky)"></span>Preview</button>
+      <button class="chip" data-add="diff"><span class="dot" style="background:var(--pink)"></span>Diff</button>
+      <span class="spacer"></span>
+      <button class="ghost" data-side="left">＋ add to left</button>
+      <button class="ghost" data-side="right">＋ add to right</button>
+      <button class="ghost" id="even">⇋ even out</button>
+      <button class="ghost" id="reset">↺ reset</button>
+    </div>
+
+    <div class="stage">
+      <div class="row" id="row"></div>
+    </div>
+
+    <div class="status">
+      <span><b id="count">0</b> cards · shares always sum to <b>100%</b></span>
+      <span class="right">
+        <span>native</span><span>🔑 your key</span><span>🎙 offline voice</span><span>no meter</span>
+      </span>
+    </div>
+  </div>
+
+<script>
+  // ── the entire model: an ordered list of cards, each with a SHARE ───────────
+  const KIND = {
+    editor:  {name:'app/routes/home.tsx', kind:'editor',   accent:'var(--teal)',
+              body:['export function Home() {','  const { fleet } = useOrchestrator();','  return (','    <Stream fleet={fleet}>','      <Compose onSend={dispatch} />','    </Stream>','  );','}']},
+    terminal:{name:'pnpm dev',            kind:'terminal', accent:'var(--green)',
+              body:['$ pnpm dev','  VITE ready in 412 ms','  ➜ Local:  http://localhost:5173','  ➜ press h + enter to show help','▍']},
+    preview: {name:'localhost:5173',      kind:'preview',  accent:'var(--sky)',
+              body:['┌──────────────────────────┐','│   ◐  soryq               │','│                          │','│   the living workspace   │','│   [ talk to your fleet ] │','└──────────────────────────┘']},
+    diff:    {name:'home.tsx · 3 changes', kind:'diff',     accent:'var(--pink)',
+              body:['  function Home() {','- return <div>old</div>;','+ return <Stream fleet={fleet}>','+   <Compose onSend={dispatch} />','+ </Stream>;','  }']},
+  };
+  let nextKind = ['editor','terminal','preview','diff'];
+  let cards = [];           // [{id, type, share}]
+  let uid = 1;
+  const row = document.getElementById('row');
+
+  function add(type, side){
+    const card = {id: uid++, type, share: 1};
+    if(side === 'left') cards.unshift(card); else cards.push(card);
+    render();
+  }
+  function remove(id){ cards = cards.filter(c => c.id !== id); render(); }
+  function even(){ cards.forEach(c => c.share = 1); render(); }
+
+  function render(){
+    row.innerHTML = '';
+    const total = cards.reduce((s,c)=>s+c.share,0) || 1;
+    document.getElementById('count').textContent = cards.length;
+
+    if(cards.length === 0){
+      const e = document.createElement('div');
+      e.className = 'empty';
+      e.innerHTML = 'empty workspace<br><span style="color:var(--dim)">summon a card above — it fills the whole stage,<br>then every card you add keeps the shape and shrinks to fit</span>';
+      row.appendChild(e);
+      return;
+    }
+
+    cards.forEach((c, i) => {
+      if(i > 0) row.appendChild(makeGutter(i-1, i));
+      const k = KIND[c.type];
+      const el = document.createElement('div');
+      el.className = 'card' + (cards.length === 1 ? ' hero' : '');
+      if(cards.length > 1) el.style.setProperty('--share', c.share);
+      el.style.setProperty('--accent', k.accent);
+      const pct = Math.round(c.share/total*100);
+      el.innerHTML = `
+        <div class="head">
+          <span class="kind">${k.kind}</span>
+          <span class="name">${k.name}</span>
+          <button class="x" title="close">✕</button>
+        </div>
+        <div class="body mono">${k.body.map(l=>`<div class="ln">${l.replace(/</g,'&lt;')}</div>`).join('')}</div>
+        <span class="share-tag">${pct}%</span>`;
+      el.querySelector('.x').onclick = () => remove(c.id);
+      row.appendChild(el);
+    });
+  }
+
+  function makeGutter(li, ri){
+    const g = document.createElement('div');
+    g.className = 'gutter';
+    g.ondblclick = () => { const avg=(cards[li].share+cards[ri].share)/2; cards[li].share=cards[ri].share=avg; render(); };
+    g.onpointerdown = (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const lShare = cards[li].share, rShare = cards[ri].share;
+      const lEl = row.children[li*2], rEl = row.children[ri*2];
+      const pxPerShare = (lEl.offsetWidth + rEl.offsetWidth) / (lShare + rShare);
+      row.classList.add('dragging'); g.classList.add('live'); g.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        let d = (ev.clientX - startX) / pxPerShare;
+        d = Math.max(-lShare+0.15, Math.min(rShare-0.15, d));   // never let a card vanish
+        cards[li].share = lShare + d; cards[ri].share = rShare - d;
+        lEl.style.setProperty('--share', cards[li].share);
+        rEl.style.setProperty('--share', cards[ri].share);
+        const tot = cards.reduce((s,c)=>s+c.share,0);
+        lEl.querySelector('.share-tag').textContent = Math.round(cards[li].share/tot*100)+'%';
+        rEl.querySelector('.share-tag').textContent = Math.round(cards[ri].share/tot*100)+'%';
+      };
+      const up = () => { row.classList.remove('dragging'); g.classList.remove('live');
+        g.removeEventListener('pointermove',move); g.removeEventListener('pointerup',up); };
+      g.addEventListener('pointermove', move); g.addEventListener('pointerup', up);
+    };
+    return g;
+  }
+
+  // wiring
+  document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => add(b.dataset.add, 'right'));
+  document.querySelectorAll('[data-side]').forEach(b => b.onclick = () => add(nextKind[cards.length % nextKind.length], b.dataset.side));
+  document.getElementById('even').onclick = even;
+  document.getElementById('reset').onclick = () => { cards = []; render(); seed(); };
+  function seed(){ add('editor','right'); add('terminal','right'); }
+  seed();
+</script>
+</body>
+</html>

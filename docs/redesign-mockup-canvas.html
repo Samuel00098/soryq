@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soryq — Calm Canvas redesign (Phase 1 mockup, v3)</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────────────────
+     SORYQ · CALM CANVAS — static design mockup v3 (design-first)
+     Goal from you: beautiful, calm, not shouting, something people enjoy.
+     Informed by CNVS.dev's best ideas (agents as NAMED CHARACTERS, live
+     narration, "own it once" calm) but warmer + more refined than CNVS's dense
+     terminal look. Warm palette · airy space · light editorial serif · ONE
+     muted sage accent · personality through the agents, not decoration.
+     Nothing here touches the live app.
+     ───────────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#14120e;            /* warm near-black */
+    --panel:#1b1813;         /* surface */
+    --raised:#231f18;        /* raised */
+    --cream:#ece3d2;         /* primary text — warm */
+    --dim:#a89d88;           /* secondary */
+    --faint:#716958;         /* tertiary */
+    --line:rgba(236,227,210,.08);
+    --line-soft:rgba(236,227,210,.045);
+    --sage:#8fb2a4;          /* the one calm accent */
+    --sage-soft:rgba(143,178,164,.12);
+    --clay:#cda06b;          /* warm secondary, used very rarely */
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+    background:var(--bg); color:var(--cream);
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+    display:grid; place-items:center; min-height:100vh; padding:26px;
+  }
+  .serif{font-family:'Iowan Old Style','Palatino Linotype','Book Antiqua',Georgia,serif}
+
+  .app{
+    width:min(1120px,95vw); height:min(740px,92vh);
+    background:var(--bg); border:1px solid var(--line); border-radius:18px; overflow:hidden;
+    display:grid; grid-template-rows:auto 1fr auto;
+    box-shadow:0 40px 90px -50px rgba(0,0,0,.9);
+  }
+
+  /* ── quiet top bar ─────────────────────────────────────────── */
+  .top{display:flex;align-items:center;gap:13px;padding:14px 22px}
+  .lights{display:flex;gap:7px}
+  .lights i{width:10px;height:10px;border-radius:50%;background:#332e25;display:block}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:.04em}
+  .brand .mark{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--sage)}
+  .top .meta{margin-left:auto;display:flex;gap:18px;font-size:12px;color:var(--dim)}
+  .top .meta b{color:var(--cream);font-weight:500}
+
+  /* ── the canvas ────────────────────────────────────────────── */
+  .canvas{position:relative;overflow:auto;padding:46px 64px}
+  /* faint dot-grid = "canvas", very subtle */
+  .canvas::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(236,227,210,.05) 1px, transparent 1px);
+    background-size:26px 26px}
+  .canvas>*{position:relative}
+
+  /* hero — light, editorial, calm */
+  .kicker{font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--sage);font-weight:600}
+  .hero{font-size:38px;font-weight:400;line-height:1.12;letter-spacing:-.015em;color:var(--cream);margin-top:16px}
+  .hero .soft{color:var(--faint)}
+  .lead{color:var(--dim);font-size:15px;margin-top:14px;max-width:560px;line-height:1.6}
+
+  /* the talk/type bar — soft, inviting */
+  .ask{margin-top:28px;max-width:680px;display:flex;align-items:center;gap:14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 18px;transition:.18s}
+  .ask:hover{border-color:rgba(143,178,164,.4)}
+  .ask .mic{width:38px;height:38px;border-radius:50%;flex:none;display:grid;place-items:center;
+    background:var(--sage-soft);color:var(--sage);font-size:17px;border:1px solid rgba(143,178,164,.3)}
+  .ask .txt{flex:1;color:var(--faint);font-size:15px}
+  .ask .txt em{font-style:italic;color:var(--dim)}
+  .ask .ret{font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:7px;padding:3px 8px}
+  .tips{margin-top:13px;font-size:12.5px;color:var(--faint)}
+  .tips b{color:var(--dim);font-weight:500}
+
+  /* agents on the canvas — named characters, calm rows */
+  .agents{margin-top:46px}
+  .agents .lbl{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:18px}
+  .charrow{display:flex;align-items:center;gap:18px;padding:16px 18px;border-radius:14px;transition:.16s;
+    border:1px solid transparent}
+  .charrow:hover{background:var(--panel);border-color:var(--line)}
+  .av{width:46px;height:46px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:16px;font-weight:600;
+    background:var(--raised);color:var(--cream);position:relative}
+  .av::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:1.5px solid transparent}
+  .av.work::after{border-color:var(--sage)}
+  .av.done::after{border-color:rgba(143,178,164,.35)}
+  .who{flex:1;min-width:0}
+  .who .nm{font-size:16px;font-weight:550;display:flex;align-items:baseline;gap:10px}
+  .who .nm .role{font-size:12.5px;color:var(--faint);font-weight:400}
+  .who .say{font-size:13.5px;color:var(--dim);margin-top:4px;font-family:'Iowan Old Style',Georgia,serif;font-style:italic}
+  .stat{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--dim);flex:none}
+  .stat .g{font-size:14px}
+  .g.work{color:var(--sage);animation:breathe 2.6s ease-in-out infinite}
+  .g.done{color:var(--sage)}
+  .g.idle{color:var(--faint)}
+  @keyframes breathe{50%{opacity:.4}}
+
+  /* ── workspace, kept present but quiet (a calm strip) ──────── */
+  .strip{display:flex;align-items:center;gap:0;border-top:1px solid var(--line);background:var(--panel)}
+  .strip .cell{display:flex;align-items:center;gap:10px;padding:13px 22px;font-size:13px;color:var(--dim);
+    border-right:1px solid var(--line);cursor:pointer;transition:.14s}
+  .strip .cell:hover{color:var(--cream);background:var(--raised)}
+  .strip .cell .d{width:7px;height:7px;border-radius:50%;background:var(--sage)}
+  .strip .cell.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px}
+  .strip .spacer{flex:1}
+  .strip .ghost{padding:13px 22px;font-size:12px;color:var(--faint)}
+
+  /* ── footer status — calm, reassuring ─────────────────────── */
+  .foot{display:flex;align-items:center;gap:22px;padding:11px 22px;font-size:12px;color:var(--faint);border-top:1px solid var(--line)}
+  .foot .sage{color:var(--sage)}
+  .foot .r{margin-left:auto;display:flex;gap:20px}
+</style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- top -->
+    <div class="top">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="brand"><span class="mark"></span> Soryq</div>
+      <div class="meta">
+        <span>🔑 <b>your key</b></span>
+        <span>🎙 offline voice</span>
+        <span><b>own it once</b></span>
+      </div>
+    </div>
+
+    <!-- canvas -->
+    <main class="canvas">
+      <div class="kicker">Orchestrator</div>
+      <h1 class="hero serif">Good evening, Sam.<br><span class="soft">What are we making?</span></h1>
+      <p class="lead">Just say the word. I'll set the team to work and keep the canvas tidy while they build.</p>
+
+      <div class="ask">
+        <div class="mic">🎙</div>
+        <div class="txt"><em>“Have Ada start the auth refactor, and ask Wren to review the open PR…”</em></div>
+        <div class="ret">↵</div>
+      </div>
+      <div class="tips">or try — <b>run the tests</b> · <b>show me the login page</b> · <b>summarise today</b></div>
+
+      <!-- named agents as characters -->
+      <section class="agents">
+        <div class="lbl">On the canvas</div>
+
+        <div class="charrow">
+          <div class="av work">A</div>
+          <div class="who">
+            <div class="nm">Ada <span class="role">· builder</span></div>
+            <div class="say">“Reworking <code>login()</code> — verify step next.”</div>
+          </div>
+          <div class="stat"><span class="g work">✻</span> working · 72%</div>
+        </div>
+
+        <div class="charrow">
+          <div class="av done">W</div>
+          <div class="who">
+            <div class="nm">Wren <span class="role">· reviewer</span></div>
+            <div class="say">“PR #214 looks clean — left two notes for you.”</div>
+          </div>
+          <div class="stat"><span class="g done">✓</span> ready for you</div>
+        </div>
+
+        <div class="charrow">
+          <div class="av">S</div>
+          <div class="who">
+            <div class="nm">Sol <span class="role">· scout</span></div>
+            <div class="say">“Resting. Point me at anything and I'll map it.”</div>
+          </div>
+          <div class="stat"><span class="g idle">◦</span> idle</div>
+        </div>
+      </section>
+    </main>
+
+    <!-- quiet workspace strip -->
+    <div class="strip">
+      <div class="cell"><span class="d"></span> auth.ts</div>
+      <div class="cell mono">terminal — ready in 412ms</div>
+      <div class="cell">preview · /login</div>
+      <div class="spacer"></div>
+      <div class="ghost">Focus · Split · Canvas · Preview</div>
+    </div>
+
+    <!-- footer -->
+    <div class="foot">
+      <span class="sage">●</span> native · Tauri 2
+      <span>cold start 0.41s</span>
+      <span>RAM 64 MB</span>
+      <div class="r">
+        <span>3 agents</span>
+        <span>orchestrator listening</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

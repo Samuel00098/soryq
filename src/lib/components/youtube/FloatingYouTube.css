@@ -1,0 +1,214 @@
+/* Styles for FloatingYouTube.tsx. Every selector is scoped under
+   .floating-youtube so this chunk can't leak styles into other panels. The
+   window is a fixed, free-floating Opera-style pop-up that lives above the
+   whole workspace and is independent of the ambient room layout. */
+
+.floating-youtube {
+  position: fixed;
+  z-index: 120; /* above the room dock (z 8) / composer overlays, below modals (9999) */
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  /* The frame itself is transparent so that when the body's opacity is lowered
+     the actual app shows through the video — not a frosted backdrop. The title
+     bar carries its own opaque background (below) so the controls stay legible. */
+  background: transparent;
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.floating-youtube.fy-interacting {
+  user-select: none;
+}
+
+.floating-youtube .fy-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  cursor: grab;
+  /* Opaque frosted header so the title + controls stay readable even when the
+     video body below is faded to near-transparent. */
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  backdrop-filter: blur(22px) saturate(1.1);
+  -webkit-backdrop-filter: blur(22px) saturate(1.1);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.floating-youtube.fy-interacting .fy-titlebar {
+  cursor: grabbing;
+}
+
+.floating-youtube .fy-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+.floating-youtube .fy-titlebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.floating-youtube .fy-opacity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  cursor: default;
+  color: var(--text-secondary);
+}
+
+.floating-youtube .fy-opacity input[type='range'] {
+  width: 70px;
+  cursor: pointer;
+  accent-color: var(--accent, #7c6af7);
+}
+
+.floating-youtube .fy-minimize,
+.floating-youtube .fy-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.floating-youtube .fy-minimize:hover {
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  color: var(--text-primary);
+}
+
+.floating-youtube .fy-close:hover {
+  background: color-mix(in srgb, var(--danger, #e5484d) 22%, transparent);
+  color: var(--text-primary);
+}
+
+/* Minimized: the section height collapses to the title bar (height is intrinsic
+   from the markup) and the body is hidden but kept mounted so playback — and
+   audio — continues. Rounded corners on the bar look right when it's alone. */
+.floating-youtube.fy-minimized {
+  height: auto;
+}
+
+.floating-youtube.fy-minimized .fy-titlebar {
+  border-bottom: none;
+}
+
+.floating-youtube.fy-minimized .fy-body {
+  /* Kept in the DOM (height 0, not display:none) so the YouTube iframe is not
+     torn down and audio keeps playing while collapsed. */
+  height: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.floating-youtube .fy-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  /* Opacity is set inline from the transparency slider; ease the change. */
+  transition: opacity 140ms ease;
+}
+
+/* The embedded panel fills the floating body. It keeps its own frosted
+   background (from YouTubePanel.css) so the player is solid at full opacity; the
+   body's opacity slider is what fades the whole player to reveal the app. */
+.floating-youtube .fy-body .youtube-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Transparent capture layer shown only during a drag/resize so the YouTube
+   iframe doesn't eat the gesture's pointer events. */
+.floating-youtube .fy-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: inherit;
+}
+
+/* Eight invisible resize hit-targets around the window edge: four sides and
+   four corners. The corners sit above the edges (higher z-index) so grabbing a
+   corner always wins the diagonal resize. `touch-action: none` keeps touch
+   drags from scrolling instead of resizing. */
+.floating-youtube .fy-resize {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+
+/* Edges — thin strips that don't overlap the corners. */
+.floating-youtube .fy-resize-n,
+.floating-youtube .fy-resize-s {
+  left: 10px;
+  right: 10px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.floating-youtube .fy-resize-e,
+.floating-youtube .fy-resize-w {
+  top: 10px;
+  bottom: 10px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.floating-youtube .fy-resize-n {
+  top: -4px;
+}
+.floating-youtube .fy-resize-s {
+  bottom: -4px;
+}
+.floating-youtube .fy-resize-e {
+  right: -4px;
+}
+.floating-youtube .fy-resize-w {
+  left: -4px;
+}
+
+/* Corners — small squares overlapping both adjacent edges. */
+.floating-youtube .fy-resize-ne,
+.floating-youtube .fy-resize-nw,
+.floating-youtube .fy-resize-se,
+.floating-youtube .fy-resize-sw {
+  width: 16px;
+  height: 16px;
+  z-index: 7;
+}
+.floating-youtube .fy-resize-ne {
+  top: -4px;
+  right: -4px;
+  cursor: nesw-resize;
+}
+.floating-youtube .fy-resize-nw {
+  top: -4px;
+  left: -4px;
+  cursor: nwse-resize;
+}
+.floating-youtube .fy-resize-se {
+  bottom: -4px;
+  right: -4px;
+  cursor: nwse-resize;
+}
+.floating-youtube .fy-resize-sw {
+  bottom: -4px;
+  left: -4px;
+  cursor: nesw-resize;
+}

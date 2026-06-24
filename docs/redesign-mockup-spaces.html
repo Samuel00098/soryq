@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soryq — Spaces (secluded, full-form workspaces)</title>
+<style>
+  /* ------------------------------------------------------------------ *
+   *  SPACES mockup — "secluded, not drawers"
+   *  Calm Warp/Raycast-grade dark with warm undertone. One canvas at a
+   *  time; you SWITCH spaces, you don't stack overlays. Every tool lives
+   *  at full form inside the space it belongs to.
+   * ------------------------------------------------------------------ */
+  :root {
+    --bg-0:#0a0b0f;      /* deepest */
+    --bg-1:#0f1117;
+    --bg-2:#151823;      /* raised surface */
+    --bg-3:#1c2030;      /* hover / active surface */
+    --line:rgba(255,255,255,.07);
+    --line-2:rgba(255,255,255,.12);
+    --ink-0:#f3f1ee;     /* warm white */
+    --ink-1:#b9b6c4;
+    --ink-2:#7e7c8c;
+    --ink-3:#54525e;
+    --teal:#22d3c7;      /* orchestrator / primary / live */
+    --sky:#7aa2ff;       /* reviewer / info */
+    --amber:#f5b045;     /* scout / attention */
+    --green:#34d399;     /* terminal / success */
+    --pink:#f472b6;      /* accent */
+    --warm:#e9a06b;      /* the warm soul tint */
+    --radius:14px;
+    --radius-sm:9px;
+    --shadow:0 18px 50px -22px rgba(0,0,0,.8);
+    --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Consolas,monospace;
+    --sans:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);
+    background:
+      radial-gradient(1100px 700px at 78% -8%, rgba(233,160,107,.06), transparent 60%),
+      radial-gradient(900px 600px at 8% 108%, rgba(34,211,199,.05), transparent 55%),
+      var(--bg-0);
+    color:var(--ink-0);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{display:grid;grid-template-columns:76px 1fr;height:100vh}
+
+  /* ---------------- Space rail (the only persistent chrome) ----------- */
+  .rail{
+    background:linear-gradient(180deg,var(--bg-1),var(--bg-0));
+    border-right:1px solid var(--line);
+    display:flex;flex-direction:column;align-items:center;
+    padding:14px 0;gap:6px;
+  }
+  .brand{
+    width:38px;height:38px;border-radius:11px;margin-bottom:12px;
+    background:radial-gradient(circle at 32% 28%, #2bf0e0, #11b3a6 60%, #0c8378);
+    box-shadow:0 0 0 1px rgba(255,255,255,.12),0 6px 18px -6px rgba(34,211,199,.6);
+    display:grid;place-items:center;color:#03201d;font-weight:800;font-size:18px;
+  }
+  .rail-label{font-size:9px;letter-spacing:.13em;color:var(--ink-3);text-transform:uppercase;margin:6px 0 2px}
+  .space-btn{
+    position:relative;width:52px;height:52px;border-radius:14px;
+    background:transparent;border:1px solid transparent;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    color:var(--ink-2);transition:.18s ease;
+  }
+  .space-btn .ico{font-size:19px;line-height:1}
+  .space-btn .nm{font-size:8.5px;letter-spacing:.04em;font-weight:600}
+  .space-btn:hover{background:var(--bg-2);color:var(--ink-0);border-color:var(--line)}
+  .space-btn.active{background:var(--bg-3);color:var(--ink-0);border-color:var(--line-2)}
+  .space-btn.active::before{
+    content:"";position:absolute;left:-14px;top:50%;transform:translateY(-50%);
+    width:3px;height:26px;border-radius:3px;background:var(--accent,var(--teal));
+    box-shadow:0 0 12px var(--accent,var(--teal));
+  }
+  .space-btn[data-space="code"]{--accent:var(--sky)}
+  .space-btn[data-space="agents"]{--accent:var(--teal)}
+  .space-btn[data-space="preview"]{--accent:var(--green)}
+  .space-btn[data-space="data"]{--accent:var(--amber)}
+  .space-btn[data-space="devices"]{--accent:var(--pink)}
+  .rail-sp{flex:1}
+  .rail-mini{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:var(--ink-3);cursor:pointer}
+  .rail-mini:hover{background:var(--bg-2);color:var(--ink-1)}
+
+  /* ---------------- Stage (one secluded space at a time) -------------- */
+  .stage{position:relative;overflow:hidden}
+  .space{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    opacity:0;visibility:hidden;transform:scale(.985);
+    transition:opacity .28s ease, transform .28s ease, visibility .28s;
+  }
+  .space.active{opacity:1;visibility:visible;transform:none}
+
+  /* space header — calm, tells you exactly where you are */
+  .space-head{
+    display:flex;align-items:center;gap:14px;
+    padding:14px 22px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(255,255,255,.018), transparent);
+  }
+  .space-title{display:flex;align-items:center;gap:11px}
+  .space-dot{width:9px;height:9px;border-radius:50%;background:var(--accent,var(--teal));box-shadow:0 0 10px var(--accent,var(--teal))}
+  .space-title h1{font-size:15px;font-weight:650;letter-spacing:-.01em}
+  .space-title .sub{font-size:12px;color:var(--ink-2)}
+  .head-sp{flex:1}
+  .kbd{
+    font-family:var(--mono);font-size:11px;color:var(--ink-1);
+    background:var(--bg-2);border:1px solid var(--line-2);border-radius:7px;
+    padding:4px 9px;display:inline-flex;gap:6px;align-items:center;
+  }
+  .pill{
+    font-size:11px;color:var(--ink-1);background:var(--bg-2);
+    border:1px solid var(--line);border-radius:999px;padding:5px 11px;
+    display:inline-flex;align-items:center;gap:7px;
+  }
+  .pill .led{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+
+  .space-body{flex:1;min-height:0;display:flex;padding:18px;gap:16px}
+
+  /* generic panel = "a real place, at full form" */
+  .panel{
+    background:linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,.012));
+    border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;
+  }
+  .panel-head{
+    display:flex;align-items:center;gap:10px;padding:11px 14px;
+    border-bottom:1px solid var(--line);font-size:12px;color:var(--ink-1);
+  }
+  .panel-head .tag{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+  .panel-head .ttl{font-weight:600;color:var(--ink-0)}
+  .panel-head .sp{flex:1}
+  .dots{display:flex;gap:6px}
+  .dots i{width:9px;height:9px;border-radius:50%;background:var(--bg-3);display:inline-block}
+  .panel-body{flex:1;min-height:0;overflow:auto;padding:14px}
+
+  /* ---- CODE space ---- */
+  .filetree{width:228px;flex:none}
+  .tree-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-1);padding:5px 8px;border-radius:7px;cursor:pointer}
+  .tree-row:hover{background:var(--bg-2)}
+  .tree-row.sel{background:var(--bg-3);color:var(--ink-0)}
+  .tree-row.ind{margin-left:16px}
+  .tree-row .mut{color:var(--ink-3)}
+  .editor-col{flex:1;display:flex;flex-direction:column;gap:16px}
+  .tabs{display:flex;gap:2px;padding:8px 10px 0;border-bottom:1px solid var(--line)}
+  .tab{font-size:12.5px;color:var(--ink-2);padding:8px 14px;border-radius:8px 8px 0 0;cursor:pointer}
+  .tab.on{color:var(--ink-0);background:var(--bg-2);border:1px solid var(--line);border-bottom-color:transparent}
+  .code{font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-1);padding:16px 18px;flex:1;overflow:auto}
+  .code .ln{display:flex;gap:18px}
+  .code .num{color:var(--ink-3);width:22px;text-align:right;user-select:none}
+  .k{color:var(--pink)}.s{color:var(--green)}.f{color:var(--sky)}.c{color:var(--ink-3)}.n{color:var(--amber)}
+  .term{flex:none;height:190px}
+  .term .panel-body{font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--ink-1)}
+  .term .ok{color:var(--green)}.term .dim{color:var(--ink-3)}.term .cur{color:var(--teal)}
+
+  /* ---- AGENTS space (the hero, finally full-form not a 380px drawer) ---- */
+  .agents-body{display:grid;grid-template-columns:1fr 320px;gap:16px}
+  .orch{display:flex;flex-direction:column;gap:16px;min-height:0}
+  .orch-hero{
+    flex:none;border-radius:var(--radius);padding:26px;
+    background:
+      radial-gradient(420px 200px at 50% -30%, rgba(34,211,199,.16), transparent 70%),
+      linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.012));
+    border:1px solid var(--line-2);box-shadow:var(--shadow);
+    display:flex;align-items:center;gap:22px;
+  }
+  .pet{
+    width:96px;height:96px;border-radius:26px;flex:none;position:relative;
+    background:radial-gradient(circle at 38% 32%, #2bf0e0, #0fb3a6 58%, #0a7a70);
+    box-shadow:0 0 0 1px rgba(255,255,255,.14),0 14px 40px -10px rgba(34,211,199,.55);
+    display:grid;place-items:center;
+  }
+  .pet .eyes{display:flex;gap:14px}
+  .pet .eyes i{width:11px;height:18px;border-radius:6px;background:#04231f;display:block;animation:blink 4.2s infinite}
+  @keyframes blink{0%,92%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
+  .orch-hero .who h2{font-size:20px;font-weight:650;letter-spacing:-.01em}
+  .orch-hero .who p{font-size:13.5px;color:var(--ink-1);margin-top:5px;max-width:46ch;line-height:1.5}
+  .wave{display:flex;align-items:center;gap:3px;height:26px;margin-top:12px}
+  .wave i{width:3px;border-radius:3px;background:var(--teal);opacity:.85;animation:eq 1.1s ease-in-out infinite}
+  @keyframes eq{0%,100%{height:6px}50%{height:24px}}
+  .convo{flex:1;min-height:0}
+  .msg{display:flex;gap:11px;margin-bottom:16px}
+  .av{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:12px;font-weight:700;color:#04231f}
+  .av.you{background:var(--bg-3);color:var(--ink-1)}
+  .av.ada{background:var(--teal)}.av.wren{background:var(--amber);color:#2a1c04}.av.sol{background:var(--sky);color:#06122e}
+  .msg .body{font-size:13.5px;line-height:1.55;color:var(--ink-1)}
+  .msg .body b{color:var(--ink-0);font-weight:600}
+  .msg .name{font-size:11px;color:var(--ink-3);margin-bottom:3px;letter-spacing:.02em}
+  .composer{flex:none;display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--line-2);border-radius:14px;background:var(--bg-2)}
+  .composer .mic{width:42px;height:42px;border-radius:12px;flex:none;display:grid;place-items:center;background:var(--teal);color:#04231f;font-size:18px;box-shadow:0 0 22px -4px var(--teal)}
+  .composer input{flex:1;background:transparent;border:0;outline:0;color:var(--ink-0);font-size:14px;font-family:var(--sans)}
+  .composer input::placeholder{color:var(--ink-3)}
+  .fleet{display:flex;flex-direction:column;gap:12px;min-height:0}
+  .agent-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px;background:linear-gradient(180deg, rgba(255,255,255,.022), transparent)}
+  .agent-card .top{display:flex;align-items:center;gap:10px}
+  .agent-card .led{width:8px;height:8px;border-radius:50%}
+  .agent-card .nm{font-size:13.5px;font-weight:600}
+  .agent-card .role{font-size:11px;color:var(--ink-3);margin-left:auto;text-transform:uppercase;letter-spacing:.08em}
+  .agent-card .task{font-size:12.5px;color:var(--ink-1);margin:9px 0 11px;line-height:1.45}
+  .bar{height:5px;border-radius:5px;background:var(--bg-3);overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:5px}
+
+  /* ---- PREVIEW space ---- */
+  .preview-body{display:flex;gap:16px}
+  .browser{flex:1;display:flex;flex-direction:column}
+  .urlbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .urlbar .addr{flex:1;font-family:var(--mono);font-size:12px;color:var(--ink-1);background:var(--bg-1);border:1px solid var(--line);border-radius:8px;padding:7px 12px}
+  .viewport{flex:1;background:#fbf8f4;color:#1d2430;overflow:hidden;position:relative}
+  .vp-nav{display:flex;align-items:center;gap:18px;padding:16px 26px;border-bottom:1px solid #e7e0d6;font-size:13px;color:#5a6472}
+  .vp-nav b{color:#10b5a6;font-size:15px}
+  .vp-hero{padding:54px 26px;text-align:center}
+  .vp-hero h3{font-size:30px;color:#171c26;letter-spacing:-.02em}
+  .vp-hero p{color:#5a6472;margin:12px auto 0;max-width:40ch;font-size:14px;line-height:1.5}
+  .vp-cta{margin-top:22px;display:inline-block;background:#10b5a6;color:#fff;padding:11px 22px;border-radius:10px;font-weight:600;font-size:13px}
+  .inspector{width:320px;flex:none}
+  .insp-tree{font-family:var(--mono);font-size:12px;line-height:1.85;color:var(--ink-1)}
+  .insp-tree .t{color:var(--pink)}.insp-tree .a{color:var(--amber)}.insp-tree .v{color:var(--green)}
+  .insp-tree .row{padding:1px 6px;border-radius:5px;cursor:pointer}
+  .insp-tree .row.hot{background:rgba(122,162,255,.12);outline:1px solid rgba(122,162,255,.4)}
+
+  /* ---- DATA space ---- */
+  .data-body{display:flex;gap:16px}
+  .tables{width:210px;flex:none}
+  .q-col{flex:1;display:flex;flex-direction:column;gap:16px}
+  .q-editor{flex:none;height:130px}
+  .q-editor .panel-body{font-family:var(--mono);font-size:13px;line-height:1.7;color:var(--ink-1)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--ink-3);font-weight:600;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--line)}
+  td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--ink-1);font-family:var(--mono);font-size:12px}
+  tr:hover td{background:var(--bg-2)}
+
+  /* ---- DEVICES space ---- */
+  .devices-body{display:flex;gap:22px;align-items:center;justify-content:center}
+  .phone{width:240px;height:486px;border-radius:34px;background:var(--bg-2);border:1px solid var(--line-2);box-shadow:var(--shadow);padding:12px;position:relative}
+  .phone .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:90px;height:20px;background:var(--bg-0);border-radius:0 0 12px 12px}
+  .phone .screen{width:100%;height:100%;border-radius:24px;background:linear-gradient(180deg,#0f1117,#171b27);overflow:hidden;display:flex;flex-direction:column}
+  .phone .pscr-top{padding:34px 18px 14px;color:var(--ink-2);font-size:11px}
+  .phone .pcard{margin:8px 14px;padding:14px;border-radius:14px;background:var(--bg-3);border:1px solid var(--line)}
+  .phone .pcard h4{font-size:14px;margin-bottom:6px}
+  .phone .pcard p{font-size:11px;color:var(--ink-2);line-height:1.5}
+  .device-label{text-align:center;margin-top:14px;font-size:12px;color:var(--ink-2)}
+  .device-label b{color:var(--ink-0);display:block;font-size:13px;margin-bottom:2px}
+
+  /* ---------------- status footer (always-true line) ----------------- */
+  .statusbar{
+    display:flex;align-items:center;gap:18px;padding:8px 20px;
+    border-top:1px solid var(--line);background:var(--bg-1);
+    font-size:11.5px;color:var(--ink-2);
+  }
+  .statusbar .seg{display:flex;align-items:center;gap:7px}
+  .statusbar .seg b{color:var(--ink-0);font-weight:600}
+  .statusbar .sp{flex:1}
+  .statusbar .seg .led{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green)}
+
+  /* command-K hint toast */
+  .note{
+    position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    font-size:12px;color:var(--ink-2);background:var(--bg-2);
+    border:1px solid var(--line-2);border-radius:999px;padding:8px 16px;
+    box-shadow:var(--shadow);display:flex;gap:9px;align-items:center;z-index:50;
+  }
+  .note b{color:var(--ink-0)}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ Space rail — switch, don't stack ============ -->
+  <nav class="rail">
+    <div class="brand">s</div>
+    <div class="rail-label">Spaces</div>
+    <button class="space-btn" data-space="code"><span class="ico">‹›</span><span class="nm">Code</span></button>
+    <button class="space-btn active" data-space="agents"><span class="ico">◆</span><span class="nm">Agents</span></button>
+    <button class="space-btn" data-space="preview"><span class="ico">▣</span><span class="nm">Preview</span></button>
+    <button class="space-btn" data-space="data"><span class="ico">⊟</span><span class="nm">Data</span></button>
+    <button class="space-btn" data-space="devices"><span class="ico">▢</span><span class="nm">Devices</span></button>
+    <div class="rail-sp"></div>
+    <div class="rail-mini" title="Theme">◐</div>
+    <div class="rail-mini" title="Settings">⚙</div>
+  </nav>
+
+  <!-- ============ Stage — exactly one secluded space visible ============ -->
+  <main class="stage">
+
+    <!-- ---------- CODE ---------- -->
+    <section class="space" data-space="code" style="--accent:var(--sky)">
+      <header class="space-head">
+        <div class="space-title"><span class="space-dot"></span><h1>Code</h1><span class="sub">orchestrator-brain.ts — soryq</span></div>
+        <div class="head-sp"></div>
+        <span class="kbd">⌘K <span style="color:var(--ink-3)">switch space</span></span>
+      </header>
+      <div class="space-body">
+        <aside class="panel filetree">
+          <div class="panel-head"><span class="tag">Files</span></div>
+          <div class="panel-body">
+            <div class="tree-row sel">▾ <span>src</span></div>
+            <div class="tree-row ind">▾ lib</div>
+            <div class="tree-row ind" style="margin-left:32px">services</div>
+            <div class="tree-row ind sel" style="margin-left:48px">orchestrator-brain.ts</div>
+            <div class="tree-row ind" style="margin-left:48px">tts.ts</div>
+            <div class="tree-row ind" style="margin-left:32px">stores <span class="mut">7</span></div>
+            <div class="tree-row ind" style="margin-left:32px">components <span class="mut">42</span></div>
+            <div class="tree-row">▸ <span>src-tauri</span></div>
+            <div class="tree-row">▸ <span>docs</span></div>
+          </div>
+        </aside>
+        <div class="editor-col">
+          <div class="panel" style="flex:1">
+            <div class="tabs">
+              <div class="tab on">orchestrator-brain.ts</div>
+              <div class="tab">tts.ts</div>
+              <div class="tab">layout.ts</div>
+            </div>
+            <div class="code">
+              <div class="ln"><span class="num">1</span><span><span class="c">// the orchestrator is a room, not a pop-up</span></span></div>
+              <div class="ln"><span class="num">2</span><span><span class="k">export</span> <span class="k">async</span> <span class="k">function</span> <span class="f">route</span>(intent: <span class="f">Intent</span>) {</span></div>
+              <div class="ln"><span class="num">3</span><span>  <span class="k">const</span> space = <span class="f">resolveSpace</span>(intent.kind)</span></div>
+              <div class="ln"><span class="num">4</span><span>  <span class="k">await</span> <span class="f">enterSpace</span>(space, { focus: <span class="n">true</span> })</span></div>
+              <div class="ln"><span class="num">5</span><span>  <span class="k">return</span> space.<span class="f">arrange</span>({ fullForm: <span class="n">true</span> })</span></div>
+              <div class="ln"><span class="num">6</span><span>}</span></div>
+              <div class="ln"><span class="num">7</span><span></span></div>
+              <div class="ln"><span class="num">8</span><span><span class="c">// no drawer crammed at 380px — every tool gets its real size</span></span></div>
+            </div>
+          </div>
+          <div class="panel term">
+            <div class="panel-head"><span class="tag">Terminal</span><span class="ttl">zsh — soryq</span><span class="sp"></span><span class="dots"><i></i><i></i><i></i></span></div>
+            <div class="panel-body">
+              <div><span class="dim">~/soryq</span> <span class="cur">❯</span> npm run tauri dev</div>
+              <div class="ok">  VITE ready in 412 ms</div>
+              <div class="dim">  ➜ Local:  http://localhost:1420/</div>
+              <div>  <span class="ok">✓</span> compiled rust shell · 0.41s · 64MB</div>
+              <div><span class="dim">~/soryq</span> <span class="cur">❯</span> <span style="animation:blink 1.1s steps(1) infinite">▋</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- AGENTS (hero, full form) ---------- -->
+    <section class="space active" data-space="agents" style="--accent:var(--teal)">
+      <header class="space-head">
+        <div class="space-title"><span class="space-dot"></span><h1>Agents</h1><span class="sub">your fleet, at full size — not a drawer</span></div>
+        <div class="head-sp"></div>
+        <span class="pill"><span class="led"></span> 3 agents · 1 working</span>
+        <span class="kbd">⌘K</span>
+      </header>
+      <div class="space-body agents-body">
+        <div class="orch">
+          <div class="orch-hero">
+            <div class="pet"><div class="eyes"><i></i><i></i></div></div>
+            <div class="who">
+              <h2>Ada is on it.</h2>
+              <p>I split the voice-overlay refactor across the fleet. Wren is wiring the VAD threshold, Sol is reviewing the diff. I'll surface anything that needs you.</p>
+              <div class="wave">
+                <i style="animation-delay:0s"></i><i style="animation-delay:.1s"></i><i style="animation-delay:.2s"></i>
+                <i style="animation-delay:.3s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.25s"></i>
+                <i style="animation-delay:.05s"></i><i style="animation-delay:.35s"></i><i style="animation-delay:.2s"></i>
+                <i style="animation-delay:.1s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:0s"></i>
+              </div>
+            </div>
+          </div>
+          <div class="panel convo">
+            <div class="panel-head"><span class="tag">Conversation</span><span class="ttl">this session</span></div>
+            <div class="panel-body">
+              <div class="msg"><div class="av you">Y</div><div><div class="name">you</div><div class="body">Tighten the speech detection — it cuts off when I pause.</div></div></div>
+              <div class="msg"><div class="av ada">A</div><div><div class="name">Ada · orchestrator</div><div class="body">On it. I'll have <b>Wren</b> raise the RMS threshold and add consecutive-frame validation so short pauses don't end the turn.</div></div></div>
+              <div class="msg"><div class="av wren">W</div><div><div class="name">Wren · builder</div><div class="body">Set <b>0.025 RMS</b> + 3-frame confirm in the VAD loop. Want me to run it against the last recording?</div></div></div>
+              <div class="msg"><div class="av sol">S</div><div><div class="name">Sol · reviewer</div><div class="body">Diff looks clean. One note: persist the threshold so it survives reload. Flagged, not blocking.</div></div></div>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="mic">🎙</div>
+            <input placeholder="Talk to your fleet…  (or type)" />
+            <span class="kbd">↵ send</span>
+          </div>
+        </div>
+        <aside class="fleet">
+          <div class="rail-label" style="margin:0 2px 2px">Fleet</div>
+          <div class="agent-card">
+            <div class="top"><span class="led" style="background:var(--teal);box-shadow:0 0 8px var(--teal)"></span><span class="nm">Ada</span><span class="role">orchestrator</span></div>
+            <div class="task">Coordinating the voice refactor across the fleet.</div>
+            <div class="bar"><i style="width:100%;background:var(--teal)"></i></div>
+          </div>
+          <div class="agent-card">
+            <div class="top"><span class="led" style="background:var(--amber);box-shadow:0 0 8px var(--amber);animation:blink 1.4s infinite"></span><span class="nm">Wren</span><span class="role">builder</span></div>
+            <div class="task">Wiring VAD threshold + frame validation…</div>
+            <div class="bar"><i style="width:68%;background:var(--amber)"></i></div>
+          </div>
+          <div class="agent-card">
+            <div class="top"><span class="led" style="background:var(--sky);box-shadow:0 0 8px var(--sky)"></span><span class="nm">Sol</span><span class="role">reviewer</span></div>
+            <div class="task">Reviewed diff · 1 non-blocking note.</div>
+            <div class="bar"><i style="width:100%;background:var(--sky)"></i></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ---------- PREVIEW ---------- -->
+    <section class="space" data-space="preview" style="--accent:var(--green)">
+      <header class="space-head">
+        <div class="space-title"><span class="space-dot"></span><h1>Preview</h1><span class="sub">your app + DOM inspector, real size</span></div>
+        <div class="head-sp"></div>
+        <span class="pill"><span class="led"></span> live · localhost:1420</span>
+        <span class="kbd">⌘K</span>
+      </header>
+      <div class="space-body preview-body">
+        <div class="panel browser">
+          <div class="urlbar"><span style="color:var(--ink-3)">◀ ▶ ↻</span><span class="addr">localhost:1420</span><span style="color:var(--ink-3)">⤢</span></div>
+          <div class="viewport">
+            <div class="vp-nav"><b>◆ soryq</b><span>Product</span><span>Pricing</span><span>Docs</span><span style="margin-left:auto;color:#10b5a6">Get started</span></div>
+            <div class="vp-hero">
+              <h3>Own your dev workspace.</h3>
+              <p>Local-first. Your keys, no meter. Voice-orchestrated agents that actually ship.</p>
+              <span class="vp-cta">Download for desktop</span>
+            </div>
+          </div>
+        </div>
+        <aside class="panel inspector">
+          <div class="panel-head"><span class="tag">Inspector</span><span class="ttl">DOM</span></div>
+          <div class="panel-body insp-tree">
+            <div class="row">&lt;<span class="t">nav</span> <span class="a">class</span>=<span class="v">"vp-nav"</span>&gt;</div>
+            <div class="row" style="margin-left:14px">&lt;<span class="t">b</span>&gt;◆ soryq&lt;/<span class="t">b</span>&gt;</div>
+            <div class="row hot" style="margin-left:14px">&lt;<span class="t">span</span> <span class="a">class</span>=<span class="v">"cta"</span>&gt;Get started&lt;/<span class="t">span</span>&gt;</div>
+            <div class="row">&lt;<span class="t">section</span> <span class="a">class</span>=<span class="v">"vp-hero"</span>&gt;</div>
+            <div class="row" style="margin-left:14px">&lt;<span class="t">h3</span>&gt;Own your dev workspace.&lt;/<span class="t">h3</span>&gt;</div>
+            <div class="row" style="margin-left:14px">&lt;<span class="t">p</span>&gt;Local-first…&lt;/<span class="t">p</span>&gt;</div>
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-family:var(--sans);font-size:12px;color:var(--ink-2)">
+              <div style="color:var(--ink-3);text-transform:uppercase;letter-spacing:.1em;font-size:10px;margin-bottom:8px">Computed · .cta</div>
+              <div style="line-height:1.9"><span style="color:var(--sky)">background</span>: #10b5a6<br><span style="color:var(--sky)">padding</span>: 11px 22px<br><span style="color:var(--sky)">border-radius</span>: 10px</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ---------- DATA ---------- -->
+    <section class="space" data-space="data" style="--accent:var(--amber)">
+      <header class="space-head">
+        <div class="space-title"><span class="space-dot"></span><h1>Data</h1><span class="sub">db explorer + queries, full form</span></div>
+        <div class="head-sp"></div>
+        <span class="pill"><span class="led"></span> sqlite · soryq.db</span>
+        <span class="kbd">⌘K</span>
+      </header>
+      <div class="space-body data-body">
+        <aside class="panel tables">
+          <div class="panel-head"><span class="tag">Tables</span></div>
+          <div class="panel-body">
+            <div class="tree-row sel">⊟ sessions</div>
+            <div class="tree-row">⊟ agents</div>
+            <div class="tree-row">⊟ messages</div>
+            <div class="tree-row">⊟ projects</div>
+            <div class="tree-row">⊟ snapshots</div>
+            <div class="tree-row">⊟ env_vars</div>
+          </div>
+        </aside>
+        <div class="q-col">
+          <div class="panel q-editor">
+            <div class="panel-head"><span class="tag">Query</span><span class="ttl">sessions</span><span class="sp"></span><span class="kbd" style="font-size:10px">⌘↵ run</span></div>
+            <div class="panel-body"><span style="color:var(--pink)">SELECT</span> id, agent, status, started_at<br><span style="color:var(--pink)">FROM</span> sessions <span style="color:var(--pink)">WHERE</span> status = <span style="color:var(--green)">'active'</span><br><span style="color:var(--pink)">ORDER BY</span> started_at <span style="color:var(--pink)">DESC</span>;</div>
+          </div>
+          <div class="panel" style="flex:1">
+            <div class="panel-head"><span class="tag">Result</span><span class="ttl">3 rows · 6ms</span></div>
+            <div class="panel-body" style="padding:0">
+              <table>
+                <thead><tr><th>id</th><th>agent</th><th>status</th><th>started_at</th></tr></thead>
+                <tbody>
+                  <tr><td>s_4817</td><td>ada</td><td style="color:var(--green)">active</td><td>2026-06-23 09:14</td></tr>
+                  <tr><td>s_4816</td><td>wren</td><td style="color:var(--green)">active</td><td>2026-06-23 09:14</td></tr>
+                  <tr><td>s_4810</td><td>sol</td><td style="color:var(--green)">active</td><td>2026-06-23 09:02</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- DEVICES ---------- -->
+    <section class="space" data-space="devices" style="--accent:var(--pink)">
+      <header class="space-head">
+        <div class="space-title"><span class="space-dot"></span><h1>Devices</h1><span class="sub">mirror your app on real & virtual devices</span></div>
+        <div class="head-sp"></div>
+        <span class="pill"><span class="led"></span> 1 connected</span>
+        <span class="kbd">⌘K</span>
+      </header>
+      <div class="space-body devices-body">
+        <div>
+          <div class="phone">
+            <div class="notch"></div>
+            <div class="screen">
+              <div class="pscr-top">9:41 · soryq mobile</div>
+              <div class="pcard"><h4>Own your workspace</h4><p>Local-first dev, your keys, voice agents.</p></div>
+              <div class="pcard" style="background:var(--teal);color:#04231f"><h4 style="color:#04231f">Get started →</h4><p style="color:#06322d">Free while in beta.</p></div>
+              <div class="pcard"><h4>Recent</h4><p>voice-overlay refactor · 2m ago</p></div>
+            </div>
+          </div>
+          <div class="device-label"><b>Pixel 8 · Android 14</b>adb · screencap live</div>
+        </div>
+        <div>
+          <div class="phone" style="opacity:.55">
+            <div class="notch"></div>
+            <div class="screen"><div class="pscr-top" style="text-align:center;margin:auto;color:var(--ink-3)">iPhone 15<br><span style="font-size:10px">tap to boot simulator</span></div></div>
+          </div>
+          <div class="device-label"><b>iPhone 15 · iOS 17</b>simctl · offline</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- always-true status line -->
+<div class="statusbar">
+  <span class="seg"><span class="led"></span> <b>native</b></span>
+  <span class="seg">◷ <b>0.41s</b> cold start</span>
+  <span class="seg">▤ <b>64MB</b></span>
+  <span class="sp"></span>
+  <span class="seg">🔑 <b>your key</b></span>
+  <span class="seg">🎙 <b>offline voice</b></span>
+  <span class="seg">∞ <b>no meter</b></span>
+</div>
+
+<div class="note">Click a <b>Space</b> in the rail — one secluded, full-form workspace at a time. <span style="color:var(--ink-3)">No stacked drawers.</span></div>
+
+<script>
+  const buttons = document.querySelectorAll('.space-btn');
+  const spaces = document.querySelectorAll('.space[data-space]');
+  function go(name){
+    buttons.forEach(b=>b.classList.toggle('active', b.dataset.space===name));
+    spaces.forEach(s=>s.classList.toggle('active', s.dataset.space===name));
+  }
+  buttons.forEach(b=>b.addEventListener('click',()=>go(b.dataset.space)));
+  // quick keyboard switch: 1-5
+  const order=['code','agents','preview','data','devices'];
+  window.addEventListener('keydown',e=>{
+    const n=parseInt(e.key,10);
+    if(n>=1&&n<=5) go(order[n-1]);
+  });
+</script>
+</body>
+</html>

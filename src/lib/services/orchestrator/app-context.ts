@@ -42,6 +42,9 @@ export const NAVIGABLE_VIEWS = [
   'containers',
   'toolbox',
   'pet',
+  'youtube',
+  'android',
+  'ios',
   'settings',
 ] as const;
 

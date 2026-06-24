@@ -56,6 +56,30 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
 
 export type GridLayout = 'single' | '2h' | '2v' | '3h' | '3v' | '4' | '9';
 
+// A custom mosaic arrangement (columns of stacked cells, with their relative
+// widths/heights) built by dragging/splitting panes. This is the source of
+// truth for the *visible* terminal layout; `gridLayout` is only the named
+// quick-pick label. Persisting the mosaic (not just the preset) lets a custom
+// arrangement survive a TerminalPanel remount — e.g. when the workspace ambient
+// mode switches (Focus / Split / Canvas / Preview) and React tears the panel
+// down and rebuilds it elsewhere in the tree. null = "follow the named preset".
+export type MosaicCell = { index: number };
+export type MosaicColumn = { cells: MosaicCell[] };
+export interface TerminalMosaic {
+  columns: MosaicColumn[];
+  colWidths: number[];
+  cellHeights: number[][];
+}
+
+function cloneMosaic(mosaic: TerminalMosaic | null | undefined): TerminalMosaic | null {
+  if (!mosaic) return null;
+  return {
+    columns: mosaic.columns.map((column) => ({ cells: column.cells.map((cell) => ({ ...cell })) })),
+    colWidths: [...mosaic.colWidths],
+    cellHeights: mosaic.cellHeights.map((heights) => [...heights]),
+  };
+}
+
 export const sessions = writable<TerminalSessionInfo[]>([]);
 export const activeSessionId = writable<number | null>(null);
 
@@ -125,6 +149,12 @@ export function addHistoryEntry(cmd: string) {
 // Grid layout: which format is the terminal area in
 export const gridLayout = writable<GridLayout>('single');
 
+// The live custom mosaic arrangement for the active project (null = the named
+// `gridLayout` preset is in effect). The visible TerminalPanel reads this on
+// mount so a hand-built split survives a remount; it writes back here whenever
+// the user drags, splits or resizes panes.
+export const terminalMosaic = writable<TerminalMosaic | null>(null);
+
 // Which session IDs occupy each pane slot (null = empty/new terminal slot)
 export const paneAssignments = writable<(number | null)[]>([null]);
 
@@ -135,6 +165,7 @@ type TerminalProjectState = {
   sessions: TerminalSessionInfo[];
   activeSessionId: number | null;
   gridLayout: GridLayout;
+  mosaic: TerminalMosaic | null;
   paneAssignments: (number | null)[];
   activePaneIndex: number;
 };
@@ -144,6 +175,7 @@ function createDefaultProjectState(): TerminalProjectState {
     sessions: [],
     activeSessionId: null,
     gridLayout: 'single',
+    mosaic: null,
     paneAssignments: [null],
     activePaneIndex: 0,
   };
@@ -154,6 +186,7 @@ function cloneProjectState(state: TerminalProjectState): TerminalProjectState {
     sessions: state.sessions.map((session) => ({ ...session })),
     activeSessionId: state.activeSessionId,
     gridLayout: state.gridLayout,
+    mosaic: cloneMosaic(state.mosaic),
     paneAssignments: [...state.paneAssignments],
     activePaneIndex: state.activePaneIndex,
   };
@@ -186,6 +219,7 @@ function setVisibleProjectState(state: TerminalProjectState) {
   sessions.set(state.sessions.map((session) => ({ ...session })));
   activeSessionId.set(state.activeSessionId);
   gridLayout.set(state.gridLayout);
+  terminalMosaic.set(cloneMosaic(state.mosaic));
   paneAssignments.set([...state.paneAssignments]);
   activePaneIndex.set(state.activePaneIndex);
 }
@@ -326,6 +360,8 @@ export function setGridLayout(layout: GridLayout) {
   const count = getLayoutPaneCount(layout);
   if (!projectId) {
     gridLayout.set(layout);
+    // Picking a named preset replaces any hand-built arrangement.
+    terminalMosaic.set(null);
     paneAssignments.update((current) => {
       const updated = [...current];
       while (updated.length < count) updated.push(null);
@@ -341,10 +377,23 @@ export function setGridLayout(layout: GridLayout) {
     return {
       ...state,
       gridLayout: layout,
+      mosaic: null,
       paneAssignments: paneAssignments.slice(0, count),
       activePaneIndex: Math.min(state.activePaneIndex, count - 1),
     };
   });
+}
+
+// Persist a hand-built mosaic arrangement for the active project. The visible
+// store keeps the exact object passed in (so the panel's own writes don't
+// thrash its local state); the per-project copy is cloned so switching projects
+// can't mutate it from under us.
+export function setTerminalMosaic(mosaic: TerminalMosaic | null) {
+  const projectId = activeTerminalProjectId;
+  if (projectId) {
+    getProjectState(projectId).mosaic = cloneMosaic(mosaic);
+  }
+  terminalMosaic.set(mosaic);
 }
 
 export function assignToPane(paneIdx: number, sessionId: number | null) {

@@ -1,0 +1,52 @@
+.wt-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: linear-gradient(
+    180deg,
+    rgba(var(--bg-secondary-rgb, 30, 30, 40), 0.55),
+    rgba(var(--bg-secondary-rgb, 30, 30, 40), 0.25)
+  );
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wt-badge .wt-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.wt-badge .wt-branch {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.wt-badge .wt-sep {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.wt-badge .wt-changes {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.wt-badge .wt-changes.dirty {
+  color: var(--warning);
+  font-weight: 600;
+}

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soryq — Calm Canvas + navigation (Phase 1 mockup, v3b · clickable)</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────────────────
+     SORYQ · CALM CANVAS + NAVIGATION — clickable mockup (design-first)
+     Answers: "with this calm layout, how do I get to preview / database /
+     Arduino?"  The calm canvas is just the HOME room. A persistent quiet left
+     rail (the spine) opens every tool as a room in the main area — and the
+     orchestrator / ⌘K reach the same places. CLICK THE RAIL to switch rooms.
+     Nothing here touches the live app.
+     ───────────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#14120e; --panel:#1b1813; --raised:#231f18;
+    --cream:#ece3d2; --dim:#a89d88; --faint:#716958;
+    --line:rgba(236,227,210,.08); --line-soft:rgba(236,227,210,.045);
+    --sage:#8fb2a4; --sage-soft:rgba(143,178,164,.12); --clay:#cda06b;
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--cream);
+    -webkit-font-smoothing:antialiased;overflow:hidden;display:grid;place-items:center;min-height:100vh;padding:26px}
+  .serif{font-family:'Iowan Old Style','Palatino Linotype','Book Antiqua',Georgia,serif}
+  code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.9em}
+
+  .app{width:min(1180px,96vw);height:min(760px,92vh);background:var(--bg);border:1px solid var(--line);
+    border-radius:18px;overflow:hidden;display:grid;grid-template-rows:auto 1fr auto;
+    box-shadow:0 40px 90px -50px rgba(0,0,0,.9)}
+
+  /* top bar */
+  .top{display:flex;align-items:center;gap:13px;padding:13px 20px;border-bottom:1px solid var(--line)}
+  .lights{display:flex;gap:7px}.lights i{width:10px;height:10px;border-radius:50%;background:#332e25;display:block}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:.04em}
+  .brand .mark{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--sage)}
+  .seg{margin-left:auto;display:flex;gap:2px}
+  .seg button{all:unset;cursor:pointer;font-size:12.5px;color:var(--dim);padding:5px 12px;border-radius:8px}
+  .seg button:hover{color:var(--cream);background:var(--raised)}
+  .seg button.on{color:var(--cream);background:var(--raised);box-shadow:inset 0 0 0 1px var(--line)}
+  .cmdk{margin-left:14px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--faint);
+    border:1px solid var(--line);border-radius:9px;padding:5px 11px;cursor:pointer}
+  .cmdk:hover{color:var(--dim);border-color:rgba(143,178,164,.4)}
+  .cmdk kbd{font-family:inherit;color:var(--dim)}
+
+  /* body: rail + main */
+  .body{display:grid;grid-template-columns:62px 1fr;min-height:0}
+
+  /* THE SPINE — persistent quiet rail */
+  .rail{border-right:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:3px}
+  .rail .ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;color:var(--dim);
+    cursor:pointer;font-size:17px;position:relative;transition:.13s}
+  .rail .ic:hover{color:var(--cream);background:var(--panel)}
+  .rail .ic.on{color:var(--sage);background:var(--sage-soft)}
+  .rail .ic.on::before{content:"";position:absolute;left:-12px;top:50%;transform:translateY(-50%);
+    width:3px;height:20px;border-radius:3px;background:var(--sage)}
+  .rail .ic[data-tip]::after{content:attr(data-tip);position:absolute;left:50px;white-space:nowrap;
+    background:var(--raised);border:1px solid var(--line);padding:4px 9px;border-radius:7px;font-size:11px;
+    color:var(--cream);opacity:0;pointer-events:none;transform:translateX(-4px);transition:.13s;z-index:9}
+  .rail .ic:hover[data-tip]::after{opacity:1;transform:translateX(0)}
+  .rail .sp{flex:1}
+
+  /* main / rooms */
+  .main{position:relative;min-width:0;overflow:auto}
+  .view{display:none;min-height:100%}
+  .view.on{display:block}
+
+  /* shared room header */
+  .roomhead{display:flex;align-items:center;gap:11px;padding:18px 26px;border-bottom:1px solid var(--line)}
+  .roomhead .t{font-size:15px;font-weight:600}
+  .roomhead .sub{font-size:12.5px;color:var(--faint)}
+  .roomhead .right{margin-left:auto;display:flex;gap:10px}
+  .btn{font-size:12.5px;color:var(--dim);border:1px solid var(--line);border-radius:9px;padding:6px 12px;cursor:pointer}
+  .btn:hover{color:var(--cream);border-color:rgba(143,178,164,.4)}
+  .btn.pri{color:#16140e;background:var(--sage);border-color:var(--sage);font-weight:600}
+
+  /* ── HOME (calm canvas) ─────────────────────────────────────── */
+  .canvas{position:relative;padding:42px 56px}
+  .canvas::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(236,227,210,.05) 1px,transparent 1px);background-size:26px 26px}
+  .canvas>*{position:relative}
+  .kicker{font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--sage);font-weight:600}
+  .hero{font-size:34px;font-weight:400;line-height:1.14;letter-spacing:-.015em;margin-top:14px}
+  .hero .soft{color:var(--faint)}
+  .lead{color:var(--dim);font-size:14.5px;margin-top:12px;max-width:540px;line-height:1.6}
+  .ask{margin-top:24px;max-width:660px;display:flex;align-items:center;gap:14px;background:var(--panel);
+    border:1px solid var(--line);border-radius:15px;padding:15px 17px;transition:.18s}
+  .ask:hover{border-color:rgba(143,178,164,.4)}
+  .ask .mic{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;
+    background:var(--sage-soft);color:var(--sage);font-size:16px;border:1px solid rgba(143,178,164,.3)}
+  .ask .txt{flex:1;color:var(--faint);font-size:14.5px}.ask .txt em{font-style:italic;color:var(--dim)}
+  .ask .ret{font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:7px;padding:3px 8px}
+  .tips{margin-top:12px;font-size:12.5px;color:var(--faint)}.tips b{color:var(--dim);font-weight:500}
+  .agents{margin-top:38px}
+  .agents .lbl{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:12px}
+  .charrow{display:flex;align-items:center;gap:16px;padding:14px 16px;border-radius:13px;border:1px solid transparent;transition:.15s}
+  .charrow:hover{background:var(--panel);border-color:var(--line)}
+  .av{width:42px;height:42px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:15px;font-weight:600;
+    background:var(--raised);position:relative}
+  .av.work::after,.av.done::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:1.5px solid var(--sage)}
+  .av.done::after{border-color:rgba(143,178,164,.35)}
+  .who{flex:1}.who .nm{font-size:15px;font-weight:550}.who .nm .role{font-size:12px;color:var(--faint);font-weight:400;margin-left:9px}
+  .who .say{font-size:13px;color:var(--dim);margin-top:3px;font-family:Georgia,serif;font-style:italic}
+  .stat{font-size:12.5px;color:var(--dim);flex:none}.stat .g{margin-right:7px}
+  .g.work{color:var(--sage);animation:breathe 2.6s ease-in-out infinite}.g.done{color:var(--sage)}.g.idle{color:var(--faint)}
+  @keyframes breathe{50%{opacity:.4}}
+
+  /* ── DATABASE room ──────────────────────────────────────────── */
+  .pad{padding:20px 26px}
+  .qbar{display:flex;gap:10px;margin-bottom:16px}
+  .qbar input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px;
+    color:var(--cream);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none}
+  .qbar input:focus{border-color:rgba(143,178,164,.5)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--faint);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    padding:10px 12px;border-bottom:1px solid var(--line)}
+  td{padding:11px 12px;border-bottom:1px solid var(--line-soft);color:var(--dim)}
+  tr:hover td{background:var(--panel);color:var(--cream)}
+  td .pk{color:var(--sage)}
+
+  /* ── PREVIEW room ───────────────────────────────────────────── */
+  .urlbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:9px 13px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--dim)}
+  .urlbar .dot{width:8px;height:8px;border-radius:50%;background:var(--sage)}
+  .frame{border:1px solid var(--line);border-radius:14px;overflow:hidden;min-height:330px;
+    background:radial-gradient(70% 90% at 25% 15%,rgba(143,178,164,.16),transparent),
+      radial-gradient(70% 90% at 85% 95%,rgba(205,160,107,.12),transparent),#100e0a;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:30px}
+  .frame h2{font-size:26px;font-weight:400}.frame p{color:var(--dim);font-size:14px;max-width:340px}
+  .frame .cta{font-size:13px;background:var(--sage);color:#16140e;font-weight:600;border-radius:9px;padding:9px 18px}
+
+  /* ── SERIAL / ARDUINO room ─────────────────────────────────── */
+  .serialhead{display:flex;gap:10px;margin-bottom:14px;align-items:center}
+  .chip{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:5px 12px}
+  .chip.live{color:var(--sage);border-color:rgba(143,178,164,.4);background:var(--sage-soft)}
+  .monitor{background:#100e0a;border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+    font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.85;color:#bcae97;min-height:240px}
+  .monitor .t{color:var(--faint)}.monitor .v{color:var(--sage)}.monitor .ok{color:#9bc59b}
+  .sendline{display:flex;gap:10px;margin-top:12px}
+  .sendline input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 13px;
+    color:var(--cream);font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none}
+
+  /* footer */
+  .foot{display:flex;align-items:center;gap:20px;padding:10px 20px;font-size:11.5px;color:var(--faint);border-top:1px solid var(--line)}
+  .foot .sage{color:var(--sage)}.foot .r{margin-left:auto;display:flex;gap:18px}
+
+  /* tiny toast explaining the 3 paths */
+  .toast{position:absolute;right:22px;bottom:18px;background:var(--raised);border:1px solid var(--line);
+    border-radius:12px;padding:12px 15px;font-size:12px;color:var(--dim);max-width:250px;box-shadow:0 18px 40px -20px #000;z-index:20}
+  .toast b{color:var(--sage)}
+  .toast .x{float:right;color:var(--faint);cursor:pointer;margin-left:10px}
+</style>
+</head>
+<body>
+  <div class="app">
+
+    <div class="top">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="brand"><span class="mark"></span> Soryq</div>
+      <div class="seg">
+        <button class="on">Focus</button><button>Split</button><button>Canvas</button><button>Preview</button>
+      </div>
+      <div class="cmdk">Jump to… <kbd>⌘K</kbd></div>
+    </div>
+
+    <div class="body">
+
+      <!-- THE SPINE -->
+      <nav class="rail" id="rail">
+        <div class="ic on" data-view="home" data-tip="Home · Orchestrator">◆</div>
+        <div class="ic" data-view="files" data-tip="Files">▤</div>
+        <div class="ic" data-view="search" data-tip="Search">⌕</div>
+        <div class="ic" data-view="git" data-tip="Source control">⎇</div>
+        <div class="ic" data-view="db" data-tip="Database">▦</div>
+        <div class="ic" data-view="preview" data-tip="Preview websites">◳</div>
+        <div class="ic" data-view="serial" data-tip="Serial · Arduino">⎓</div>
+        <div class="ic" data-view="agents" data-tip="Agents">⬡</div>
+        <div class="sp"></div>
+        <div class="ic" data-view="theme" data-tip="Theme">◐</div>
+        <div class="ic" data-view="settings" data-tip="Settings">⚙</div>
+      </nav>
+
+      <!-- ROOMS -->
+      <main class="main">
+
+        <!-- HOME -->
+        <section class="view on" data-view="home">
+          <div class="canvas">
+            <div class="kicker">Orchestrator</div>
+            <h1 class="hero serif">Good evening, Sam.<br><span class="soft">What are we making?</span></h1>
+            <p class="lead">Say the word and I'll set the team to work — or open any tool from the rail on the left.</p>
+            <div class="ask">
+              <div class="mic">🎙</div>
+              <div class="txt"><em>“Open the database,” “preview localhost:5173,” “open the serial monitor”…</em></div>
+              <div class="ret">↵</div>
+            </div>
+            <div class="tips">every tool is reachable 3 ways — <b>click the rail</b> · <b>say it</b> · <b>⌘K</b></div>
+
+            <div class="agents">
+              <div class="lbl">On the canvas</div>
+              <div class="charrow">
+                <div class="av work">A</div>
+                <div class="who"><div class="nm">Ada <span class="role">· builder</span></div>
+                  <div class="say">“Reworking login() — verify step next.”</div></div>
+                <div class="stat"><span class="g work">✻</span>working · 72%</div>
+              </div>
+              <div class="charrow">
+                <div class="av done">W</div>
+                <div class="who"><div class="nm">Wren <span class="role">· reviewer</span></div>
+                  <div class="say">“PR #214 looks clean — two notes for you.”</div></div>
+                <div class="stat"><span class="g done">✓</span>ready</div>
+              </div>
+              <div class="charrow">
+                <div class="av">S</div>
+                <div class="who"><div class="nm">Sol <span class="role">· scout</span></div>
+                  <div class="say">“Resting. Point me at anything.”</div></div>
+                <div class="stat"><span class="g idle">◦</span>idle</div>
+              </div>
+            </div>
+          </div>
+          <div class="toast" id="toast">
+            <span class="x" onclick="document.getElementById('toast').style.display='none'">✕</span>
+            👋 <b>Click the rail</b> on the left — Database, Preview, Serial/Arduino — to see each tool open here as a room.
+          </div>
+        </section>
+
+        <!-- DATABASE -->
+        <section class="view" data-view="db">
+          <div class="roomhead"><span style="color:var(--sage)">▦</span>
+            <div><div class="t">Database</div><div class="sub">dev.sqlite · users</div></div>
+            <div class="right"><div class="btn">Tables</div><div class="btn pri">Run ⌘↵</div></div>
+          </div>
+          <div class="pad">
+            <div class="qbar"><input value="select id, email, role from users limit 5;" /></div>
+            <table>
+              <thead><tr><th>id</th><th>email</th><th>role</th><th>created</th></tr></thead>
+              <tbody>
+                <tr><td><span class="pk">1</span></td><td>sam@soryq.app</td><td>owner</td><td>2026-01-12</td></tr>
+                <tr><td><span class="pk">2</span></td><td>ada@agents.local</td><td>builder</td><td>2026-02-03</td></tr>
+                <tr><td><span class="pk">3</span></td><td>wren@agents.local</td><td>reviewer</td><td>2026-02-03</td></tr>
+                <tr><td><span class="pk">4</span></td><td>sol@agents.local</td><td>scout</td><td>2026-02-03</td></tr>
+                <tr><td><span class="pk">5</span></td><td>test@example.com</td><td>user</td><td>2026-05-29</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- PREVIEW -->
+        <section class="view" data-view="preview">
+          <div class="roomhead"><span style="color:var(--sage)">◳</span>
+            <div><div class="t">Preview</div><div class="sub">live dev server · DOM inspector ready</div></div>
+            <div class="right"><div class="btn">↻ Reload</div><div class="btn">Inspect</div></div>
+          </div>
+          <div class="pad">
+            <div class="urlbar"><span class="dot"></span> localhost:5173 / login</div>
+            <div class="frame">
+              <h2 class="serif">Welcome back</h2>
+              <p>Your app, proxied through Soryq — click any element to inspect it and send it to the orchestrator.</p>
+              <div class="cta">Sign in</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SERIAL / ARDUINO -->
+        <section class="view" data-view="serial">
+          <div class="roomhead"><span style="color:var(--sage)">⎓</span>
+            <div><div class="t">Serial monitor</div><div class="sub">Arduino Uno · /dev/tty.usbmodem · 9600 baud</div></div>
+            <div class="right"><div class="btn">Port ▾</div><div class="btn pri">● Connected</div></div>
+          </div>
+          <div class="pad">
+            <div class="serialhead">
+              <span class="chip live">9600 baud</span><span class="chip">newline</span><span class="chip">autoscroll</span>
+            </div>
+            <div class="monitor">
+<span class="t">12:04:01</span> Booting sketch… <span class="ok">ok</span><br>
+<span class="t">12:04:01</span> sensor.begin() <span class="ok">ok</span><br>
+<span class="t">12:04:02</span> temp = <span class="v">22.4</span> °C   humidity = <span class="v">48</span> %<br>
+<span class="t">12:04:03</span> temp = <span class="v">22.5</span> °C   humidity = <span class="v">47</span> %<br>
+<span class="t">12:04:04</span> temp = <span class="v">22.5</span> °C   humidity = <span class="v">47</span> %<br>
+<span class="t">12:04:05</span> LED → <span class="v">ON</span><br>
+<span class="t">12:04:06</span> <span style="opacity:.5">▋</span>
+            </div>
+            <div class="sendline"><input value="led on" /><div class="btn pri">Send</div></div>
+          </div>
+        </section>
+
+        <!-- generic placeholder for the rest -->
+        <section class="view" data-view="__ph"></section>
+      </main>
+    </div>
+
+    <div class="foot">
+      <span class="sage">●</span> native · Tauri 2
+      <span>cold start 0.41s</span><span>RAM 64 MB</span>
+      <div class="r"><span>🔑 your key</span><span>🎙 offline voice</span><span id="footview">Home</span></div>
+    </div>
+  </div>
+
+<script>
+  const rail = document.getElementById('rail');
+  const views = [...document.querySelectorAll('.view')];
+  const ph = document.querySelector('.view[data-view="__ph"]');
+  const labels = {home:'Home',files:'Files',search:'Search',git:'Source control',db:'Database',
+    preview:'Preview',serial:'Serial · Arduino',agents:'Agents',theme:'Theme',settings:'Settings'};
+  rail.addEventListener('click', e => {
+    const ic = e.target.closest('.ic'); if(!ic) return;
+    rail.querySelectorAll('.ic').forEach(n=>n.classList.remove('on'));
+    ic.classList.add('on');
+    const v = ic.dataset.view;
+    document.getElementById('footview').textContent = labels[v] || v;
+    let target = document.querySelector('.view[data-view="'+v+'"]');
+    if(!target){ // tools we didn't fully mock get a calm placeholder
+      ph.innerHTML = '<div class="roomhead"><span style="color:var(--sage)">'+ic.textContent+
+        '</span><div><div class="t">'+(labels[v]||v)+'</div><div class="sub">opens here as a room</div></div></div>'+
+        '<div class="pad" style="color:var(--faint);font-size:14px;padding-top:40px;text-align:center">'+
+        '“'+(labels[v]||v)+'” would open in this space — same calm room pattern as Database / Preview / Serial.</div>';
+      target = ph;
+    }
+    views.forEach(n=>n.classList.remove('on'));
+    target.classList.add('on');
+  });
+</script>
+</body>
+</html>

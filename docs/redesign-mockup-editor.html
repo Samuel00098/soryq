@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soryq — Editor + terminals (Phase 1 mockup, v3c · clickable)</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────────────────
+     SORYQ · EDITOR + TERMINALS — clickable mockup (design-first)
+     Answers: "where do the editor and a spare terminal live?"
+       • Editor is a first-class WORK SURFACE: editor + a DOCKED terminal with
+         tabs (Terminal 1/2 · Output · Serial), resizable.
+       • The SPARE terminal is a global DROP-DOWN (⌃`) that slides over ANY room.
+     Click the rail to switch rooms; click "⌃` Terminal" (top-right) to drop the
+     spare terminal over whatever you're looking at. Nothing touches the live app.
+     ───────────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#14120e; --panel:#1b1813; --raised:#231f18; --ink-bg:#100e0a;
+    --cream:#ece3d2; --dim:#a89d88; --faint:#716958;
+    --line:rgba(236,227,210,.08); --line-soft:rgba(236,227,210,.045);
+    --sage:#8fb2a4; --sage-soft:rgba(143,178,164,.12); --clay:#cda06b;
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--cream);
+    -webkit-font-smoothing:antialiased;overflow:hidden;display:grid;place-items:center;min-height:100vh;padding:26px}
+  .serif{font-family:'Iowan Old Style','Palatino Linotype',Georgia,serif}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+
+  .app{width:min(1180px,96vw);height:min(760px,92vh);background:var(--bg);border:1px solid var(--line);
+    border-radius:18px;overflow:hidden;display:grid;grid-template-rows:auto 1fr auto;position:relative;
+    box-shadow:0 40px 90px -50px rgba(0,0,0,.9)}
+
+  /* top */
+  .top{display:flex;align-items:center;gap:13px;padding:12px 18px;border-bottom:1px solid var(--line)}
+  .lights{display:flex;gap:7px}.lights i{width:10px;height:10px;border-radius:50%;background:#332e25;display:block}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:.04em}
+  .brand .mark{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--sage)}
+  .seg{margin-left:auto;display:flex;gap:2px}
+  .seg button{all:unset;cursor:pointer;font-size:12.5px;color:var(--dim);padding:5px 11px;border-radius:8px}
+  .seg button:hover{color:var(--cream);background:var(--raised)}
+  .seg button.on{color:var(--cream);background:var(--raised);box-shadow:inset 0 0 0 1px var(--line)}
+  .qtbtn{margin-left:12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);
+    border:1px solid var(--line);border-radius:9px;padding:6px 11px;cursor:pointer}
+  .qtbtn:hover{color:var(--cream);border-color:rgba(143,178,164,.45)}
+  .qtbtn.on{color:var(--sage);border-color:rgba(143,178,164,.5);background:var(--sage-soft)}
+  .qtbtn kbd{font-family:inherit;color:var(--faint)}
+
+  /* body */
+  .body{display:grid;grid-template-columns:62px 1fr;min-height:0}
+  .rail{border-right:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:3px}
+  .rail .ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;color:var(--dim);
+    cursor:pointer;font-size:17px;position:relative;transition:.13s}
+  .rail .ic:hover{color:var(--cream);background:var(--panel)}
+  .rail .ic.on{color:var(--sage);background:var(--sage-soft)}
+  .rail .ic.on::before{content:"";position:absolute;left:-12px;top:50%;transform:translateY(-50%);
+    width:3px;height:20px;border-radius:3px;background:var(--sage)}
+  .rail .ic[data-tip]::after{content:attr(data-tip);position:absolute;left:50px;white-space:nowrap;background:var(--raised);
+    border:1px solid var(--line);padding:4px 9px;border-radius:7px;font-size:11px;color:var(--cream);opacity:0;
+    pointer-events:none;transform:translateX(-4px);transition:.13s;z-index:9}
+  .rail .ic:hover[data-tip]::after{opacity:1;transform:translateX(0)}
+  .rail .sp{flex:1}
+
+  .main{position:relative;min-width:0;overflow:hidden}
+  .view{display:none;height:100%}
+  .view.on{display:block}
+
+  /* ── EDITOR ROOM ───────────────────────────────────────────── */
+  .editorroom{display:grid;grid-template-rows:1fr auto;height:100%}
+  .ed-main{display:grid;grid-template-columns:200px 1fr;min-height:0}
+  /* file tree */
+  .tree{border-right:1px solid var(--line);padding:12px 8px;overflow:auto;font-size:13px}
+  .tree .g{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:8px 8px 5px}
+  .tree a{display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:7px;color:var(--dim);cursor:pointer}
+  .tree a:hover{background:var(--panel);color:var(--cream)}
+  .tree a.on{background:var(--raised);color:var(--cream)}
+  .tree a .i{opacity:.7;width:14px;text-align:center}
+  .tree a.nest{padding-left:24px}
+  /* editor pane */
+  .edpane{display:flex;flex-direction:column;min-width:0}
+  .tabs{display:flex;align-items:center;gap:1px;border-bottom:1px solid var(--line);padding:0 6px}
+  .tabs .tab{padding:10px 14px;font-size:12.5px;color:var(--faint);cursor:pointer;border-bottom:2px solid transparent}
+  .tabs .tab.on{color:var(--cream);border-bottom-color:var(--sage)}
+  .tabs .tab .dot{color:var(--clay)}
+  .tabs .add{margin-left:auto;color:var(--faint);padding:0 10px;cursor:pointer;font-size:16px}
+  .code{flex:1;overflow:auto;padding:14px 0;display:flex;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.85}
+  .gutter{color:var(--faint);text-align:right;padding:0 14px;user-select:none;opacity:.6}
+  .codetext{padding:0 16px;color:#cabfa9}
+  .k{color:#cda06b}.s{color:#9bc59b}.f{color:#8fb2a4}.c{color:var(--faint)}
+
+  /* DOCKED terminal */
+  .dock{border-top:1px solid var(--line);background:var(--ink-bg);height:188px;display:flex;flex-direction:column}
+  .dock .grip{height:6px;cursor:ns-resize;display:flex;justify-content:center;align-items:center}
+  .dock .grip::after{content:"";width:34px;height:3px;border-radius:3px;background:var(--line)}
+  .dock .dtabs{display:flex;align-items:center;gap:2px;padding:0 8px;border-bottom:1px solid var(--line)}
+  .dock .dtab{padding:8px 13px;font-size:12px;color:var(--faint);cursor:pointer;border-bottom:2px solid transparent;display:flex;gap:7px;align-items:center}
+  .dock .dtab.on{color:var(--cream);border-bottom-color:var(--sage)}
+  .dock .dtab .led{width:6px;height:6px;border-radius:50%;background:var(--sage)}
+  .dock .dadd{margin-left:auto;color:var(--faint);cursor:pointer;font-size:15px;padding:0 8px}
+  .dock .body2{flex:1;overflow:auto;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;color:#bcae97}
+  .p{color:var(--sage)}.ok{color:#9bc59b}
+
+  /* ── HOME (calm) — minimal, to show spare terminal works here too ── */
+  .canvas{position:relative;padding:42px 56px;height:100%;overflow:auto}
+  .canvas::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(236,227,210,.05) 1px,transparent 1px);background-size:26px 26px}
+  .canvas>*{position:relative}
+  .kicker{font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--sage);font-weight:600}
+  .hero{font-size:32px;font-weight:400;line-height:1.14;letter-spacing:-.015em;margin-top:14px}
+  .hero .soft{color:var(--faint)}
+  .lead{color:var(--dim);font-size:14.5px;margin-top:12px;max-width:540px;line-height:1.6}
+  .note{margin-top:26px;font-size:13px;color:var(--faint);border:1px dashed var(--line);border-radius:12px;padding:14px 16px;max-width:560px}
+  .note b{color:var(--sage)}
+
+  /* generic room placeholder */
+  .roomhead{display:flex;align-items:center;gap:11px;padding:18px 26px;border-bottom:1px solid var(--line)}
+  .roomhead .t{font-size:15px;font-weight:600}.roomhead .sub{font-size:12.5px;color:var(--faint)}
+  .phbody{padding:40px 26px;color:var(--faint);font-size:14px;text-align:center}
+
+  /* ── SPARE / DROP-DOWN TERMINAL (global overlay) ───────────── */
+  .quickterm{position:absolute;left:62px;right:0;top:0;height:46%;background:rgba(16,14,10,.97);
+    border-bottom:1px solid rgba(143,178,164,.35);box-shadow:0 24px 50px -10px rgba(0,0,0,.7);
+    transform:translateY(-102%);transition:transform .26s cubic-bezier(.2,.8,.2,1);z-index:30;
+    display:flex;flex-direction:column;backdrop-filter:blur(6px)}
+  .quickterm.open{transform:translateY(0)}
+  .qt-head{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--dim)}
+  .qt-head .badge{color:var(--sage);background:var(--sage-soft);border:1px solid rgba(143,178,164,.3);
+    border-radius:999px;padding:2px 10px;font-size:11px}
+  .qt-head .x{margin-left:auto;cursor:pointer;color:var(--faint);font-size:14px}
+  .qt-body{flex:1;overflow:auto;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.85;color:#bcae97}
+
+  /* footer */
+  .foot{display:flex;align-items:center;gap:20px;padding:10px 18px;font-size:11.5px;color:var(--faint);border-top:1px solid var(--line)}
+  .foot .sage{color:var(--sage)}.foot .r{margin-left:auto;display:flex;gap:18px}
+</style>
+</head>
+<body>
+  <div class="app">
+
+    <div class="top">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="brand"><span class="mark"></span> Soryq</div>
+      <div class="seg"><button>Focus</button><button class="on">Split</button><button>Canvas</button><button>Preview</button></div>
+      <div class="qtbtn" id="qtBtn">⌃` <span>Terminal</span> <kbd>spare</kbd></div>
+    </div>
+
+    <div class="body">
+      <nav class="rail" id="rail">
+        <div class="ic" data-view="home" data-tip="Home · Orchestrator">◆</div>
+        <div class="ic on" data-view="editor" data-tip="Editor">‹›</div>
+        <div class="ic" data-view="files" data-tip="Files">▤</div>
+        <div class="ic" data-view="git" data-tip="Source control">⎇</div>
+        <div class="ic" data-view="db" data-tip="Database">▦</div>
+        <div class="ic" data-view="preview" data-tip="Preview">◳</div>
+        <div class="ic" data-view="serial" data-tip="Serial · Arduino">⎓</div>
+        <div class="sp"></div>
+        <div class="ic" data-view="settings" data-tip="Settings">⚙</div>
+      </nav>
+
+      <main class="main">
+
+        <!-- EDITOR ROOM (default) -->
+        <section class="view on" data-view="editor">
+          <div class="editorroom">
+            <div class="ed-main">
+              <!-- tree -->
+              <div class="tree">
+                <div class="g">soryq / src</div>
+                <a><span class="i">▾</span> lib</a>
+                <a class="nest"><span class="i">▾</span> services</a>
+                <a class="nest on" style="padding-left:40px"><span class="i">›</span> auth.ts</a>
+                <a class="nest" style="padding-left:40px"><span class="i">›</span> tts.ts</a>
+                <a class="nest"><span class="i">▸</span> components</a>
+                <a><span class="i">›</span> main.tsx</a>
+                <a><span class="i">›</span> App.tsx</a>
+                <div class="g">root</div>
+                <a><span class="i">›</span> package.json</a>
+                <a><span class="i">›</span> README.md</a>
+              </div>
+              <!-- editor -->
+              <div class="edpane">
+                <div class="tabs">
+                  <div class="tab on">auth.ts <span class="dot">•</span></div>
+                  <div class="tab">App.tsx</div>
+                  <div class="tab">tts.ts</div>
+                  <div class="add">+</div>
+                </div>
+                <div class="code">
+                  <div class="gutter">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9</div>
+                  <div class="codetext"><span class="c">// driven by Ada (builder agent)</span><br>
+<span class="k">import</span> { verify } <span class="k">from</span> <span class="s">'./crypto'</span><br><br>
+<span class="k">export async function</span> <span class="f">login</span>(creds) {<br>
+&nbsp;&nbsp;<span class="k">const</span> token = <span class="k">await</span> <span class="f">verify</span>(creds)<br>
+&nbsp;&nbsp;<span class="k">if</span> (!token) <span class="k">throw new</span> <span class="f">Error</span>(<span class="s">'bad creds'</span>)<br>
+&nbsp;&nbsp;<span class="k">return</span> { token, ok: <span class="k">true</span> }<br>
+}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- DOCKED terminal -->
+            <div class="dock" id="dock">
+              <div class="grip" title="drag to resize"></div>
+              <div class="dtabs">
+                <div class="dtab on"><span class="led"></span> Terminal 1</div>
+                <div class="dtab">Terminal 2</div>
+                <div class="dtab">Output</div>
+                <div class="dtab">Serial</div>
+                <div class="dadd">+</div>
+              </div>
+              <div class="body2">
+<span class="p">soryq</span> ❯ npm run dev<br>
+<span class="ok">✓</span> ready in 412ms — http://localhost:5173<br>
+<span class="p">soryq</span> ❯ <span style="opacity:.5">▋</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- HOME -->
+        <section class="view" data-view="home">
+          <div class="canvas">
+            <div class="kicker">Orchestrator</div>
+            <h1 class="hero serif">Good evening, Sam.<br><span class="soft">What are we making?</span></h1>
+            <p class="lead">The editor lives one click away (‹› on the rail). And the spare terminal drops over <em>this</em> screen too.</p>
+            <div class="note">Try it: hit <b>⌃` Terminal</b> (top-right) right now — the spare terminal drops over the calm canvas, then tuck it away again. It follows you into every room.</div>
+          </div>
+        </section>
+
+        <!-- placeholders for the rest -->
+        <section class="view" data-view="__ph"></section>
+      </main>
+    </div>
+
+    <!-- SPARE drop-down terminal -->
+    <div class="quickterm" id="quickterm">
+      <div class="qt-head">⌃` <b style="color:var(--cream);font-weight:600">Spare terminal</b>
+        <span class="badge">drops over any room</span>
+        <span class="x" id="qtClose">✕ esc</span>
+      </div>
+      <div class="qt-body">
+<span class="p">soryq</span> ❯ git status<br>
+On branch main — 3 files staged<br>
+<span class="p">soryq</span> ❯ ls src/lib/services<br>
+auth.ts  tts.ts  orchestrator-brain.ts<br>
+<span class="p">soryq</span> ❯ <span style="opacity:.5">▋</span>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span class="sage">●</span> native · Tauri 2 <span>cold start 0.41s</span><span>RAM 64 MB</span>
+      <div class="r"><span>🔑 your key</span><span>🎙 offline voice</span><span id="footview">Editor</span></div>
+    </div>
+  </div>
+
+<script>
+  const rail=document.getElementById('rail'), views=[...document.querySelectorAll('.view')],
+        ph=document.querySelector('.view[data-view="__ph"]'),
+        labels={home:'Home',editor:'Editor',files:'Files',git:'Source control',db:'Database',preview:'Preview',serial:'Serial · Arduino',settings:'Settings'};
+  rail.addEventListener('click',e=>{
+    const ic=e.target.closest('.ic'); if(!ic)return;
+    rail.querySelectorAll('.ic').forEach(n=>n.classList.remove('on')); ic.classList.add('on');
+    const v=ic.dataset.view; document.getElementById('footview').textContent=labels[v]||v;
+    let t=document.querySelector('.view[data-view="'+v+'"]');
+    if(!t){ph.innerHTML='<div class="roomhead"><span style="color:var(--sage)">'+ic.textContent+'</span><div><div class="t">'+(labels[v]||v)+'</div><div class="sub">opens here as a room</div></div></div><div class="phbody">“'+(labels[v]||v)+'” opens in this space — same room pattern. The editor and the spare terminal stay reachable from the rail / ⌃`.</div>';t=ph;}
+    views.forEach(n=>n.classList.remove('on')); t.classList.add('on');
+  });
+  // spare terminal
+  const qt=document.getElementById('quickterm'), qtBtn=document.getElementById('qtBtn');
+  function toggleQT(){qt.classList.toggle('open');qtBtn.classList.toggle('on',qt.classList.contains('open'));}
+  qtBtn.onclick=toggleQT;
+  document.getElementById('qtClose').onclick=()=>{qt.classList.remove('open');qtBtn.classList.remove('on');};
+  document.addEventListener('keydown',e=>{
+    if(e.key==='`'&&(e.ctrlKey||e.metaKey)){e.preventDefault();toggleQT();}
+    if(e.key==='Escape'){qt.classList.remove('open');qtBtn.classList.remove('on');}
+  });
+</script>
+</body>
+</html>

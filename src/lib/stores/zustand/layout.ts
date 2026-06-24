@@ -39,7 +39,38 @@ const defaultLayout: LayoutState = {
   iosVisible: false,
   auxPanelWidth: 550,
   auxEditorHeight: 50,
+  rightDrawerWidth: 380,
 };
+
+// The right utility drawer hosts the "summoned tool" panels. They are mutually
+// exclusive among themselves (one drawer body at a time) but, unlike the aux
+// rooms, opening one does NOT disturb the main rooms (editor/preview/etc.) or
+// the active view — the drawer is a right-edge overlay you pop open and dismiss.
+export const RIGHT_DRAWER_TOOLS = ['toolbox', 'http', 'db', 'containers', 'env', 'android', 'ios'] as const;
+export type RightDrawerTool = (typeof RIGHT_DRAWER_TOOLS)[number];
+
+// The tools whose open state is a persisted aux flag on LayoutState. 'env' is
+// handled separately — its open state is the transient `envManagerOpen` flag
+// (kept in sync below so the drawer stays single-body).
+const AUX_DRAWER_FLAGS: Record<Exclude<RightDrawerTool, 'env'>, keyof LayoutState> = {
+  toolbox: 'toolboxVisible',
+  http: 'httpVisible',
+  db: 'dbVisible',
+  containers: 'containersVisible',
+  android: 'androidVisible',
+  ios: 'iosVisible',
+};
+
+/** Show exactly one right-drawer tool (or none), clearing every other one. */
+function showRightDrawerTool(l: LayoutState, tool: RightDrawerTool | null): LayoutState {
+  const next: LayoutState = { ...l };
+  for (const t of Object.keys(AUX_DRAWER_FLAGS) as Array<Exclude<RightDrawerTool, 'env'>>) {
+    (next as unknown as Record<string, boolean>)[AUX_DRAWER_FLAGS[t]] = t === tool;
+  }
+  (next as unknown as Record<string, boolean>).envManagerOpen = tool === 'env';
+  if (tool && tool !== 'env') next.lastAuxView = tool;
+  return next;
+}
 
 function loadLayout(): LayoutState {
   if (typeof window === 'undefined') return defaultLayout;
@@ -76,6 +107,8 @@ interface LayoutActions {
   toggleDbVisible: () => void;
   toggleContainersVisible: () => void;
   toggleToolboxVisible: () => void;
+  setRightDrawerTool: (tool: RightDrawerTool | null) => void;
+  setRightDrawerWidth: (width: number) => void;
   togglePetVisible: () => void;
   toggleYoutubeVisible: () => void;
   toggleAndroidVisible: () => void;
@@ -112,10 +145,18 @@ const AUX_VIEW_FLAGS = {
   db: 'dbVisible',
   containers: 'containersVisible',
   toolbox: 'toolboxVisible',
-  pet: 'petVisible',
-  youtube: 'youtubeVisible',
-  android: 'androidVisible',
-  ios: 'iosVisible',
+  // NOTE: `pet` is intentionally NOT listed here. DevPet is now a LEFT utility
+  // drawer tool (alongside Orchestrator), not an aux room — keeping it out of the
+  // aux-flag system means opening another panel never force-closes the DevPet
+  // tab. Its `petVisible` flag is driven by the left-drawer selection in AppShell.
+  // NOTE: `android` and `ios` are intentionally NOT listed here either — like the
+  // other right-drawer tools they're managed via RIGHT_DRAWER_TOOLS/showRightDrawerTool,
+  // not the aux-room flag system.
+  // NOTE: `youtube` is intentionally NOT listed here. It is a free-floating
+  // pop-up window (see FloatingYouTube), not an aux room — keeping it out of the
+  // aux-flag system means opening another panel never force-closes it, and the
+  // window survives ambient mode switches. Its `youtubeVisible` flag is toggled
+  // independently by `toggleYoutubeVisible`.
 } as const satisfies Partial<Record<ActiveView, keyof LayoutState>>;
 
 type AuxView = keyof typeof AUX_VIEW_FLAGS;
@@ -158,8 +199,10 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
   openQuickCapture: () => set({ quickCaptureOpen: true }),
   closeQuickCapture: () => set({ quickCaptureOpen: false }),
 
-  openEnvManager: () => set({ envManagerOpen: true }),
-  closeEnvManager: () => set({ envManagerOpen: false }),
+  // Env lives in the right utility drawer, so opening it selects the env tool
+  // (clearing the other drawer tools) and closing it clears the drawer.
+  openEnvManager: () => set((l) => { const next = showRightDrawerTool(l, 'env'); persistLayout(next); return next; }),
+  closeEnvManager: () => set((l) => { const next = showRightDrawerTool(l, null); persistLayout(next); return next; }),
 
   toggleSidebar: () => {
     set((s) => {
@@ -222,7 +265,9 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
         return next;
       }
       if (view === 'youtube') {
-        const next: LayoutState = { ...l, activeView: 'youtube' as const, lastAuxView: 'youtube' as const, youtubeVisible: true };
+        // YouTube is a floating pop-up, not a view to switch to: just open the
+        // window and leave the current active view in place.
+        const next: LayoutState = { ...l, youtubeVisible: true };
         persistLayout(next);
         return next;
       }
@@ -287,9 +332,7 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
 
   toggleHttpVisible: () => {
     set((l) => {
-      const next: LayoutState = l.httpVisible
-        ? { ...l, httpVisible: false, activeView: 'terminal' as const }
-        : { ...l, httpVisible: true, lastAuxView: 'http' as const, dbVisible: false, containersVisible: false, toolboxVisible: false, activeView: 'http' as const };
+      const next = showRightDrawerTool(l, l.httpVisible ? null : 'http');
       persistLayout(next);
       return next;
     });
@@ -307,9 +350,7 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
 
   toggleDbVisible: () => {
     set((l) => {
-      const next: LayoutState = l.dbVisible
-        ? { ...l, dbVisible: false, activeView: 'terminal' as const }
-        : { ...l, dbVisible: true, lastAuxView: 'db' as const, httpVisible: false, containersVisible: false, toolboxVisible: false, activeView: 'db' as const };
+      const next = showRightDrawerTool(l, l.dbVisible ? null : 'db');
       persistLayout(next);
       return next;
     });
@@ -317,9 +358,7 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
 
   toggleContainersVisible: () => {
     set((l) => {
-      const next: LayoutState = l.containersVisible
-        ? { ...l, containersVisible: false, activeView: 'terminal' as const }
-        : { ...l, containersVisible: true, lastAuxView: 'containers' as const, httpVisible: false, dbVisible: false, toolboxVisible: false, activeView: 'containers' as const };
+      const next = showRightDrawerTool(l, l.containersVisible ? null : 'containers');
       persistLayout(next);
       return next;
     });
@@ -327,9 +366,25 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
 
   toggleToolboxVisible: () => {
     set((l) => {
-      const next: LayoutState = l.toolboxVisible
-        ? { ...l, toolboxVisible: false, activeView: 'terminal' as const }
-        : { ...l, toolboxVisible: true, lastAuxView: 'toolbox' as const, httpVisible: false, dbVisible: false, containersVisible: false, activeView: 'toolbox' as const };
+      const next = showRightDrawerTool(l, l.toolboxVisible ? null : 'toolbox');
+      persistLayout(next);
+      return next;
+    });
+  },
+
+  // Force the drawer to a specific tool (used by the drawer's own tab strip), or
+  // null to close it. Unlike the toggles, selecting the active tab does not close.
+  setRightDrawerTool: (tool: RightDrawerTool | null) => {
+    set((l) => {
+      const next = showRightDrawerTool(l, tool);
+      persistLayout(next);
+      return next;
+    });
+  },
+
+  setRightDrawerWidth: (width: number) => {
+    set((l) => {
+      const next: LayoutState = { ...l, rightDrawerWidth: Math.max(280, Math.min(720, width)) };
       persistLayout(next);
       return next;
     });
@@ -337,12 +392,18 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
 
   togglePetVisible: () => {
     set((l) => {
-      const next: LayoutState = { ...l, petVisible: !l.petVisible };
+      const next: LayoutState = l.petVisible
+        ? { ...l, petVisible: false, activeView: 'terminal' as const }
+        : { ...l, petVisible: true, lastAuxView: 'pet' as const, editorVisible: false, previewVisible: false, reviewVisible: false, httpVisible: false, tasksVisible: false, dbVisible: false, containersVisible: false, toolboxVisible: false, editorSplitPreview: false, activeView: 'pet' as const };
       persistLayout(next);
       return next;
     });
   },
 
+  // YouTube is a free-floating pop-up window, not an aux room: toggling it just
+  // flips its own visibility and leaves the rest of the layout (active view,
+  // other panels, ambient mode) completely untouched, so it can pop up over any
+  // page and persist across mode switches.
   toggleYoutubeVisible: () => {
     set((l) => {
       const next: LayoutState = { ...l, youtubeVisible: !l.youtubeVisible };
@@ -351,11 +412,11 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
     });
   },
 
+  // Android & iOS are right-drawer tools (like Toolbox/HTTP/…): mutually
+  // exclusive among the drawer's layout-backed tools via showRightDrawerTool.
   toggleAndroidVisible: () => {
     set((l) => {
-      const next: LayoutState = l.androidVisible
-        ? { ...l, androidVisible: false, activeView: 'terminal' as const }
-        : showOnlyAux(l, 'android');
+      const next = showRightDrawerTool(l, l.androidVisible ? null : 'android');
       persistLayout(next);
       return next;
     });
@@ -363,9 +424,7 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
 
   toggleIosVisible: () => {
     set((l) => {
-      const next: LayoutState = l.iosVisible
-        ? { ...l, iosVisible: false, activeView: 'terminal' as const }
-        : showOnlyAux(l, 'ios');
+      const next = showRightDrawerTool(l, l.iosVisible ? null : 'ios');
       persistLayout(next);
       return next;
     });

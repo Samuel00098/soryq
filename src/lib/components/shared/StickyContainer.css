@@ -1,0 +1,33 @@
+/* Styles for StickyContainer.tsx — extracted verbatim from the original CSS. */
+
+.sticky-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sticky-container .sticky-wrapper {
+  flex-shrink: 0;
+}
+
+.sticky-container .sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg-secondary);
+}
+
+.sticky-container .sticky-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 49;
+  background: var(--bg-secondary);
+}
+
+.sticky-container .sticky-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}

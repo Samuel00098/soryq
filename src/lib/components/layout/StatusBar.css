@@ -1,0 +1,104 @@
+/* Styles for StatusBar.tsx — extracted from the original CSS. The
+   `:global(.pet-svg)` is rewritten as a scoped descendant selector. */
+
+.statusbar {
+  height: 26px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  letter-spacing: 0.2px;
+}
+
+.statusbar .sb-left, .statusbar .sb-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.statusbar .sb-view-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--vc);
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--vc) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vc) 18%, transparent);
+}
+
+.statusbar .sb-sep {
+  opacity: 0.4;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.statusbar .sb-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  transition: color 0.15s ease;
+}
+
+.statusbar .sb-item:hover {
+  color: var(--text-primary);
+}
+
+.statusbar .sb-item svg {
+  width: 13px;
+  height: 13px;
+}
+
+.statusbar .zoom-indicator {
+  min-width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.statusbar .sb-branch { cursor: pointer; }
+.statusbar .sb-branch:hover { color: var(--accent); }
+
+/* DevPet status bar styling */
+.statusbar .sb-pet {
+  cursor: pointer;
+  gap: 6px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.statusbar .sb-pet:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.statusbar .sb-pet-avatar {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.statusbar .sb-pet-avatar .pet-svg {
+  max-width: 16px !important;
+  max-height: 16px !important;
+}
+
+.statusbar .sb-pet-text {
+  font-size: 11px;
+  font-weight: 500;
+}

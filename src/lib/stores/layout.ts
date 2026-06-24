@@ -5,7 +5,8 @@ import { useLayoutStore } from './zustand/layout';
 
 export type { ActiveView, SidebarTab };
 
-export { sanitiseActiveView, sanitiseSidebarTab } from './zustand/layout';
+export { sanitiseActiveView, sanitiseSidebarTab, RIGHT_DRAWER_TOOLS } from './zustand/layout';
+export type { RightDrawerTool } from './zustand/layout';
 
 function withTransition(fn: () => void) {
   const startViewTransition = (document as any).startViewTransition;
@@ -88,7 +89,12 @@ export function toggleTasksVisible() { withTransition(() => { useLayoutStore.get
 export function toggleDbVisible() { withTransition(() => { useLayoutStore.getState().toggleDbVisible(); }); }
 export function toggleContainersVisible() { withTransition(() => { useLayoutStore.getState().toggleContainersVisible(); }); }
 export function toggleToolboxVisible() { withTransition(() => { useLayoutStore.getState().toggleToolboxVisible(); }); }
+export function setRightDrawerTool(tool: import('./zustand/layout').RightDrawerTool | null) { withTransition(() => { useLayoutStore.getState().setRightDrawerTool(tool); }); }
+export function setRightDrawerWidth(width: number) { useLayoutStore.getState().setRightDrawerWidth(width); }
 export function togglePetVisible() { withTransition(() => { useLayoutStore.getState().togglePetVisible(); }); }
+export function toggleYoutubeVisible() { withTransition(() => { useLayoutStore.getState().toggleYoutubeVisible(); }); }
+export function toggleAndroidVisible() { withTransition(() => { useLayoutStore.getState().toggleAndroidVisible(); }); }
+export function toggleIosVisible() { withTransition(() => { useLayoutStore.getState().toggleIosVisible(); }); }
 export function toggleOrchestratorVisible() { withTransition(() => { useLayoutStore.getState().toggleOrchestratorVisible(); }); }
 export function toggleTerminal() { withTransition(() => { useLayoutStore.getState().toggleTerminal(); }); }
 export function setSidebarTab(tab: SidebarTab) { withTransition(() => { useLayoutStore.getState().setSidebarTab(tab); }); }

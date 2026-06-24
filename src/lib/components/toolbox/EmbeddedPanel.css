@@ -10,7 +10,7 @@
   height: 100%;
 }
 
-.embedded-toolbar {
+.embedded-panel .embedded-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -18,7 +18,7 @@
   flex-wrap: wrap;
 }
 
-.mode-tabs {
+.embedded-panel .mode-tabs {
   display: inline-flex;
   gap: 4px;
   padding: 3px;
@@ -31,7 +31,7 @@
   scroll-snap-type: x proximity;
 }
 
-.mode-tabs button {
+.embedded-panel .mode-tabs button {
   border: 0;
   border-radius: 5px;
   background: transparent;
@@ -44,17 +44,17 @@
   white-space: nowrap;
 }
 
-.mode-tabs button:hover {
+.embedded-panel .mode-tabs button:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
 }
 
-.mode-tabs button.active {
+.embedded-panel .mode-tabs button.active {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
-.project-chip {
+.embedded-panel .project-chip {
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
   border-radius: 999px;
   color: var(--text-secondary);
@@ -66,7 +66,7 @@
   white-space: nowrap;
 }
 
-.embedded-config {
+.embedded-panel .embedded-config {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -76,7 +76,7 @@
   padding: 12px;
 }
 
-.section-heading {
+.embedded-panel .section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -88,35 +88,35 @@
   text-transform: uppercase;
 }
 
-.section-heading span:first-child {
+.embedded-panel .section-heading span:first-child {
   color: var(--text-primary);
 }
 
-.field-grid {
+.embedded-panel .field-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-.field-grid label {
+.embedded-panel .field-grid label {
   display: flex;
   flex-direction: column;
   gap: 5px;
   min-width: 0;
 }
 
-.field-grid label.wide {
+.embedded-panel .field-grid label.wide {
   grid-column: span 2;
 }
 
-.field-grid span {
+.embedded-panel .field-grid span {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
 }
 
-.field-grid input {
+.embedded-panel .field-grid input {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--border);
@@ -129,12 +129,12 @@
   padding: 7px 8px;
 }
 
-.field-grid input:focus {
+.embedded-panel .field-grid input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.command-list {
+.embedded-panel .command-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -143,7 +143,7 @@
   padding-right: 4px;
 }
 
-.command-item {
+.embedded-panel .command-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
@@ -154,30 +154,30 @@
   padding: 10px;
 }
 
-.command-item.primary {
+.embedded-panel .command-item.primary {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
 }
 
-.command-item.warning {
+.embedded-panel .command-item.warning {
   border-color: color-mix(in srgb, var(--warning) 32%, var(--border));
   background: color-mix(in srgb, var(--warning) 7%, var(--bg-primary));
 }
 
-.command-main {
+.embedded-panel .command-main {
   display: flex;
   flex-direction: column;
   gap: 5px;
   min-width: 0;
 }
 
-.command-label {
+.embedded-panel .command-label {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 700;
 }
 
-.command-main code {
+.embedded-panel .command-main code {
   color: var(--text-secondary);
   font-family: var(--font-mono, monospace);
   font-size: 11.5px;
@@ -185,7 +185,7 @@
   overflow-wrap: anywhere;
 }
 
-.command-actions {
+.embedded-panel .command-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -223,24 +223,24 @@
 }
 
 @container (max-width: 520px) {
-  .embedded-config {
+  .embedded-panel .embedded-config {
     padding: 10px;
   }
 
-  .field-grid {
+  .embedded-panel .field-grid {
     grid-template-columns: 1fr;
   }
 
-  .field-grid label.wide {
+  .embedded-panel .field-grid label.wide {
     grid-column: auto;
   }
 
-  .command-item {
+  .embedded-panel .command-item {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .command-actions {
+  .embedded-panel .command-actions {
     justify-content: flex-end;
   }
 }

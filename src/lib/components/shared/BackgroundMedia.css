@@ -1,0 +1,23 @@
+/* Styles for BackgroundMedia.tsx — extracted verbatim from the
+   original CSS; class name unchanged. */
+
+.live-background-video {
+  position: fixed;
+  inset: calc(-3 * var(--user-bg-blur, 0px));
+  z-index: -2;
+  width: calc(100vw + 6 * var(--user-bg-blur, 0px));
+  height: calc(100vh + 6 * var(--user-bg-blur, 0px));
+  object-fit: cover;
+  object-position: center center;
+  opacity: var(--user-bg-opacity, 1);
+  filter: blur(var(--user-bg-blur, 0px));
+  pointer-events: none;
+  user-select: none;
+  contain: layout paint size;
+  transition:
+    opacity 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    filter 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity, filter;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}

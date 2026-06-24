@@ -3,10 +3,10 @@
   "framework": null,
   "installCommand": "npm install --prefix site",
   "buildCommand": "npm run build --prefix site",
-  "outputDirectory": "site/dist",
+  "outputDirectory": "site/out",
   "headers": [
     {
-      "source": "/_astro/(.*)",
+      "source": "/_next/static/(.*)",
       "headers": [
         {
           "key": "Cache-Control",

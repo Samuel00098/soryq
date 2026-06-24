@@ -48,10 +48,15 @@ export default defineConfig({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-    },
+    // NOTE: COOP/COEP (cross-origin isolation) headers are intentionally NOT set
+    // here. They would let Kokoro TTS run multi-threaded WASM (SharedArrayBuffer),
+    // but cross-origin isolation BLOCKS cross-origin iframes that don't send their
+    // own COEP header — which breaks the web preview (127.0.0.1 proxy) and YouTube
+    // embeds (youtube-nocookie.com can't opt in). Kokoro already falls back to
+    // single-threaded synthesis when not isolated (see kokoro-local.ts), so we
+    // favour working web/YouTube embedding over a TTS speed-up. If multi-threaded
+    // TTS is needed later, isolate a dedicated WASM host context instead of the
+    // whole app document.
     // Ignore directories the app itself writes into at runtime. Without this,
     // spawning an orchestrator agent — which writes .soryq/orchestrator.json and
     // creates .soryq/worktrees/* (full repo copies) — trips Vite's file watcher

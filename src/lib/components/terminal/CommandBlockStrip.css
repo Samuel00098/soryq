@@ -1,0 +1,112 @@
+/* Styles for CommandBlockStrip.tsx — extracted verbatim from the original CSS. */
+
+.block-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(128,128,128,0.3)) transparent;
+  flex-shrink: 0;
+}
+
+.block-strip .cmd-block {
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.block-strip .cmd-block.running {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.block-strip .cmd-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: default;
+  user-select: none;
+}
+
+.block-strip .cmd-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.block-strip .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.block-strip .dot-running {
+  background: var(--accent, #7c6af7);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.block-strip .dot-ok {
+  background: var(--success, #4ade80);
+}
+
+.block-strip .dot-err {
+  background: var(--error, #f85149);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.block-strip .cmd-text {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-strip .cmd-duration {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.block-strip .cmd-toggle {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.12s;
+  line-height: 1;
+}
+
+.block-strip .cmd-toggle:hover {
+  color: var(--text-primary);
+}
+
+.block-strip .cmd-output {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--editor-bg, var(--bg-primary));
+  border-top: 1px solid var(--border);
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  scrollbar-width: thin;
+}

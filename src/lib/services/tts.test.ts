@@ -6,7 +6,7 @@ const isProviderApiKeyConfiguredLocal = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('$lib/services/ai-keychain', () => ({ isProviderApiKeyConfiguredLocal }));
 
-import { voiceConversationAiProvider } from '$lib/stores/settings';
+import { voiceReplyProvider } from '$lib/stores/settings';
 import { describeTtsError, getVoiceReplyConfigError } from './tts';
 
 describe('describeTtsError', () => {
@@ -49,7 +49,7 @@ describe('describeTtsError', () => {
 
 describe('getVoiceReplyConfigError', () => {
   it('reports missing keys for the selected reply provider', () => {
-    voiceConversationAiProvider.set('google');
+    voiceReplyProvider.set('google');
     isProviderApiKeyConfiguredLocal.mockReturnValue(false);
 
     expect(getVoiceReplyConfigError()).toBe(
@@ -58,7 +58,7 @@ describe('getVoiceReplyConfigError', () => {
   });
 
   it('allows configured reply providers', () => {
-    voiceConversationAiProvider.set('google');
+    voiceReplyProvider.set('google');
     isProviderApiKeyConfiguredLocal.mockReturnValue(true);
 
     expect(getVoiceReplyConfigError()).toBeNull();

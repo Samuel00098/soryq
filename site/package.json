@@ -1,17 +1,28 @@
 {
   "name": "soryq-site",
-  "version": "0.1.0",
-  "description": "Marketing site / landing page for Soryq",
+  "version": "0.2.0",
+  "description": "Marketing site / landing page for Soryq (Next.js)",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "node scripts/sync-changelog.mjs && astro dev",
     "prebuild": "node scripts/sync-changelog.mjs",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "dev": "node scripts/sync-changelog.mjs && next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "astro": "^5.5.0"
+    "next": "^15.5.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "soryq": "file:.."
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.7.0"
   }
 }

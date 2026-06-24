@@ -1,0 +1,123 @@
+/* Styles for EditorTabs.tsx — extracted verbatim from the original CSS. */
+
+.editor-tabs {
+  display: flex;
+  height: 35px;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+
+.editor-tabs::-webkit-scrollbar {
+  height: 3px;
+}
+
+.editor-tabs::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+
+.editor-tabs .editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 14px;
+  background: transparent;
+  border-right: 1px solid var(--tab-border);
+  color: var(--text-secondary);
+  user-select: none;
+  cursor: pointer;
+  font-size: 11.5px;
+  position: relative;
+  transition: background-color 0.2s, color 0.2s;
+  min-width: 100px;
+  max-width: 180px;
+  scroll-snap-align: start;
+}
+
+.editor-tabs .editor-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.editor-tabs .editor-tab.active {
+  background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-surface, 0.72));
+  color: var(--text-primary);
+}
+
+.editor-tabs .editor-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  box-shadow: 0 -2px 8px var(--accent-glow);
+}
+
+.editor-tabs .tab-icon {
+  min-width: 22px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.95;
+  flex-shrink: 0;
+}
+
+.editor-tabs .tab-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.editor-tabs .tab-dirty-indicator {
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  margin-right: 2px;
+}
+
+.editor-tabs .tab-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s, color 0.15s;
+}
+
+.editor-tabs .editor-tab:hover .tab-close-btn,
+.editor-tabs .editor-tab.active .tab-close-btn {
+  opacity: 1;
+}
+
+.editor-tabs .tab-close-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.editor-tabs .editor-tab.dirty:hover .tab-dirty-indicator {
+  display: none;
+}
+
+.editor-tabs .editor-tab.dirty .tab-close-btn {
+  display: none;
+}
+
+.editor-tabs .editor-tab.dirty:hover .tab-close-btn {
+  display: flex;
+}

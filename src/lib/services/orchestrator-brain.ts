@@ -49,10 +49,13 @@ export type OrchestratorAction =
   /** Change an application setting or the active theme (the things the user can
    *  set manually in Settings). `setting` names the option; `value` is its new value. */
   | { kind: 'setting'; setting: string; value: string | number | boolean }
-  /** Switch the workspace's ambient arrangement (Focus = one room, Split = two, Canvas = freeform board). */
-  | { kind: 'layout'; mode: 'focus' | 'split' | 'gallery' }
+  /** Switch the workspace's ambient arrangement (Focus = one room, Split = two, Canvas = freeform board, Preview = app preview + terminal). */
+  | { kind: 'layout'; mode: 'focus' | 'split' | 'gallery' | 'preview' }
   /** Focus / minimize / restore / close a specific room (panel or agent) by name. */
-  | { kind: 'room'; op: 'focus' | 'minimize' | 'restore' | 'close'; target: string };
+  | { kind: 'room'; op: 'focus' | 'minimize' | 'restore' | 'close'; target: string }
+  /** Control the Canvas board: zoom, fit everything on screen, or lock/unlock the
+   *  auto-arrange grid (lock = panels fixed in a grid, unlock = free drag/resize). */
+  | { kind: 'canvas'; op: 'zoom-in' | 'zoom-out' | 'fit' | 'lock' | 'unlock' };
 
 export interface RouteResult {
   /** Short conversational message shown back to the user. */
@@ -92,7 +95,7 @@ export interface AppStateRef {
   visiblePanels?: string[];
   /** The workspace's room layout: ambient arrangement + the open rooms. */
   layout?: {
-    ambient: 'focus' | 'split' | 'gallery';
+    ambient: 'focus' | 'split' | 'gallery' | 'preview';
     rooms: Array<{ title: string; focused: boolean; minimized: boolean }>;
   };
   sidebar?: { open: boolean; tab?: string };
@@ -338,6 +341,9 @@ const VIEW_TERMS: Array<{ view: string; re: RegExp }> = [
   { view: 'containers', re: /\b(containers?|docker)\b/i },
   { view: 'toolbox', re: /\btoolbox\b/i },
   { view: 'pet', re: /\bpet\b/i },
+  { view: 'youtube', re: /\b(youtube|yt)\b/i },
+  { view: 'android', re: /\b(android|adb|emulator)\b/i },
+  { view: 'ios', re: /\b(ios|iphone|simulator|simctl)\b/i },
 ];
 
 /**
@@ -643,8 +649,8 @@ function buildSystemPrompt(
     '    Stop a running agent and close its terminal. Use when the user wants to close, stop, end, dismiss, release, or shut down an agent they are done with. "close everything"/"stop them all" → one close with target "all".',
     '',
     'APP-CONTROL actions — drive the application UI directly (no agent needed):',
-    '- {"kind": "navigate", "view": "<one of: editor, terminal, preview, review, http, tasks, db, containers, toolbox, pet, settings>"}',
-    '    Switch the active page/panel. "show me the editor" → editor; "open settings" → settings; "go back to the terminal" / "hide that panel" → terminal.',
+    '- {"kind": "navigate", "view": "<one of: editor, terminal, preview, review, http, tasks, db, containers, toolbox, pet, youtube, android, ios, settings>"}',
+    '    Switch the active page/panel. "show me the editor" → editor; "open settings" → settings; "go back to the terminal" / "hide that panel" → terminal; "open youtube" → youtube; "android emulator" → android; "ios simulator" → ios.',
     '- {"kind": "open-file", "path": "<path relative to project root>", "line": <number or null>}',
     '    Open a file in the editor (optionally jump to a line). Use the open-files / project paths shown in the app state. Prefer this over spawning an agent when the user just wants to SEE or go to a file.',
     '- {"kind": "close-file", "path": "<path relative to project root>"}',
@@ -657,10 +663,12 @@ function buildSystemPrompt(
     '    Manage the task board. "add a task to …" → create; "mark X done" / "move X to in progress" → done/doing (match the existing item by title); "remove the X task" → delete.',
     '- {"kind": "setting", "setting": "<setting name>", "value": <string | number | boolean>}',
     '    Change a setting the user can normally set in Settings — including the THEME. "switch to the Dracula theme" / "use a light theme" → setting "theme" with the theme name as value (pick the closest name from the themes listed in the app state). Other settings you can set: appearance ("system"|"light"|"dark"), fontSize (number), tabSize (number), wordWrap (true|false), minimap (true|false), vimMode (true|false), formatOnSave (true|false), enableLsp (true|false), showHidden (true|false), notificationsEnabled (true|false), aiGhostTextEnabled (true|false), uiZoom (number, 50-200), interfaceTransparency (number, 0-100), terminalFontSize (number). Match the user\'s request to the closest setting and a valid value. The current values are shown in the app state; report from there when asked what a setting is.',
-    '- {"kind": "layout", "mode": "focus"|"split"|"gallery"}',
-    '    Rearrange the whole workspace. Focus = one big room; Split = two rooms side by side; Canvas (mode "gallery") = a freeform, pan/zoom board with every open room. "focus mode" → focus; "split the view" → split; "show everything" / "canvas" / "gallery" / "the board" → gallery.',
+    '- {"kind": "layout", "mode": "focus"|"split"|"gallery"|"preview"}',
+    '    Rearrange the whole workspace. Focus = one big room; Split = two rooms side by side; Canvas (mode "gallery") = a freeform, pan/zoom board with every open room; Preview = the live app preview (dev server) with the terminal alongside, for testing web apps. "focus mode" → focus; "split the view" → split; "show everything" / "canvas" / "gallery" / "the board" → gallery; "preview" / "test the app" / "preview mode" / "run the app" → preview.',
     '- {"kind": "room", "op": "focus"|"minimize"|"restore"|"close", "target": "<room name>"}',
     '    Act on one room. Rooms are the workspace, terminal, an agent (by its name), or a panel (editor, preview, review, http, tasks, db, containers, toolbox, pet). "focus the terminal" → focus terminal; "minimize the editor" → minimize editor; "close the preview" → close preview. Use the workspace layout shown in the app state to pick the right room name.',
+    '- {"kind": "canvas", "op": "zoom-in"|"zoom-out"|"fit"|"lock"|"unlock"}',
+    '    Control the Canvas board (it auto-switches to Canvas first). "zoom in"/"zoom out" → zoom-in/zoom-out; "fit everything"/"fit to screen"/"reset the view"/"recenter" → fit; "lock the panels"/"snap to grid"/"arrange the panels" → lock (auto-grid on, panels fixed); "unlock"/"let me move the panels"/"free arrange" → unlock (free drag & resize). Use this for the board itself; use "room" to act on one panel and "layout" to switch arrangements.',
     '',
     'Rules:',
     '- Prefer an APP action when the user wants to look at or move around the app (open a file, switch pages, run the preview, jump to a line, manage tasks). Use SPAWN/SEND only when actual code needs writing or investigating.',
@@ -676,7 +684,7 @@ function buildSystemPrompt(
     '- If the user asks whether something is done, still running, blocked, failed, or what the terminal says, answer from the recent agent/task status and terminal output. Use an EMPTY actions array unless they explicitly ask you to continue or change something.',
     '- If the user is only chatting, greeting, or you need clarification, use an empty actions array and answer in reply.',
     '- Prefer "claude" for general coding unless another agent is clearly better.',
-    '- Keep reply to one or two sentences.',
+    ...(conversational ? [] : ['- Keep reply to one or two sentences.']),
     '- CRITICAL: "open/spawn/launch X agent" without a real task (e.g. "open Claude", "spawn Codex", "launch an agent") means spawn with null prompt. Do NOT use the user\'s message as the agent\'s prompt — the user just wants the agent opened and ready, not given a meaningless task.',
     '- Only include a real task prompt when the user describes actual work to do ("fix this bug", "build a login page", "refactor the router").',
     ...(conversational
@@ -684,6 +692,8 @@ function buildSystemPrompt(
           '',
           'VOICE CONVERSATION MODE — IMPORTANT:',
           'You are in a spoken, back-and-forth conversation. The user is talking WITH you, and they may ask you to do work while you keep replying conversationally.',
+          '- Reply like a real person in conversation: usually two to four natural sentences. Be substantive — actually answer, add a relevant detail, ask a follow-up, or react — rather than a single clipped acknowledgement. Avoid one-word or one-line dead-end replies.',
+          '- Vary your phrasing every turn. Never reuse the same stock opener or the same canned sentence twice in a row ("Got it.", "On it.", "Working on it." back-to-back sounds robotic). Keep it warm and human.',
           '- Always include a natural spoken acknowledgement in "reply", even when you are also returning actions. The reply should say what you are about to do or what you just did.',
           '- Use an EMPTY actions array for questions, brainstorming, observations, status checks, or anything that sounds like thinking out loud.',
           '- DO spawn/send/close or use APP-CONTROL actions when the user clearly asks you to do something — e.g. "fix X", "build Y", "run the tests", "open the preview", "switch to Dracula", "open an agent and add X", "spawn claude to fix Y", "have an agent do Z".',
@@ -786,7 +796,7 @@ function parseAction(raw: unknown, agents: AgentChoice[]): OrchestratorAction | 
   }
   if (kind === 'layout') {
     const mode = str(obj.mode).toLowerCase();
-    if (mode === 'focus' || mode === 'split' || mode === 'gallery') {
+    if (mode === 'focus' || mode === 'split' || mode === 'gallery' || mode === 'preview') {
       return { kind: 'layout', mode };
     }
     return null;
@@ -808,6 +818,27 @@ function parseAction(raw: unknown, agents: AgentChoice[]): OrchestratorAction | 
       return { kind: 'task', op, title };
     }
     return null;
+  }
+  if (kind === 'canvas' || kind === 'board') {
+    const raw = str(obj.op).toLowerCase().replace(/[\s_]+/g, '-');
+    // Tolerate the natural aliases the model is likeliest to emit.
+    const aliases: Record<string, OrchestratorAction & { kind: 'canvas' }> = {
+      'zoom-in': { kind: 'canvas', op: 'zoom-in' },
+      'in': { kind: 'canvas', op: 'zoom-in' },
+      'zoom-out': { kind: 'canvas', op: 'zoom-out' },
+      'out': { kind: 'canvas', op: 'zoom-out' },
+      'fit': { kind: 'canvas', op: 'fit' },
+      'reset': { kind: 'canvas', op: 'fit' },
+      'recenter': { kind: 'canvas', op: 'fit' },
+      'center': { kind: 'canvas', op: 'fit' },
+      'lock': { kind: 'canvas', op: 'lock' },
+      'grid': { kind: 'canvas', op: 'lock' },
+      'snap': { kind: 'canvas', op: 'lock' },
+      'unlock': { kind: 'canvas', op: 'unlock' },
+      'freeform': { kind: 'canvas', op: 'unlock' },
+      'free': { kind: 'canvas', op: 'unlock' },
+    };
+    return aliases[raw] ?? null;
   }
   return null;
 }

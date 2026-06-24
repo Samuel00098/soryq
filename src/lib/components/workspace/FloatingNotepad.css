@@ -1,0 +1,300 @@
+.floating-notepad {
+  position: fixed;
+  z-index: 9000;
+  background: rgba(var(--bg-secondary-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
+  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--glass-shadow, 0 20px 60px rgba(0, 0, 0, 0.4)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 260px;
+  min-height: 180px;
+}
+
+.floating-notepad .note-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.floating-notepad .drag-icon {
+  color: var(--text-muted);
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.floating-notepad .note-title {
+  flex: 1;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floating-notepad .note-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.floating-notepad .save-indicator {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.55;
+  transition: color 0.2s, opacity 0.2s;
+}
+
+.floating-notepad .save-indicator.saved {
+  color: var(--success);
+  opacity: 0.85;
+}
+
+.floating-notepad .note-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1.4;
+}
+
+.floating-notepad .note-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.floating-notepad .note-action-btn.active {
+  background: var(--accent);
+  color: var(--button-text, #fff);
+  border-color: var(--accent);
+}
+
+.floating-notepad .note-action-btn.listening {
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--error);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.floating-notepad .note-action-btn.refining {
+  background: rgba(139, 92, 246, 0.14);
+  color: #a78bfa;
+  border-color: rgba(139, 92, 246, 0.35);
+  cursor: default;
+  animation: refine-glow 1.4s ease-in-out infinite;
+}
+
+.floating-notepad .spin-icon {
+  animation: sparkle-spin 1.6s linear infinite;
+}
+
+@keyframes sparkle-spin {
+  0%   { transform: rotate(0deg) scale(1);     opacity: 1; }
+  50%  { transform: rotate(180deg) scale(1.15); opacity: 0.7; }
+  100% { transform: rotate(360deg) scale(1);   opacity: 1; }
+}
+
+@keyframes refine-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+  50%       { box-shadow: 0 0 6px 2px rgba(139, 92, 246, 0.25); }
+}
+
+.floating-notepad .refining-label {
+  font-size: 10px;
+  color: #a78bfa;
+  animation: refine-fade 1.2s ease-in-out infinite;
+  white-space: nowrap;
+}
+
+@keyframes refine-fade {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1; }
+}
+
+.floating-notepad .note-close-btn:hover {
+  background: var(--error, #e53e3e);
+  color: var(--button-text, #fff);
+  border-color: var(--error, #e53e3e);
+}
+
+.floating-notepad .note-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.floating-notepad .note-textarea {
+  flex: 1;
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 12px;
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.floating-notepad .note-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.floating-notepad .note-preview {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  scrollbar-width: thin;
+}
+
+.floating-notepad .note-preview h1,
+.floating-notepad .note-preview h2,
+.floating-notepad .note-preview h3,
+.floating-notepad .note-preview h4,
+.floating-notepad .note-preview h5,
+.floating-notepad .note-preview h6 {
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.floating-notepad .note-preview h1 { font-size: 1.3em; }
+.floating-notepad .note-preview h2 { font-size: 1.15em; }
+.floating-notepad .note-preview h3 { font-size: 1.05em; }
+.floating-notepad .note-preview p { margin: 0.4em 0; }
+.floating-notepad .note-preview ul,
+.floating-notepad .note-preview ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.floating-notepad .note-preview li { margin: 0.15em 0; }
+.floating-notepad .note-preview code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  background: var(--bg-tertiary, rgba(255,255,255,0.07));
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  color: var(--accent);
+}
+.floating-notepad .note-preview pre {
+  background: var(--bg-tertiary, rgba(255,255,255,0.07));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.floating-notepad .note-preview pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 1em;
+}
+.floating-notepad .note-preview blockquote {
+  margin: 0.5em 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.floating-notepad .note-preview a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.floating-notepad .note-preview hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.8em 0;
+}
+.floating-notepad .note-preview strong { font-weight: 700; }
+.floating-notepad .note-preview em { font-style: italic; }
+
+/* Eight invisible resize hit-targets around the window edge: four sides and
+   four corners. Corners sit above the edges so a corner grab always wins the
+   diagonal resize. */
+.floating-notepad .note-resize {
+  position: absolute;
+  z-index: 6;
+}
+
+/* Edges — thin strips inset from the corners. */
+.floating-notepad .note-resize-n,
+.floating-notepad .note-resize-s {
+  left: 10px;
+  right: 10px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.floating-notepad .note-resize-e,
+.floating-notepad .note-resize-w {
+  top: 10px;
+  bottom: 10px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.floating-notepad .note-resize-n { top: -4px; }
+.floating-notepad .note-resize-s { bottom: -4px; }
+.floating-notepad .note-resize-e { right: -4px; }
+.floating-notepad .note-resize-w { left: -4px; }
+
+/* Corners — small squares overlapping both adjacent edges. */
+.floating-notepad .note-resize-ne,
+.floating-notepad .note-resize-nw,
+.floating-notepad .note-resize-se,
+.floating-notepad .note-resize-sw {
+  width: 16px;
+  height: 16px;
+  z-index: 7;
+}
+.floating-notepad .note-resize-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.floating-notepad .note-resize-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.floating-notepad .note-resize-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+.floating-notepad .note-resize-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+
+/* Keep the familiar little grip marker on the bottom-right corner. */
+.floating-notepad .note-resize-se::after {
+  content: '';
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  border-radius: 0 0 2px 0;
+  opacity: 0.4;
+}
+
+.floating-notepad .note-resize-se:hover::after {
+  opacity: 0.8;
+}

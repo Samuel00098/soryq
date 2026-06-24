@@ -19,7 +19,7 @@
   to   { opacity: 1; }
 }
 
-.qc-card {
+.qc-backdrop .qc-card {
   width: 480px;
   max-width: calc(100vw - 40px);
   background: rgba(var(--editor-bg-rgb, 24, 24, 30), var(--frost-chrome, 0.62));
@@ -38,7 +38,7 @@
   to   { transform: translateY(0);     opacity: 1; }
 }
 
-.qc-header {
+.qc-backdrop .qc-header {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -51,12 +51,12 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.qc-header svg {
+.qc-backdrop .qc-header svg {
   flex-shrink: 0;
   opacity: 0.7;
 }
 
-.qc-input {
+.qc-backdrop .qc-input {
   width: 100%;
   padding: 16px;
   background: transparent;
@@ -69,12 +69,12 @@
   caret-color: var(--accent);
 }
 
-.qc-input::placeholder {
+.qc-backdrop .qc-input::placeholder {
   color: var(--text-muted);
   opacity: 0.5;
 }
 
-.qc-footer {
+.qc-backdrop .qc-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -82,13 +82,13 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.qc-hint {
+.qc-backdrop .qc-hint {
   font-size: 10.5px;
   color: var(--text-muted);
   opacity: 0.6;
 }
 
-.qc-dest {
+.qc-backdrop .qc-dest {
   font-size: 10px;
   color: var(--accent);
   opacity: 0.7;

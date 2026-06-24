@@ -3,6 +3,54 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.4] - 2026-06-24
+
+This release is a large rebuild of the Soryq interface on React, with a new infinite-canvas workspace, on-device voice, and a substantially upgraded Sketch Canvas and Settings experience.
+
+### Added
+
+- **Infinite-canvas workspace** — the workspace is now an interactive, pan-and-zoom infinite canvas (the "gallery" layout) where editor, terminal, preview, and tool panels live as cards you arrange spatially rather than in fixed slots. It's the default layout and your choice persists. The canvas supports camera zoom/pan controls, cluster-based panel sizing, a 3-row grid auto-arrange that fits both dimensions, and a centred "reset layout" that re-fits everything in the viewport. `Ctrl+Alt+L` cycles the ambient layout mode.
+
+- **Left utility drawer & right tool drawer** — the file explorer and Source Control now live in a slide-out left utility drawer, and the secondary tools (Toolbox, HTTP Client, Database, Containers) live in a right slide-over drawer instead of taking over the main view. DevPet and the YouTube panel are now free-floating overlays you can position over the workspace.
+
+- **On-device offline voice** — local Kokoro (text-to-speech) and Parakeet (speech-to-text) models now run fully on your machine as in-browser WASM, no cloud round-trip required. The model downloader moved into the AI Models settings tab, and Cross-Origin Isolation headers are enabled to unlock multi-threaded WASM for fast local synthesis.
+
+- **Voice personalities** — choose a customizable voice personality in Settings that's injected into the assistant's system prompt, with a voice preview button to hear each option before committing.
+
+- **Custom terminal command shortcuts** — create your own named terminal command shortcuts in Settings and run them on demand.
+
+- **Sketch Canvas overhaul** — multi-selection, grouping, deep selection, and proportional resizing; copy, paste, and duplicate for elements and whole drawings; image import (with high-quality smoothing and aspect-ratio lock during corner resize); multiple fonts and font-size selection; brush and eraser size presets; toggleable sharp/curved rectangle edges with an edge-radius slider; and a fixed custom stroke-colour picker. The renderer now matches the Excalidraw-style hand-drawn look across every shape.
+
+- **Preview remembers more** — preview tabs, plus video and audio playback positions, now persist across project and workspace switches, and the preview panel stays mounted across layout changes so it doesn't reload.
+
+- **Smarter Settings** — model dropdowns gain an interactive search/filter input and live catalog loading (including for the inline-completion provider), agents moved to a dedicated Settings tab with live model fetching, and you can hide preset agents you don't use while keeping your custom CLI agents.
+
+### Changed
+
+- **React interface rebuild** — the UI has been ported from Svelte to React, with a redesigned glassmorphic Settings modal (custom Dropdown components in place of native selects, interactive tab accents), a redesigned, centralized Welcome screen, a redesigned Assistant Orchestrator panel, and smooth global CSS View Transitions for layout and modal animations.
+
+- **Voice mode lives in the prompt bar** — speaking/listening indicators are integrated directly into the floating prompt bar instead of a separate overlay, and the left-Alt key toggles voice mode.
+
+- **Cleaner title bar** — the search bar and brand text were removed from the TitleBar, and the Settings icon now lives there.
+
+- **Default local STT is Parakeet** — the default offline speech-to-text model is now Parakeet; the unimplemented Whisper path returns a clear error instead of failing silently.
+
+- **Diff views consolidated** — inline and split diff views are now unified in the Review panel.
+
+- **Workspace Snapshots hidden by default** — the Snapshots tab is off by default and can be re-enabled with a settings toggle; the sidebar room title now renames itself to match the active tab.
+
+- **Version bumped to 0.4.4** — app metadata and native package metadata now point at v0.4.4.
+
+### Fixed
+
+- **Voice agent audio glitches** — fixed the VAD startup click/pop, inline-code being dropped from TTS, and `flushSync` lifecycle warnings; VAD speech detection was refined with a 0.025 RMS threshold and consecutive-frame validation to cut false triggers.
+
+- **Terminal on Windows** — fixed resize truncation, optimised the fit debounce, corrected the canvas-addon loading lifecycle order, synced `windowsPty` options, and added a warning notification when PowerShell 7 is missing.
+
+- **Layout & canvas stability** — resolved view-transition residue and layout-switch animation flicker via a global transition guard, fixed database tab switching, DevPet height queries, YouTube PIP resizing, duplicate-image double-rendering on the canvas, and a DevPet animation glitch on rapid clicks.
+
+- **Settings scrolling** — contained Settings scrolling and disabled the elastic overscroll bounce, and the settings modal now positions correctly below the title bar.
+
 ## [v0.4.3] - 2026-06-16
 
 ### Fixed

@@ -34,8 +34,6 @@ import { reconnoiter } from '$lib/services/orchestrator/recon';
 import {
   aiProvider,
   currentAiModel,
-  voiceConversationAiProvider,
-  currentVoiceConversationAiModel,
   isLocalProvider,
   getProviderBaseUrl,
   announceAgentCompletions,
@@ -59,7 +57,7 @@ import {
 } from '$lib/services/orchestrator/activity-log';
 import { type AgentTurnOutcome } from '$lib/services/orchestrator/agent-turn-watch';
 import { getAgentAdapter, disposeAgentAdapter } from '$lib/services/orchestrator/agent-adapter';
-import { requestAmbientLayout, requestRoomControl } from '$lib/stores/layoutControl';
+import { requestAmbientLayout, requestRoomControl, requestCanvasControl } from '$lib/stores/layoutControl';
 import {
   leaseOrchestratorTerminal,
   releaseOrchestratorTerminal,
@@ -407,11 +405,17 @@ function isAiAvailable(): boolean {
   return (!local || !!base) && (local || isProviderApiKeyConfiguredLocal(p));
 }
 
-function getConversationLlmConfig(useVoiceConversation = false): RouteLlmConfig {
-  const provider = get(useVoiceConversation ? voiceConversationAiProvider : aiProvider);
+/**
+ * The LLM that powers the orchestrator brain. Always the main AI provider/model
+ * (the one configured under AI / Models) — voice mode and typed chat share the
+ * same engine. Voice mode only swaps the I/O around it: local STT in, local TTS
+ * out (see voiceInputProvider / voiceReplyProvider), brain unchanged.
+ */
+function getConversationLlmConfig(): RouteLlmConfig {
+  const provider = get(aiProvider);
   const local = isLocalProvider(provider);
   const baseUrl = local ? getProviderBaseUrl(provider) : '';
-  const model = get(useVoiceConversation ? currentVoiceConversationAiModel : currentAiModel);
+  const model = get(currentAiModel);
   return { provider, model, hasApiKey: isProviderApiKeyConfiguredLocal(provider), baseUrl };
 }
 
@@ -1033,7 +1037,7 @@ export async function executeAppAction(
       return result.ok;
     }
     case 'layout': {
-      // Switch the workspace's ambient arrangement (Focus / Split / Gallery).
+      // Switch the workspace's ambient arrangement (Focus / Split / Gallery / Preview).
       requestAmbientLayout(action.mode);
       return true;
     }
@@ -1043,6 +1047,11 @@ export async function executeAppAction(
       const target = action.target.trim();
       if (!target) return false;
       requestRoomControl(action.op, target);
+      return true;
+    }
+    case 'canvas': {
+      // Drive the Canvas board: zoom, fit-to-content, or lock/unlock the grid.
+      requestCanvasControl(action.op);
       return true;
     }
     default:
@@ -1496,7 +1505,7 @@ export async function sendChatMessage(
     .slice(-6);
   const taskMemory = buildProjectTaskMemory(projectId);
   const taskPanel = getProjectTaskPanelLines(projectId);
-  const llmConfig = getConversationLlmConfig(!!opts?.voiceConversation);
+  const llmConfig = getConversationLlmConfig();
 
   appendChat(projectId, { id: msgId(), role: 'user', text: trimmed, ts: Date.now() });
   const assistantId = msgId();
@@ -1725,7 +1734,8 @@ export async function sendChatMessage(
       action.kind === 'task' ||
       action.kind === 'setting' ||
       action.kind === 'layout' ||
-      action.kind === 'room'
+      action.kind === 'room' ||
+      action.kind === 'canvas'
     ) {
       // APP-control actions: drive the application UI directly (no agent).
       await executeAppAction(action, projectId, rootPath);

@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soryq — The Flow (Phase 1 concept mockup · clickable)</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────────────────
+     SORYQ · THE FLOW — the core concept, made clickable (design-first).
+     NOT a traditional IDE. The default frame is a living stream of work:
+       • you talk/type to the orchestrator (compose bar, bottom)
+       • agents' work arrives as rich INTERACTIVE cards (diff, preview, run…)
+       • EXPAND any card → the full real editor/terminal/preview (IDE on demand)
+       • PIN a card → it stays beside you in the ambient column (your "keep")
+       • THREADS (left) = parallel streams of work, one per feature/agent
+     Try: click [expand] on a card, and [pin] the preview or terminal.
+     Nothing here touches the live app.
+     ───────────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#14120e; --panel:#1b1813; --raised:#231f18; --ink:#100e0a;
+    --cream:#ece3d2; --dim:#a89d88; --faint:#716958;
+    --line:rgba(236,227,210,.08); --line-soft:rgba(236,227,210,.045);
+    --sage:#8fb2a4; --sage-soft:rgba(143,178,164,.12); --clay:#cda06b;
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--cream);
+    -webkit-font-smoothing:antialiased;overflow:hidden;display:grid;place-items:center;min-height:100vh;padding:24px}
+  .serif{font-family:'Iowan Old Style','Palatino Linotype',Georgia,serif}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+  ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+
+  .app{width:min(1200px,97vw);height:min(780px,93vh);background:var(--bg);border:1px solid var(--line);
+    border-radius:18px;overflow:hidden;display:grid;grid-template-rows:auto 1fr;position:relative;
+    box-shadow:0 40px 90px -50px rgba(0,0,0,.9)}
+
+  /* top bar */
+  .top{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line)}
+  .lights{display:flex;gap:7px}.lights i{width:10px;height:10px;border-radius:50%;background:#332e25;display:block}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:.04em}
+  .brand .mark{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--sage)}
+  .top .meta{margin-left:auto;display:flex;gap:16px;font-size:12px;color:var(--faint)}
+  .top .meta b{color:var(--dim);font-weight:500}
+
+  /* body: threads · flow · pinned */
+  .body{display:grid;grid-template-columns:222px 1fr 268px;min-height:0}
+
+  /* THREADS (navigation = streams of work, not a file tree) */
+  .threads{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .threads .h{padding:14px 16px 8px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  .threads .list{overflow:auto;flex:1;padding:0 8px}
+  .thread{display:flex;gap:11px;padding:11px 10px;border-radius:11px;cursor:pointer;transition:.13s;align-items:flex-start}
+  .thread:hover{background:var(--panel)}
+  .thread.on{background:var(--raised)}
+  .thread .av{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:13px;font-weight:600;
+    background:var(--ink);color:var(--sage)}
+  .thread .tx{min-width:0;flex:1}
+  .thread .nm{font-size:13.5px;font-weight:550;display:flex;align-items:center;gap:7px}
+  .thread .nm .live{width:6px;height:6px;border-radius:50%;background:var(--sage);margin-left:auto;flex:none}
+  .thread .last{font-size:11.5px;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .threads .new{margin:8px;padding:10px;border:1px dashed var(--line);border-radius:11px;color:var(--dim);
+    font-size:12.5px;text-align:center;cursor:pointer}
+  .threads .new:hover{border-color:rgba(143,178,164,.4);color:var(--cream)}
+
+  /* THE FLOW column */
+  .flowcol{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .flowhead{display:flex;align-items:center;gap:10px;padding:14px 22px;border-bottom:1px solid var(--line)}
+  .flowhead .t{font-size:15px;font-weight:600}.flowhead .s{font-size:12px;color:var(--faint)}
+  .flowhead .agents{margin-left:auto;display:flex;gap:-6px}
+  .flowhead .mini{width:24px;height:24px;border-radius:50%;background:var(--ink);border:1.5px solid var(--bg);
+    display:grid;place-items:center;font-size:10px;color:var(--sage);font-weight:600;margin-left:-6px}
+  .flow{flex:1;overflow:auto;padding:22px 22px 8px;display:flex;flex-direction:column;gap:16px}
+
+  /* messages + cards */
+  .you{align-self:flex-end;max-width:74%;background:var(--raised);border:1px solid var(--line);
+    border-radius:14px 14px 4px 14px;padding:11px 15px;font-size:14px;color:var(--cream)}
+  .orch{display:flex;gap:11px;max-width:80%}
+  .orch .pet{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;font-size:14px;
+    background:var(--sage-soft);border:1px solid rgba(143,178,164,.3);color:var(--sage)}
+  .orch .bub{font-size:14px;color:var(--dim);line-height:1.55;padding-top:4px}
+  .orch .bub b{color:var(--cream);font-weight:550}
+
+  .card{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel)}
+  .card .ch{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--line);font-size:12.5px}
+  .card .ch .who{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--cream)}
+  .card .ch .who .av{width:20px;height:20px;border-radius:6px;background:var(--ink);color:var(--sage);
+    display:grid;place-items:center;font-size:10px}
+  .card .ch .tag{font-size:11px;color:var(--faint);font-weight:400}
+  .card .ch .st{margin-left:auto;font-size:11.5px;color:var(--sage);display:flex;align-items:center;gap:6px}
+  .card .ch .st.work .g{animation:breathe 2.4s ease-in-out infinite}
+  @keyframes breathe{50%{opacity:.35}}
+  .card .cb{padding:13px 15px;font-size:12.5px}
+  .diff{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.85}
+  .diff .add{color:#9bc59b;background:rgba(155,197,155,.08);display:block;padding:0 6px;border-radius:4px}
+  .diff .del{color:#cda0a0;background:rgba(205,160,160,.07);display:block;padding:0 6px;border-radius:4px;opacity:.8}
+  .diff .ctx{color:var(--dim);display:block;padding:0 6px}
+  .termmini{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;color:#bcae97;background:var(--ink);
+    border-radius:9px;padding:11px 13px}
+  .termmini .p{color:var(--sage)}.termmini .ok{color:#9bc59b}
+  .prevmini{height:120px;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    background:radial-gradient(70% 90% at 25% 15%,rgba(143,178,164,.16),transparent),
+      radial-gradient(70% 90% at 85% 95%,rgba(205,160,107,.12),transparent),var(--ink);text-align:center}
+  .prevmini h3{font-size:18px;font-weight:400}.prevmini p{font-size:11.5px;color:var(--dim)}
+
+  /* card action bar */
+  .acts{display:flex;gap:7px;padding:10px 14px;border-top:1px solid var(--line-soft);background:rgba(0,0,0,.12)}
+  .act{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 11px;cursor:pointer;transition:.13s;display:flex;gap:6px;align-items:center}
+  .act:hover{color:var(--cream);border-color:rgba(143,178,164,.4)}
+  .act.pri{color:#16140e;background:var(--sage);border-color:var(--sage);font-weight:600}
+  .act.pinned{color:var(--sage);border-color:rgba(143,178,164,.5);background:var(--sage-soft)}
+
+  /* compose bar */
+  .compose{padding:14px 22px;border-top:1px solid var(--line)}
+  .cbar{display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:13px 16px;transition:.16s}
+  .cbar:focus-within{border-color:rgba(143,178,164,.5)}
+  .cbar .mic{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--sage-soft);
+    color:var(--sage);font-size:16px;border:1px solid rgba(143,178,164,.3);cursor:pointer}
+  .cbar input{flex:1;background:none;border:none;outline:none;color:var(--cream);font-size:14.5px}
+  .cbar input::placeholder{color:var(--faint)}
+  .cbar .send{width:34px;height:34px;border-radius:9px;flex:none;display:grid;place-items:center;background:var(--sage);color:#16140e;cursor:pointer}
+  .chint{margin-top:9px;font-size:11.5px;color:var(--faint);text-align:center}.chint b{color:var(--dim);font-weight:500}
+
+  /* PINNED ambient column */
+  .pinned{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .pinned .h{padding:14px 16px 8px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:600;display:flex;align-items:center;gap:8px}
+  .pinned .h .n{margin-left:auto;color:var(--sage)}
+  .pinned .wrap{flex:1;overflow:auto;padding:8px 12px;display:flex;flex-direction:column;gap:12px}
+  .empty{color:var(--faint);font-size:12.5px;text-align:center;padding:30px 14px;line-height:1.6;border:1px dashed var(--line);border-radius:12px;margin-top:8px}
+  .empty b{color:var(--dim)}
+  .ptile{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+  .ptile .pth{display:flex;align-items:center;gap:8px;padding:9px 12px;font-size:12px;color:var(--cream);border-bottom:1px solid var(--line)}
+  .ptile .pth .dot{width:7px;height:7px;border-radius:50%;background:var(--sage)}
+  .ptile .pth .x{margin-left:auto;cursor:pointer;color:var(--faint)}
+  .ptile .ptb{padding:11px 12px}
+
+  /* EXPAND overlay = the full IDE-grade tool, on demand */
+  .overlay{position:absolute;inset:0;background:rgba(10,9,6,.72);backdrop-filter:blur(4px);z-index:40;
+    display:none;align-items:stretch;justify-content:stretch;padding:34px}
+  .overlay.open{display:flex}
+  .sheet{flex:1;background:var(--bg);border:1px solid rgba(143,178,164,.3);border-radius:16px;overflow:hidden;
+    display:flex;flex-direction:column;box-shadow:0 50px 100px -40px #000}
+  .sheet .sh{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px}
+  .sheet .sh .x{margin-left:auto;cursor:pointer;color:var(--faint);font-size:13px}
+  .sheet .sx{flex:1;overflow:auto}
+  /* editor expand */
+  .edgrid{display:grid;grid-template-columns:190px 1fr;height:100%}
+  .edtree{border-right:1px solid var(--line);padding:12px 8px;font-size:13px;color:var(--dim)}
+  .edtree a{display:block;padding:5px 9px;border-radius:7px;cursor:pointer}.edtree a.on{background:var(--raised);color:var(--cream)}
+  .edtree a:hover{background:var(--panel)}
+  .edpane{display:flex;flex-direction:column;min-width:0}
+  .edtabs{display:flex;border-bottom:1px solid var(--line);padding:0 6px}
+  .edtabs .t{padding:10px 14px;font-size:12.5px;color:var(--faint);border-bottom:2px solid transparent}
+  .edtabs .t.on{color:var(--cream);border-bottom-color:var(--sage)}
+  .edcode{flex:1;display:flex;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.9;padding:14px 0;overflow:auto}
+  .edcode .gut{color:var(--faint);opacity:.6;text-align:right;padding:0 14px}
+  .edcode .tx{padding:0 16px;color:#cabfa9}
+  .edcode .k{color:#cda06b}.edcode .s{color:#9bc59b}.edcode .f{color:#8fb2a4}.edcode .c{color:var(--faint)}
+  .edterm{height:150px;border-top:1px solid var(--line);background:var(--ink);font-family:'JetBrains Mono',monospace;
+    font-size:12px;line-height:1.8;color:#bcae97;padding:11px 14px}
+  .edterm .p{color:var(--sage)}.edterm .ok{color:#9bc59b}
+  /* terminal expand */
+  .bigterm{height:100%;background:var(--ink);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.9;color:#bcae97;padding:16px 20px;overflow:auto}
+  .bigterm .p{color:var(--sage)}.bigterm .ok{color:#9bc59b}
+  /* preview expand */
+  .bigprev{height:100%;display:flex;flex-direction:column}
+  .bigprev .url{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line);font-family:monospace;font-size:12.5px;color:var(--dim)}
+  .bigprev .url .dot{width:8px;height:8px;border-radius:50%;background:var(--sage)}
+  .bigprev .frame{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:30px;
+    background:radial-gradient(60% 80% at 25% 15%,rgba(143,178,164,.16),transparent),radial-gradient(60% 80% at 85% 95%,rgba(205,160,107,.12),transparent),var(--ink)}
+  .bigprev .frame h2{font-size:30px;font-weight:400}.bigprev .frame p{color:var(--dim);max-width:340px}
+  .bigprev .frame .cta{background:var(--sage);color:#16140e;font-weight:600;border-radius:9px;padding:10px 20px}
+</style>
+</head>
+<body>
+  <div class="app">
+
+    <div class="top">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="brand"><span class="mark"></span> Soryq</div>
+      <div class="meta"><span>🔑 <b>your key</b></span><span>🎙 offline voice</span><span><b>own it once</b></span></div>
+    </div>
+
+    <div class="body">
+
+      <!-- THREADS -->
+      <aside class="threads">
+        <div class="h">Threads</div>
+        <div class="list">
+          <div class="thread on">
+            <div class="av">A</div>
+            <div class="tx"><div class="nm">Auth refactor <span class="live"></span></div>
+              <div class="last">Ada · working on login()</div></div>
+          </div>
+          <div class="thread">
+            <div class="av">W</div>
+            <div class="tx"><div class="nm">Landing page</div>
+              <div class="last">Wren · ready for review</div></div>
+          </div>
+          <div class="thread">
+            <div class="av">S</div>
+            <div class="tx"><div class="nm">DB migration</div>
+              <div class="last">Sol · idle</div></div>
+          </div>
+        </div>
+        <div class="new">+ New thread</div>
+      </aside>
+
+      <!-- THE FLOW -->
+      <main class="flowcol">
+        <div class="flowhead">
+          <div><div class="t">Auth refactor</div><div class="s">started 14 min ago</div></div>
+          <div class="agents"><span class="mini">A</span><span class="mini">W</span></div>
+        </div>
+
+        <div class="flow" id="flow">
+
+          <div class="you">Refactor <code>login()</code> to return a token, then show me /login.</div>
+
+          <div class="orch"><div class="pet">◠‿◠</div>
+            <div class="bub">On it. <b>Ada</b> is taking the build — I'll drop the diff here, then preview <b>/login</b> when it's up.</div></div>
+
+          <!-- DIFF card -->
+          <div class="card">
+            <div class="ch"><div class="who"><span class="av">A</span> Ada <span class="tag">· edited auth.ts</span></div>
+              <div class="st"><span class="g">✓</span> done</div></div>
+            <div class="cb diff">
+              <span class="ctx">export async function login(creds) {</span>
+              <span class="del">-  return verify(creds)</span>
+              <span class="add">+  const token = await verify(creds)</span>
+              <span class="add">+  return { token, ok: true }</span>
+              <span class="ctx">}</span>
+            </div>
+            <div class="acts">
+              <div class="act pri">✓ Approve</div>
+              <div class="act">✎ Tweak</div>
+              <div class="act" data-expand="editor">⤢ Expand to editor</div>
+              <div class="act" data-pin="diff" data-label="auth.ts diff">⌖ Pin</div>
+            </div>
+          </div>
+
+          <!-- TERMINAL run card -->
+          <div class="card">
+            <div class="ch"><div class="who"><span class="av">A</span> Ada <span class="tag">· ran a command</span></div>
+              <div class="st work"><span class="g">✻</span> live</div></div>
+            <div class="cb"><div class="termmini">
+<span class="p">soryq</span> ❯ npm run dev<br>
+<span class="ok">✓</span> ready in 412ms — http://localhost:5173<br>
+<span class="p">soryq</span> ❯ <span style="opacity:.5">▋</span>
+            </div></div>
+            <div class="acts">
+              <div class="act" data-expand="terminal">⤢ Open full terminal</div>
+              <div class="act" data-pin="term" data-label="dev server">⌖ Pin</div>
+            </div>
+          </div>
+
+          <!-- PREVIEW card -->
+          <div class="card">
+            <div class="ch"><div class="who"><span class="av">◆</span> Orchestrator <span class="tag">· preview ready</span></div>
+              <div class="st"><span class="g">✓</span> /login</div></div>
+            <div class="cb"><div class="prevmini">
+              <h3 class="serif">Welcome back</h3><p>localhost:5173 / login</p>
+            </div></div>
+            <div class="acts">
+              <div class="act" data-expand="preview">⤢ Open preview</div>
+              <div class="act">⌕ Inspect element</div>
+              <div class="act" data-pin="prev" data-label="/login preview">⌖ Pin</div>
+            </div>
+          </div>
+
+          <div class="orch"><div class="pet">◠‿◠</div>
+            <div class="bub">Looks good. Want <b>Wren</b> to review it, or should I wire it into the nav?</div></div>
+
+        </div>
+
+        <!-- COMPOSE -->
+        <div class="compose">
+          <div class="cbar">
+            <div class="mic">🎙</div>
+            <input placeholder="Say or type the next move…  (e.g. “have Wren review it”)" />
+            <div class="send">↵</div>
+          </div>
+          <div class="chint">talk or type · <b>pin</b> a card to keep it beside you · <b>expand</b> any card for the full editor / terminal / preview</div>
+        </div>
+      </main>
+
+      <!-- PINNED ambient column -->
+      <aside class="pinned">
+        <div class="h">Pinned <span class="n" id="pinCount"></span></div>
+        <div class="wrap" id="pinwrap">
+          <div class="empty" id="pinEmpty">Nothing pinned yet.<br><br>Hit <b>⌖ Pin</b> on any card — a terminal, a preview — to keep it <b>here beside you</b> while the flow keeps moving.</div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- EXPAND overlay -->
+    <div class="overlay" id="overlay">
+      <div class="sheet">
+        <div class="sh" id="sheetHead">◆ <b style="color:var(--cream)">&nbsp;</b><span class="x" id="sheetX">✕ esc</span></div>
+        <div class="sx" id="sheetBody"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  /* ── PIN ─────────────────────────────────────────────── */
+  const pinwrap=document.getElementById('pinwrap'), pinEmpty=document.getElementById('pinEmpty'),
+        pinCount=document.getElementById('pinCount'); const pins={};
+  const pinBodies={
+    term:'<div class="termmini" style="border-radius:0"><span class="p">soryq</span> ❯ dev<br><span class="ok">✓</span> :5173 live</div>',
+    prev:'<div class="prevmini" style="height:84px;border-radius:0"><h3 class="serif" style="font-size:15px">Welcome back</h3></div>',
+    diff:'<div class="diff" style="font-size:11px;padding:10px 12px"><span class="add">+ return {token, ok:true}</span></div>'
+  };
+  function updEmpty(){const n=Object.keys(pins).length;pinEmpty.style.display=n?'none':'block';pinCount.textContent=n?n:'';}
+  document.querySelectorAll('[data-pin]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const id=btn.dataset.pin, label=btn.dataset.label;
+      if(pins[id]){pins[id].remove();delete pins[id];btn.classList.remove('pinned');btn.innerHTML='⌖ Pin';}
+      else{
+        const t=document.createElement('div');t.className='ptile';
+        t.innerHTML='<div class="pth"><span class="dot"></span>'+label+'<span class="x">✕</span></div><div class="ptb" style="padding:0">'+(pinBodies[id]||'')+'</div>';
+        t.querySelector('.x').onclick=()=>{t.remove();delete pins[id];btn.classList.remove('pinned');btn.innerHTML='⌖ Pin';updEmpty();};
+        pinwrap.appendChild(t);pins[id]=t;btn.classList.add('pinned');btn.innerHTML='⌖ Pinned';
+      }
+      updEmpty();
+    });
+  });
+
+  /* ── EXPAND → full tool ──────────────────────────────── */
+  const overlay=document.getElementById('overlay'), sheetBody=document.getElementById('sheetBody'), sheetHead=document.getElementById('sheetHead');
+  const sheets={
+    editor:{title:'⟨⟩ Editor — auth.ts',html:`<div class="edgrid">
+      <div class="edtree"><a>services ▾</a><a class="on" style="padding-left:22px">auth.ts</a><a style="padding-left:22px">tts.ts</a><a>App.tsx</a><a>main.tsx</a></div>
+      <div class="edpane"><div class="edtabs"><div class="t on">auth.ts •</div><div class="t">App.tsx</div></div>
+        <div class="edcode"><div class="gut">1<br>2<br>3<br>4<br>5<br>6</div>
+        <div class="tx"><span class="c">// the full editor — on demand, not the default frame</span><br>
+<span class="k">export async function</span> <span class="f">login</span>(creds) {<br>
+&nbsp;&nbsp;<span class="k">const</span> token = <span class="k">await</span> <span class="f">verify</span>(creds)<br>
+&nbsp;&nbsp;<span class="k">return</span> { token, ok: <span class="k">true</span> }<br>
+}</div></div>
+        <div class="edterm"><span class="p">soryq</span> ❯ npm test<br><span class="ok">✓</span> 12 passed</div>
+      </div></div>`},
+    terminal:{title:'⎚ Terminal — dev server',html:`<div class="bigterm">
+<span class="p">soryq</span> ❯ npm run dev<br><span class="ok">✓</span> ready in 412ms — http://localhost:5173<br>
+<span class="p">soryq</span> ❯ git status<br>On branch main — 3 files staged<br>
+<span class="p">soryq</span> ❯ <span style="opacity:.5">▋</span><br><br>
+<span style="color:var(--faint)">// the full terminal, same as you'd expect — summoned from a card, not nailed to the bottom of the screen.</span>
+</div>`},
+    preview:{title:'◳ Preview — /login',html:`<div class="bigprev"><div class="url"><span class="dot"></span> localhost:5173 / login &nbsp;·&nbsp; DOM inspector ready</div>
+      <div class="frame"><h2 class="serif">Welcome back</h2><p>Your app, proxied through Soryq. Click any element to inspect it and send it to the orchestrator.</p><div class="cta">Sign in</div></div></div>`}
+  };
+  document.querySelectorAll('[data-expand]').forEach(b=>{
+    b.addEventListener('click',()=>{const s=sheets[b.dataset.expand];if(!s)return;
+      sheetHead.querySelector('b').textContent=' '+s.title;sheetBody.innerHTML=s.html;overlay.classList.add('open');});
+  });
+  function closeOv(){overlay.classList.remove('open');}
+  document.getElementById('sheetX').onclick=closeOv;
+  overlay.addEventListener('click',e=>{if(e.target===overlay)closeOv();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOv();});
+
+  /* thread switch (cosmetic) */
+  document.querySelectorAll('.thread').forEach(t=>t.addEventListener('click',()=>{
+    document.querySelectorAll('.thread').forEach(n=>n.classList.remove('on'));t.classList.add('on');
+  }));
+</script>
+</body>
+</html>

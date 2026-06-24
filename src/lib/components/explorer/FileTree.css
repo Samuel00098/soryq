@@ -1,0 +1,37 @@
+/* Styles for FileTree.tsx — extracted verbatim from the original CSS. */
+
+.file-tree {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  padding: 4px 0;
+}
+
+.file-tree .tree-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.file-tree .tree-empty {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.file-tree .loading-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

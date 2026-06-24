@@ -52,7 +52,7 @@
 }
 
 /* Centered Main Layout Block */
-.welcome-centered-container {
+.welcome .welcome-centered-container {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -65,7 +65,7 @@
 }
 
 /* Top Horizontal Brand Header - Stacked and Centered */
-.welcome-header {
+.welcome .welcome-header {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -76,14 +76,14 @@
   animation: welcome-header-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.brand-title-row {
+.welcome .brand-title-row {
   display: flex;
   align-items: center;
   gap: 16px;
   justify-content: center;
 }
 
-.logo-wrap {
+.welcome .logo-wrap {
   position: relative;
   width: 110px;
   height: 110px;
@@ -100,7 +100,7 @@
   transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.brand-title-row:hover .logo-wrap {
+.welcome .brand-title-row:hover .logo-wrap {
   transform: scale(1.06) rotate(3deg);
   border-color: var(--accent);
   box-shadow: 
@@ -108,19 +108,19 @@
     inset 0 1px 1px rgba(255, 255, 255, 0.16);
 }
 
-.logo-img {
+.welcome .logo-img {
   width: 72px;
   height: 72px;
   border-radius: 9px;
 }
 
-.logo-fallback {
+.welcome .logo-fallback {
   opacity: 0.85;
   width: 52px;
   height: 52px;
 }
 
-.app-name {
+.welcome .app-name {
   color: var(--text-primary);
   font-size: 56px;
   font-weight: 800;
@@ -132,7 +132,7 @@
 }
 
 /* Greeting text directly below app name and icons */
-.brand-subtitle-row {
+.welcome .brand-subtitle-row {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -142,29 +142,29 @@
   opacity: 0.95;
 }
 
-.welcome-kicker {
+.welcome .welcome-kicker {
   color: var(--accent);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.subtitle-divider {
+.welcome .subtitle-divider {
   opacity: 0.3;
   font-size: 12px;
 }
 
-.app-tagline {
+.welcome .app-tagline {
   opacity: 0.85;
 }
 
-.app-clock {
+.welcome .app-clock {
   color: var(--text-primary);
   font-weight: 700;
 }
 
 /* Centralized Launchpad Row */
-.launchpad-row {
+.welcome .launchpad-row {
   display: flex;
   gap: 12px;
   justify-content: center;
@@ -172,7 +172,7 @@
   flex-wrap: wrap;
 }
 
-.launchpad-row .action-btn {
+.welcome .launchpad-row .action-btn {
   flex: 1;
   min-width: 200px;
   max-width: 240px;
@@ -191,7 +191,7 @@
   border: 1px solid transparent;
 }
 
-.action-btn.primary {
+.welcome .action-btn.primary {
   background: linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 72%, #000) 100%);
   color: #0c0d0f;
   box-shadow: 
@@ -201,7 +201,7 @@
   border-color: rgba(255, 255, 255, 0.06);
 }
 
-.action-btn.primary:hover {
+.welcome .action-btn.primary:hover {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 90%, #fff) 0%, var(--accent) 100%);
   box-shadow: 
     0 8px 18px -4px color-mix(in srgb, var(--accent) 55%, transparent),
@@ -209,19 +209,19 @@
   transform: translateY(-1.2px);
 }
 
-.action-btn.secondary {
+.welcome .action-btn.secondary {
   background: rgba(255, 255, 255, 0.015);
   border: 1px solid rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
 }
 
-.action-btn.secondary:hover {
+.welcome .action-btn.secondary:hover {
   background: rgba(255, 255, 255, 0.045);
   border-color: color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.08));
   transform: translateY(-1.2px);
 }
 
-.action-icon {
+.welcome .action-icon {
   width: 24px;
   height: 24px;
   display: inline-flex;
@@ -232,19 +232,19 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
-.action-btn.primary .action-icon {
+.welcome .action-btn.primary .action-icon {
   background: rgba(12, 13, 15, 0.06);
   color: #0c0d0f;
 }
 
-.action-label {
+.welcome .action-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.action-btn kbd {
+.welcome .action-btn kbd {
   margin-left: auto;
   font-size: 10px;
   padding: 2px 6px;
@@ -257,7 +257,7 @@
   font-weight: 600;
 }
 
-.action-btn.primary kbd {
+.welcome .action-btn.primary kbd {
   border-color: rgba(0, 0, 0, 0.15);
   border-bottom-color: rgba(0, 0, 0, 0.25);
   background: rgba(0, 0, 0, 0.1);
@@ -265,7 +265,7 @@
 }
 
 /* Centralized Recent Workspaces Card */
-.dashboard-block {
+.welcome .dashboard-block {
   background: rgba(20, 20, 24, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.04);
   border-radius: 16px;
@@ -283,7 +283,7 @@
               transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
-.dashboard-block:hover {
+.welcome .dashboard-block:hover {
   border-color: color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.06));
   box-shadow: 
     0 20px 48px -16px rgba(0, 0, 0, 0.6),
@@ -291,14 +291,14 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-.recents-block {
+.welcome .recents-block {
   width: 100%;
   max-height: 380px;
   flex: 1;
   min-height: 0;
 }
 
-.block-header {
+.welcome .block-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -309,13 +309,13 @@
   flex-shrink: 0;
 }
 
-.header-title-group {
+.welcome .header-title-group {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.section-label {
+.welcome .section-label {
   display: inline-block;
   color: var(--text-secondary);
   font-size: 10px;
@@ -325,7 +325,7 @@
   opacity: 0.8;
 }
 
-.search-pill {
+.welcome .search-pill {
   padding: 2px 8px;
   background: rgba(174, 182, 194, 0.1);
   border: 1px solid rgba(174, 182, 194, 0.15);
@@ -335,7 +335,7 @@
   font-weight: 600;
 }
 
-.recent-list-layout {
+.welcome .recent-list-layout {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -345,7 +345,7 @@
   scrollbar-gutter: stable;
 }
 
-.recent-item {
+.welcome .recent-item {
   display: flex;
   align-items: center;
   padding: 12px 16px;
@@ -363,13 +363,13 @@
   flex-shrink: 0;
 }
 
-.recent-item:hover {
+.welcome .recent-item:hover {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.035);
   transform: translateY(-1px);
 }
 
-.recent-avatar {
+.welcome .recent-avatar {
   width: 32px;
   height: 32px;
   display: flex;
@@ -384,7 +384,7 @@
   user-select: none;
 }
 
-.recent-info {
+.welcome .recent-info {
   min-width: 0;
   flex: 1;
   display: flex;
@@ -392,7 +392,7 @@
   gap: 1px;
 }
 
-.recent-name {
+.welcome .recent-name {
   color: var(--text-primary);
   font-size: 13.5px;
   font-weight: 600;
@@ -401,7 +401,7 @@
   white-space: nowrap;
 }
 
-.recent-path {
+.welcome .recent-path {
   color: var(--text-secondary);
   font-size: 11px;
   opacity: 0.85;
@@ -410,7 +410,7 @@
   white-space: nowrap;
 }
 
-.recent-actions {
+.welcome .recent-actions {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -418,19 +418,19 @@
   transition: opacity 0.2s ease;
 }
 
-.recent-item:hover .recent-actions,
-.recent-item:focus-within .recent-actions {
+.welcome .recent-item:hover .recent-actions,
+.welcome .recent-item:focus-within .recent-actions {
   opacity: 1;
 }
 
-.recent-time {
+.welcome .recent-time {
   color: var(--text-secondary);
   font-size: 10px;
   margin-right: 4px;
   opacity: 0.7;
 }
 
-.icon-btn {
+.welcome .icon-btn {
   width: 24px;
   height: 24px;
   display: inline-flex;
@@ -443,20 +443,20 @@
   transition: all 0.15s ease;
 }
 
-.icon-btn:hover:not(:disabled) {
+.welcome .icon-btn:hover:not(:disabled) {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.08);
   transform: translateY(-1px);
 }
 
-.icon-btn.danger:hover {
+.welcome .icon-btn.danger:hover {
   color: var(--error);
   background: color-mix(in srgb, var(--error) 12%, transparent);
   border-color: color-mix(in srgb, var(--error) 20%, transparent);
 }
 
-.text-btn {
+.welcome .text-btn {
   padding: 3px 8px;
   border-radius: 6px;
   color: var(--text-secondary);
@@ -467,19 +467,19 @@
   transition: all 0.15s ease;
 }
 
-.text-btn:hover {
+.welcome .text-btn:hover {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-.text-btn.danger:hover {
+.welcome .text-btn.danger:hover {
   color: var(--error);
   background: color-mix(in srgb, var(--error) 12%, transparent);
   border-color: color-mix(in srgb, var(--error) 20%, transparent);
 }
 
-.rename-input {
+.welcome .rename-input {
   width: 100%;
   height: 24px;
   border: 1px solid var(--accent);
@@ -493,7 +493,7 @@
 }
 
 /* Consolidated Shortcuts Footer */
-.welcome-footer {
+.welcome .welcome-footer {
   width: 100%;
   margin-top: 12px;
   display: flex;
@@ -501,13 +501,13 @@
   flex-shrink: 0;
 }
 
-.shortcuts-bar {
+.welcome .shortcuts-bar {
   width: 100%;
   display: flex;
   justify-content: center;
 }
 
-.shortcuts-inline {
+.welcome .shortcuts-inline {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 12px;
@@ -515,7 +515,7 @@
   width: 100%;
 }
 
-.shortcut-pill {
+.welcome .shortcut-pill {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -528,18 +528,18 @@
   transition: all 0.2s ease;
 }
 
-.shortcut-pill:hover {
+.welcome .shortcut-pill:hover {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.06);
   transform: translateY(-1px);
 }
 
-.shortcut-key-label {
+.welcome .shortcut-key-label {
   color: var(--text-secondary);
   font-weight: 500;
 }
 
-.shortcut-pill kbd {
+.welcome .shortcut-pill kbd {
   font-size: 9px;
   padding: 1px 4px;
   border-radius: 3px;
@@ -569,7 +569,7 @@
   background: rgba(255, 255, 255, 0.15);
 }
 
-.empty-state {
+.welcome .empty-state {
   padding: 24px;
   border: 1px dashed rgba(255, 255, 255, 0.08);
   border-radius: 12px;
@@ -585,13 +585,13 @@
   flex: 1;
 }
 
-.empty-state p {
+.welcome .empty-state p {
   color: var(--text-primary);
   font-weight: 600;
   margin-bottom: 0;
 }
 
-.empty-state span {
+.welcome .empty-state span {
   opacity: 0.6;
 }
 
@@ -697,50 +697,50 @@
     padding: 24px 16px;
   }
 
-  .welcome-centered-container {
+  .welcome .welcome-centered-container {
     gap: 24px;
     margin: 0;
   }
 
-  .launchpad-row {
+  .welcome .launchpad-row {
     flex-direction: column;
     align-items: center;
     gap: 10px;
   }
 
-  .launchpad-row .action-btn {
+  .welcome .launchpad-row .action-btn {
     width: 100%;
     max-width: 100%;
   }
 
-  .recents-block {
+  .welcome .recents-block {
     max-height: 320px;
   }
 }
 
 @media (max-width: 576px) {
-  .logo-wrap {
+  .welcome .logo-wrap {
     width: 64px;
     height: 64px;
   }
 
-  .logo-img {
+  .welcome .logo-img {
     width: 40px;
     height: 40px;
   }
 
-  .app-name {
+  .welcome .app-name {
     font-size: 32px;
   }
 
-  .brand-subtitle-row {
+  .welcome .brand-subtitle-row {
     font-size: 12px;
     flex-wrap: wrap;
     gap: 4px 8px;
   }
 
-  .action-btn kbd,
-  .shortcut-pill kbd {
+  .welcome .action-btn kbd,
+  .welcome .shortcut-pill kbd {
     display: none;
   }
 }

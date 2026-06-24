@@ -1,0 +1,111 @@
+/* Styles for EmptyWorkspace.tsx — extracted verbatim from the original CSS. */
+
+.empty-workspace {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px 16px;
+  text-align: center;
+  background: var(--sidebar-bg);
+  color: var(--text-secondary);
+  user-select: none;
+  gap: 16px;
+}
+
+.empty-workspace .illustration-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 140px;
+  height: 140px;
+  border-radius: var(--radius-lg);
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px dashed var(--border);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s;
+}
+
+.empty-workspace:hover .illustration-container {
+  transform: scale(1.04);
+  border-color: var(--accent);
+}
+
+.empty-workspace .empty-illustration {
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
+}
+
+/* Node floating animations */
+.empty-workspace .node-left {
+  animation: float-left 6s ease-in-out infinite;
+}
+.empty-workspace .node-right {
+  animation: float-right 6s ease-in-out infinite 0.75s;
+}
+.empty-workspace .node-center {
+  animation: float-center 6s ease-in-out infinite 1.5s;
+}
+
+@keyframes float-left {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-2px, -3px); }
+}
+@keyframes float-right {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(2px, -3px); }
+}
+@keyframes float-center {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(0, -4px); }
+}
+
+.empty-workspace .dash-flow {
+  stroke-dashoffset: 20;
+  animation: dash 3s linear infinite;
+}
+
+@keyframes dash {
+  to { stroke-dashoffset: 0; }
+}
+
+.empty-workspace .empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: 0.2px;
+}
+
+.empty-workspace .empty-desc {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 220px;
+  margin: 0;
+}
+
+.empty-workspace .add-folder-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--button-bg);
+  color: var(--button-text);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  box-shadow: var(--shadow-md);
+}
+
+.empty-workspace .add-folder-btn:hover {
+  background: var(--button-hover-bg);
+}
+
+.empty-workspace .add-folder-btn:active {
+  transform: scale(0.97);
+}

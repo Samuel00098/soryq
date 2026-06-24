@@ -22,12 +22,12 @@
   align-items: center;
 }
 
-.history-panel,
-.floating-prompt-bar {
+.floating-prompt-shell .history-panel,
+.floating-prompt-shell .floating-prompt-bar {
   pointer-events: auto;
 }
 
-.prompt-bubble {
+.floating-prompt-shell .prompt-bubble {
   position: relative;
   pointer-events: auto;
   cursor: pointer;
@@ -47,18 +47,18 @@
   transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.prompt-bubble:hover {
+.floating-prompt-shell .prompt-bubble:hover {
   transform: translateY(-1px);
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.prompt-bubble:focus-visible {
+.floating-prompt-shell .prompt-bubble:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
   outline-offset: 3px;
 }
 
-.prompt-bubble svg {
+.floating-prompt-shell .prompt-bubble svg {
   flex-shrink: 0;
 }
 
@@ -66,12 +66,12 @@
   opacity: 1;
 }
 
-.history-panel,
-.floating-prompt-bar {
+.floating-prompt-shell .history-panel,
+.floating-prompt-shell .floating-prompt-bar {
   pointer-events: auto;
 }
 
-.history-panel {
+.floating-prompt-shell .history-panel {
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
@@ -83,7 +83,7 @@
   overflow: hidden;
 }
 
-.history-header {
+.floating-prompt-shell .history-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -91,7 +91,7 @@
   flex-shrink: 0;
 }
 
-.history-label {
+.floating-prompt-shell .history-label {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -99,13 +99,13 @@
   color: var(--text-muted);
 }
 
-.history-hint {
+.floating-prompt-shell .history-hint {
   font-size: 9.5px;
   color: var(--text-muted);
   opacity: 0.6;
 }
 
-.history-list {
+.floating-prompt-shell .history-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -118,7 +118,7 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%);
 }
 
-.history-item {
+.floating-prompt-shell .history-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -134,7 +134,7 @@
   min-width: 0;
 }
 
-.history-index {
+.floating-prompt-shell .history-index {
   flex-shrink: 0;
   width: 16px;
   font-size: 9.5px;
@@ -144,7 +144,7 @@
   opacity: 0.5;
 }
 
-.history-text {
+.floating-prompt-shell .history-text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -154,28 +154,28 @@
   font-size: 12px;
 }
 
-.history-insert-icon {
+.floating-prompt-shell .history-insert-icon {
   flex-shrink: 0;
   opacity: 0;
   color: var(--accent);
   transition: opacity 0.12s;
 }
 
-.history-item:hover {
+.floating-prompt-shell .history-item:hover {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
   color: var(--text-primary);
 }
 
-.history-item:hover .history-insert-icon {
+.floating-prompt-shell .history-item:hover .history-insert-icon {
   opacity: 1;
 }
 
-.history-item:hover .history-index {
+.floating-prompt-shell .history-item:hover .history-index {
   opacity: 1;
   color: var(--accent);
 }
 
-.floating-prompt-bar {
+.floating-prompt-shell .floating-prompt-bar {
   position: relative;
   display: flex;
   align-items: center;
@@ -200,8 +200,8 @@
     transform 0.18s ease;
 }
 
-.floating-prompt-bar:hover,
-.floating-prompt-bar:focus-within {
+.floating-prompt-shell .floating-prompt-bar:hover,
+.floating-prompt-shell .floating-prompt-bar:focus-within {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
   box-shadow:
     0 26px 58px -24px rgba(0, 0, 0, 0.78),
@@ -210,21 +210,21 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.14);
 }
 
-.floating-prompt-bar.disabled {
+.floating-prompt-shell .floating-prompt-bar.disabled {
   opacity: 0.82;
 }
 
-.floating-prompt-bar.global-drag {
+.floating-prompt-shell .floating-prompt-bar.global-drag {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 
-.floating-prompt-bar.drag-over {
+.floating-prompt-shell .floating-prompt-bar.drag-over {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent), 0 18px 50px rgba(0, 0, 0, 0.32);
 }
 
-.drop-overlay {
+.floating-prompt-shell .drop-overlay {
   position: absolute;
   inset: 0;
   border-radius: 20px;
@@ -241,22 +241,22 @@
   backdrop-filter: blur(6px);
 }
 
-.floating-prompt-bar.drag-over .drop-overlay {
+.floating-prompt-shell .floating-prompt-bar.drag-over .drop-overlay {
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
 }
 
-.spawn-toggle,
-.attach-toggle,
-.voice-toggle,
-.send-btn {
+.floating-prompt-shell .spawn-toggle,
+.floating-prompt-shell .attach-toggle,
+.floating-prompt-shell .voice-toggle,
+.floating-prompt-shell .send-btn {
   flex-shrink: 0;
   border: 0;
   transition: background 0.15s, color 0.15s, opacity 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
-.spawn-toggle,
-.attach-toggle,
-.voice-toggle {
+.floating-prompt-shell .spawn-toggle,
+.floating-prompt-shell .attach-toggle,
+.floating-prompt-shell .voice-toggle {
   width: 36px;
   height: 36px;
   border-radius: 11px;
@@ -272,39 +272,39 @@
     0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-.spawn-toggle,
-.attach-toggle {
+.floating-prompt-shell .spawn-toggle,
+.floating-prompt-shell .attach-toggle {
   cursor: pointer;
 }
 
-.attach-toggle:hover {
+.floating-prompt-shell .attach-toggle:hover {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
   color: var(--text-primary);
   transform: translateY(-1px);
 }
 
-.spawn-toggle {
+.floating-prompt-shell .spawn-toggle {
   position: relative;
 }
 
-.spawn-toggle:hover:not(:disabled) {
+.floating-prompt-shell .spawn-toggle:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
   color: var(--text-primary);
   transform: translateY(-1px);
 }
 
-.spawn-toggle.active {
+.floating-prompt-shell .spawn-toggle.active {
   background: color-mix(in srgb, var(--accent) 22%, var(--bg-primary));
   color: var(--accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
-.spawn-toggle:disabled {
+.floating-prompt-shell .spawn-toggle:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.spawn-toggle-badge {
+.floating-prompt-shell .spawn-toggle-badge {
   position: absolute;
   top: -5px;
   right: -5px;
@@ -324,19 +324,19 @@
   box-shadow: 0 0 0 2px var(--bg-primary);
 }
 
-.voice-toggle:hover {
+.floating-prompt-shell .voice-toggle:hover {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
   color: var(--text-primary);
   transform: translateY(-1px);
 }
 
-.voice-toggle.listening {
+.floating-prompt-shell .voice-toggle.listening {
   background: rgba(239, 68, 68, 0.14);
   color: var(--error);
   box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2);
 }
 
-.voice-toggle.refining {
+.floating-prompt-shell .voice-toggle.refining {
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
   color: var(--accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
@@ -346,11 +346,11 @@
   to { transform: rotate(360deg); }
 }
 
-.spin {
+.floating-prompt-shell .spin {
   animation: spin 0.9s linear infinite;
 }
 
-.prompt-copy {
+.floating-prompt-shell .prompt-copy {
   min-width: 0;
   flex: 1;
   display: flex;
@@ -360,7 +360,7 @@
   padding-inline: 1px 3px;
 }
 
-.prompt-meta {
+.floating-prompt-shell .prompt-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -368,7 +368,7 @@
   min-width: 0;
 }
 
-.prompt-target {
+.floating-prompt-shell .prompt-target {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -378,7 +378,7 @@
   color: var(--text-primary);
 }
 
-.prompt-target-btn {
+.floating-prompt-shell .prompt-target-btn {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -390,20 +390,20 @@
   transition: color 0.12s;
 }
 
-.prompt-target-btn:hover {
+.floating-prompt-shell .prompt-target-btn:hover {
   color: var(--accent);
 }
 
-.prompt-target-btn.pinned {
+.floating-prompt-shell .prompt-target-btn.pinned {
   color: var(--accent);
 }
 
-.chevron-icon {
+.floating-prompt-shell .chevron-icon {
   flex-shrink: 0;
   opacity: 0.6;
 }
 
-.target-picker {
+.floating-prompt-shell .target-picker {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
@@ -420,7 +420,7 @@
   z-index: 10;
 }
 
-.target-item {
+.floating-prompt-shell .target-item {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -435,24 +435,24 @@
   transition: background 0.12s, color 0.12s;
 }
 
-.target-item:hover {
+.floating-prompt-shell .target-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.target-item.active {
+.floating-prompt-shell .target-item.active {
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
   color: var(--text-primary);
 }
 
-.target-dot {
+.floating-prompt-shell .target-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.target-label {
+.floating-prompt-shell .target-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -461,7 +461,7 @@
   font-weight: 500;
 }
 
-.spawn-picker {
+.floating-prompt-shell .spawn-picker {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
@@ -478,7 +478,7 @@
   z-index: 10;
 }
 
-.spawn-header {
+.floating-prompt-shell .spawn-header {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -487,7 +487,7 @@
   padding: 4px 10px 6px;
 }
 
-.spawn-row {
+.floating-prompt-shell .spawn-row {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -495,11 +495,11 @@
   transition: background 0.12s;
 }
 
-.spawn-row.selected {
+.floating-prompt-shell .spawn-row.selected {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
 }
 
-.spawn-item {
+.floating-prompt-shell .spawn-item {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -516,16 +516,16 @@
   transition: color 0.12s;
 }
 
-.spawn-row:not(.selected) .spawn-item:hover {
+.floating-prompt-shell .spawn-row:not(.selected) .spawn-item:hover {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
   color: var(--text-primary);
 }
 
-.spawn-row.selected .spawn-item {
+.floating-prompt-shell .spawn-row.selected .spawn-item {
   color: var(--text-primary);
 }
 
-.spawn-counter {
+.floating-prompt-shell .spawn-counter {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -533,7 +533,7 @@
   padding-left: 4px;
 }
 
-.counter-value {
+.floating-prompt-shell .counter-value {
   min-width: 16px;
   text-align: center;
   font-size: 12px;
@@ -543,7 +543,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.spawn-name {
+.floating-prompt-shell .spawn-name {
   flex: 1;
   min-width: 0;
   font-weight: 500;
@@ -552,14 +552,14 @@
   white-space: nowrap;
 }
 
-.spawn-cmd {
+.floating-prompt-shell .spawn-cmd {
   font-family: var(--editor-font-family, monospace);
   font-size: 10.5px;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
-.counter-btn {
+.floating-prompt-shell .counter-btn {
   width: 22px;
   height: 22px;
   border-radius: 6px;
@@ -576,16 +576,16 @@
   transition: background 0.12s, opacity 0.12s;
 }
 
-.counter-btn:hover:not(:disabled) {
+.floating-prompt-shell .counter-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 18%, var(--bg-primary));
 }
 
-.counter-btn:disabled {
+.floating-prompt-shell .counter-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.spawn-footer {
+.floating-prompt-shell .spawn-footer {
   padding: 6px 4px 2px;
   display: flex;
   justify-content: flex-end;
@@ -593,7 +593,7 @@
   margin-top: 2px;
 }
 
-.spawn-confirm {
+.floating-prompt-shell .spawn-confirm {
   height: 30px;
   padding: 0 14px;
   border-radius: 9px;
@@ -606,16 +606,16 @@
   transition: background 0.15s, opacity 0.15s;
 }
 
-.spawn-confirm:hover:not(:disabled) {
+.floating-prompt-shell .spawn-confirm:hover:not(:disabled) {
   background: var(--button-hover-bg, var(--accent-hover));
 }
 
-.spawn-confirm:disabled {
+.floating-prompt-shell .spawn-confirm:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-.target-auto-badge {
+.floating-prompt-shell .target-auto-badge {
   font-size: 9px;
   color: var(--text-muted);
   background: var(--bg-tertiary);
@@ -624,7 +624,7 @@
   flex-shrink: 0;
 }
 
-.prompt-hint {
+.floating-prompt-shell .prompt-hint {
   flex-shrink: 0;
   font-size: 10px;
   color: var(--text-muted);
@@ -634,7 +634,7 @@
   white-space: nowrap;
 }
 
-.image-chips {
+.floating-prompt-shell .image-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -644,7 +644,7 @@
   border: 1px solid var(--border);
 }
 
-.image-chip {
+.floating-prompt-shell .image-chip {
   position: relative;
   flex-shrink: 0;
   display: flex;
@@ -654,7 +654,7 @@
   max-width: 64px;
 }
 
-.chip-thumb {
+.floating-prompt-shell .chip-thumb {
   display: block;
   width: 56px;
   height: 56px;
@@ -665,12 +665,12 @@
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-.image-chip:hover .chip-thumb {
+.floating-prompt-shell .image-chip:hover .chip-thumb {
   transform: scale(1.04);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 
-.chip-label {
+.floating-prompt-shell .chip-label {
   font-size: 9px;
   color: var(--text-muted);
   max-width: 60px;
@@ -681,7 +681,7 @@
   line-height: 1.2;
 }
 
-.chip-remove {
+.floating-prompt-shell .chip-remove {
   position: absolute;
   top: -5px;
   right: -5px;
@@ -699,13 +699,13 @@
   transition: background 0.12s, color 0.12s;
 }
 
-.chip-remove:hover {
+.floating-prompt-shell .chip-remove:hover {
   background: rgba(239, 68, 68, 0.18);
   color: var(--error);
   border-color: rgba(239, 68, 68, 0.3);
 }
 
-.prompt-input {
+.floating-prompt-shell .prompt-input {
   width: 100%;
   min-height: 24px;
   max-height: 100px;
@@ -722,11 +722,11 @@
   scrollbar-gutter: stable;
 }
 
-.prompt-input::placeholder {
+.floating-prompt-shell .prompt-input::placeholder {
   color: var(--text-muted);
 }
 
-.send-btn {
+.floating-prompt-shell .send-btn {
   height: 36px;
   min-width: 58px;
   padding: 0 16px;
@@ -747,72 +747,72 @@
     width: calc(100% - 24px);
     bottom: 14px;
   }
-  .prompt-bubble {
+  .floating-prompt-shell .prompt-bubble {
     width: 48px;
     height: 48px;
   }
 
-  .prompt-bubble svg {
+  .floating-prompt-shell .prompt-bubble svg {
     width: 16px;
     height: 16px;
   }
 
 
-  .floating-prompt-bar {
+  .floating-prompt-shell .floating-prompt-bar {
     gap: 8px;
     padding: 9px 10px;
     border-radius: 18px;
   }
 
-  .history-panel {
+  .floating-prompt-shell .history-panel {
     border-radius: 14px;
   }
 
-  .history-item {
+  .floating-prompt-shell .history-item {
     padding: 7px 8px;
   }
 
-  .history-text {
+  .floating-prompt-shell .history-text {
     font-size: 11px;
   }
 
-  .spawn-toggle,
-  .attach-toggle,
-  .voice-toggle,
-  .send-btn {
+  .floating-prompt-shell .spawn-toggle,
+  .floating-prompt-shell .attach-toggle,
+  .floating-prompt-shell .voice-toggle,
+  .floating-prompt-shell .send-btn {
     height: 34px;
   }
 
-  .spawn-toggle,
-  .attach-toggle,
-  .voice-toggle {
+  .floating-prompt-shell .spawn-toggle,
+  .floating-prompt-shell .attach-toggle,
+  .floating-prompt-shell .voice-toggle {
     width: 34px;
     border-radius: 10px;
   }
 
-  .prompt-copy {
+  .floating-prompt-shell .prompt-copy {
     gap: 5px;
   }
 
-  .prompt-meta {
+  .floating-prompt-shell .prompt-meta {
     gap: 8px;
   }
 
-  .prompt-target {
+  .floating-prompt-shell .prompt-target {
     font-size: 10px;
   }
 
-  .prompt-hint {
+  .floating-prompt-shell .prompt-hint {
     font-size: 9px;
   }
 
-  .prompt-input {
+  .floating-prompt-shell .prompt-input {
     font-size: 12px;
     min-height: 22px;
     height: 22px;
   }
 
-  .send-btn {
+  .floating-prompt-shell .send-btn {
     padding: 0 12px;
     border-radius: 10px;
     font-size: 11px;
@@ -824,83 +824,83 @@
     width: calc(100% - 16px);
     bottom: 10px;
   }
-  .prompt-bubble {
+  .floating-prompt-shell .prompt-bubble {
     width: 44px;
     height: 44px;
   }
 
-  .prompt-bubble svg {
+  .floating-prompt-shell .prompt-bubble svg {
     width: 15px;
     height: 15px;
   }
 
 
-  .floating-prompt-bar {
+  .floating-prompt-shell .floating-prompt-bar {
     gap: 6px;
     padding: 8px;
     border-radius: 16px;
   }
 
-  .history-panel {
+  .floating-prompt-shell .history-panel {
     border-radius: 12px;
   }
 
-  .history-list {
+  .floating-prompt-shell .history-list {
     max-height: 160px;
     padding: 3px 4px 6px;
   }
 
-  .history-item {
+  .floating-prompt-shell .history-item {
     padding: 6px 7px;
     border-radius: 8px;
   }
 
-  .history-text {
+  .floating-prompt-shell .history-text {
     font-size: 10px;
   }
 
-  .spawn-toggle,
-  .attach-toggle,
-  .voice-toggle {
+  .floating-prompt-shell .spawn-toggle,
+  .floating-prompt-shell .attach-toggle,
+  .floating-prompt-shell .voice-toggle {
     width: 30px;
     height: 30px;
     border-radius: 9px;
   }
 
-  .spawn-toggle svg,
-  .attach-toggle svg,
-  .voice-toggle svg {
+  .floating-prompt-shell .spawn-toggle svg,
+  .floating-prompt-shell .attach-toggle svg,
+  .floating-prompt-shell .voice-toggle svg {
     width: 12px;
     height: 12px;
   }
 
-  .prompt-copy {
+  .floating-prompt-shell .prompt-copy {
     gap: 4px;
   }
 
-  .prompt-meta {
+  .floating-prompt-shell .prompt-meta {
     flex-direction: column;
     align-items: flex-start;
     gap: 3px;
   }
 
-  .prompt-target {
+  .floating-prompt-shell .prompt-target {
     font-size: 9.5px;
     max-width: 100%;
   }
 
-  .prompt-hint {
+  .floating-prompt-shell .prompt-hint {
     display: none;
   }
 
-  .prompt-input {
+  .floating-prompt-shell .prompt-input {
     font-size: 11px;
     line-height: 1.35;
     min-height: 20px;
     height: 20px;
   }
 
-  .send-btn {
+  .floating-prompt-shell .send-btn {
     height: 30px;
     min-width: 46px;
     padding: 0 10px;
@@ -909,12 +909,12 @@
   }
 }
 
-.send-btn:hover:not(:disabled) {
+.floating-prompt-shell .send-btn:hover:not(:disabled) {
   background: var(--button-hover-bg, var(--accent-hover));
   transform: translateY(-1px);
 }
 
-.send-btn:disabled {
+.floating-prompt-shell .send-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -928,7 +928,7 @@
 
 /* ── Agent mode ─────────────────────────────────────────────────────────── */
 
-.agent-toggle {
+.floating-prompt-shell .agent-toggle {
   width: 36px;
   height: 36px;
   border-radius: 11px;
@@ -948,19 +948,19 @@
     0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-.agent-toggle:hover {
+.floating-prompt-shell .agent-toggle:hover {
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
   color: var(--accent);
   transform: translateY(-1px);
 }
 
-.agent-toggle.active {
+.floating-prompt-shell .agent-toggle.active {
   background: color-mix(in srgb, var(--accent) 20%, var(--bg-primary));
   color: var(--accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-.agent-toggle-badge {
+.floating-prompt-shell .agent-toggle-badge {
   position: absolute;
   top: -5px;
   right: -5px;
@@ -981,7 +981,7 @@
 }
 
 /* Agent mode glow on the bar */
-.floating-prompt-bar.agent-mode {
+.floating-prompt-shell .floating-prompt-bar.agent-mode {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
   box-shadow:
     var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)),
@@ -990,17 +990,17 @@
     0 0 28px -6px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-.floating-prompt-bar.voice-active {
+.floating-prompt-shell .floating-prompt-bar.voice-active {
   border-color: color-mix(in srgb, var(--accent) 80%, var(--border)) !important;
   animation: agentBarGlow 2s ease-in-out infinite !important;
 }
 
-.floating-prompt-bar.voice-active > *:not(.voice-mode-inner):not(.drop-overlay) {
+.floating-prompt-shell .floating-prompt-bar.voice-active > *:not(.voice-mode-inner):not(.drop-overlay) {
   display: none !important;
 }
 
 /* Inline Voice Mode Inner Layout */
-.floating-prompt-bar .voice-mode-inner {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1013,7 +1013,7 @@
 }
 
 /* Orb */
-.floating-prompt-bar .voice-mode-inner .orb-wrap {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .orb-wrap {
   width: 28px;
   height: 28px;
   display: flex;
@@ -1022,7 +1022,7 @@
   flex-shrink: 0;
 }
 
-.floating-prompt-bar .voice-mode-inner .orb {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .orb {
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -1033,16 +1033,16 @@
 }
 
 /* Custom breathing & glowing animations for the voice mode orb */
-.floating-prompt-bar .voice-mode-inner .orb-wrap.listening .orb {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .orb-wrap.listening .orb {
   animation: promptOrbListen 1.2s ease-in-out infinite;
 }
-.floating-prompt-bar .voice-mode-inner .orb-wrap.speaking .orb {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .orb-wrap.speaking .orb {
   animation: promptOrbSpeak 1.5s ease-in-out infinite;
 }
-.floating-prompt-bar .voice-mode-inner .orb-wrap.thinking .orb {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .orb-wrap.thinking .orb {
   animation: promptOrbThink 2s ease-in-out infinite;
 }
-.floating-prompt-bar .voice-mode-inner .orb-wrap.idle .orb {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .orb-wrap.idle .orb {
   animation: promptOrbIdle 3.5s ease-in-out infinite;
 }
 
@@ -1090,17 +1090,17 @@
   }
 }
 
-.floating-prompt-bar .voice-mode-inner .orb svg {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .orb svg {
   width: 13px;
   height: 13px;
 }
 
-.floating-prompt-bar .voice-mode-inner .ring {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .ring {
   display: none;
 }
 
 /* Text Column beside the orb */
-.floating-prompt-bar .voice-mode-inner .text-col {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .text-col {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1110,14 +1110,14 @@
   max-width: calc(100% - 60px);
 }
 
-.floating-prompt-bar .voice-mode-inner .status {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .status {
   font-size: 11px;
   font-weight: 600;
   margin: 0;
   line-height: 1.2;
 }
 
-.floating-prompt-bar .voice-mode-inner .live-text {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .live-text {
   font-size: 11px;
   margin: 0;
   text-align: left;
@@ -1129,7 +1129,7 @@
 }
 
 /* Close button on the far right */
-.floating-prompt-bar .voice-mode-inner .voice-close-btn {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .voice-close-btn {
   position: absolute;
   right: 0;
   top: 50%;
@@ -1147,7 +1147,7 @@
   transition: background 0.15s, color 0.15s;
 }
 
-.floating-prompt-bar .voice-mode-inner .voice-close-btn:hover {
+.floating-prompt-shell .floating-prompt-bar .voice-mode-inner .voice-close-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
@@ -1172,12 +1172,12 @@
 }
 
 /* Voice button in agent mode */
-.voice-toggle.agent-voice {
+.floating-prompt-shell .voice-toggle.agent-voice {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
   color: var(--accent);
 }
 
-.voice-toggle.agent-voice.listening {
+.floating-prompt-shell .voice-toggle.agent-voice.listening {
   background: color-mix(in srgb, var(--accent) 22%, var(--bg-primary));
   color: var(--accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
@@ -1190,14 +1190,14 @@
 }
 
 /* Agent voice controls row */
-.agent-voice-controls {
+.floating-prompt-shell .agent-voice-controls {
   display: flex;
   align-items: center;
   gap: 7px;
   min-width: 0;
 }
 
-.agent-voice-mode-btn {
+.floating-prompt-shell .agent-voice-mode-btn {
   width: 22px;
   height: 22px;
   border-radius: 7px;
@@ -1212,20 +1212,20 @@
   transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 
-.agent-voice-mode-btn:hover {
+.floating-prompt-shell .agent-voice-mode-btn:hover {
   background: var(--bg-hover);
   color: var(--text-secondary);
   border-color: var(--border-focus);
 }
 
-.agent-voice-mode-btn.active {
+.floating-prompt-shell .agent-voice-mode-btn.active {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.agent-voice-mode-btn.speaking {
+.floating-prompt-shell .agent-voice-mode-btn.speaking {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
@@ -1236,12 +1236,12 @@
   50% { opacity: 0.5; }
 }
 
-.pulse {
+.floating-prompt-shell .pulse {
   animation: pulse 1.2s ease-in-out infinite;
 }
 
 /* Agent meta label */
-.agent-chat-open-btn {
+.floating-prompt-shell .agent-chat-open-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1254,11 +1254,11 @@
   min-width: 0;
 }
 
-.agent-chat-open-btn:hover {
+.floating-prompt-shell .agent-chat-open-btn:hover {
   color: var(--accent);
 }
 
-.agent-meta-badge {
+.floating-prompt-shell .agent-meta-badge {
   font-size: 9px;
   padding: 1px 6px;
   border-radius: 8px;
@@ -1269,7 +1269,7 @@
 }
 
 /* Waiting badge on collapsed bubble */
-.bubble-waiting-badge {
+.floating-prompt-shell .bubble-waiting-badge {
   position: absolute;
   top: -4px;
   right: -4px;
@@ -1294,39 +1294,39 @@
     width: calc(100% - 12px);
     bottom: 8px;
   }
-  .prompt-bubble {
+  .floating-prompt-shell .prompt-bubble {
     width: 40px;
     height: 40px;
   }
 
-  .prompt-bubble svg {
+  .floating-prompt-shell .prompt-bubble svg {
     width: 14px;
     height: 14px;
   }
 
 
-  .floating-prompt-bar {
+  .floating-prompt-shell .floating-prompt-bar {
     gap: 4px;
     padding: 7px 7px;
     border-radius: 14px;
   }
 
-  .spawn-toggle,
-  .attach-toggle,
-  .voice-toggle {
+  .floating-prompt-shell .spawn-toggle,
+  .floating-prompt-shell .attach-toggle,
+  .floating-prompt-shell .voice-toggle {
     width: 28px;
     height: 28px;
     border-radius: 8px;
   }
 
-  .spawn-toggle svg,
-  .attach-toggle svg,
-  .voice-toggle svg {
+  .floating-prompt-shell .spawn-toggle svg,
+  .floating-prompt-shell .attach-toggle svg,
+  .floating-prompt-shell .voice-toggle svg {
     width: 11px;
     height: 11px;
   }
 
-  .send-btn {
+  .floating-prompt-shell .send-btn {
     height: 28px;
     min-width: 40px;
     padding: 0 8px;
@@ -1334,29 +1334,29 @@
     font-size: 10px;
   }
 
-  .prompt-input {
+  .floating-prompt-shell .prompt-input {
     font-size: 11px;
     min-height: 20px;
     height: 20px;
   }
 
-  .prompt-meta {
+  .floating-prompt-shell .prompt-meta {
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
   }
 
-  .prompt-hint {
+  .floating-prompt-shell .prompt-hint {
     display: none;
   }
 
-  .prompt-target {
+  .floating-prompt-shell .prompt-target {
     font-size: 9px;
   }
 }
 
 @media (max-width: 760px) {
-  .prompt-hint {
+  .floating-prompt-shell .prompt-hint {
     max-width: 160px;
   }
 }

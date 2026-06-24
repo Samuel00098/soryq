@@ -8,7 +8,7 @@ import {
   getProviderBaseUrl,
   isLocalProvider,
   providerSupportsReplyTts,
-  voiceConversationAiProvider,
+  voiceReplyProvider,
 } from '$lib/stores/settings';
 import { isProviderApiKeyConfiguredLocal } from '$lib/services/ai-keychain';
 
@@ -101,7 +101,7 @@ export function describeTtsError(error: unknown): string {
 }
 
 function resolveTtsConfig(options?: SpeakOptions) {
-  const provider = options?.provider ?? get(voiceConversationAiProvider);
+  const provider = options?.provider ?? get(voiceReplyProvider);
   const providerDef = getProviderDef(provider);
   const model = options?.model ?? get(currentVoiceConversationTtsModel);
   const voice = options?.voice ?? get(currentVoiceConversationTtsVoice);
@@ -197,6 +197,20 @@ function playBytes(payload: TtsAudioPayload, token: number): Promise<void> {
       settle(() => (token === speakToken ? reject(new Error('Audio playback failed')) : resolve()));
     audio.play().catch((err) => settle(() => (token === speakToken ? reject(err) : resolve())));
   });
+}
+
+/**
+ * Pre-load the local speech engine in the background so the first spoken reply
+ * isn't stalled by a cold WASM/ONNX start. No-op for cloud providers (their
+ * latency is the network round-trip, which can't be warmed up) and silently
+ * skips if local speech isn't usable yet. Call when entering voice mode.
+ */
+export function warmupLocalTts(options?: SpeakOptions): void {
+  const { provider, model } = resolveTtsConfig(options);
+  if (provider !== 'local') return;
+  void import('$lib/services/kokoro-local')
+    .then((m) => m.warmupKokoro(model))
+    .catch(() => {});
 }
 
 export async function speak(text: string, options?: SpeakOptions): Promise<void> {

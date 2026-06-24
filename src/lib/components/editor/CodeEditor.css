@@ -1,0 +1,41 @@
+.editor-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+.editor-layout .code-editor-container {
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
+.editor-layout .cm-editor {
+  height: 100%;
+}
+.editor-layout .minimap-container {
+  width: 80px;
+  height: 100%;
+  background: var(--bg-tertiary);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+  user-select: none;
+  pointer-events: none;
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+:root:not(.solid-theme) .minimap-container {
+  background: rgba(var(--bg-tertiary-rgb, 34, 34, 42), var(--frost-surface, 0.72));
+}
+.editor-layout .minimap-container:hover {
+  opacity: 0.85;
+}
+.editor-layout .minimap-content {
+  font-size: 3px;
+  line-height: 4.5px;
+  padding: 8px 4px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-muted);
+}

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Soryq — Calm / Focused redesign (Phase 1 mockup, v2)</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────────────────
+     SORYQ · CALM & FOCUSED — static design mockup v2 (design-first)
+     The opposite lever from the glass concept: flat, near-monochrome, ONE
+     restrained accent, generous whitespace. Linear/Zed calm — fast, legible,
+     professional — with soryq's identity kept (orchestrator-led, quiet dev-pet,
+     "your key · no meter" always visible). No glass blur, no neon, no bloom.
+     Nothing here touches the live app.
+     ───────────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#0d0e11;          /* flat near-black */
+    --panel:#131418;       /* surfaces */
+    --panel-2:#181a1f;     /* raised rows */
+    --line:rgba(255,255,255,.07);
+    --line-soft:rgba(255,255,255,.04);
+    --ink:#e7e9ee; --dim:#9298a3; --faint:#5c626c;
+    --accent:#4db6ac;      /* ONE calm accent — used sparingly for "active/live" */
+    --accent-soft:rgba(77,182,172,.12);
+    --green:#5bb98b;       /* success/waiting only */
+    --radius:12px;
+    font-synthesis:none;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+    background:var(--bg); color:var(--ink);
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+    display:grid; place-items:center; min-height:100vh; padding:26px;
+  }
+  .app{
+    width:min(1180px,96vw); height:min(760px,92vh);
+    background:var(--bg); border:1px solid var(--line); border-radius:16px; overflow:hidden;
+    display:grid; grid-template-rows:auto 1fr auto;
+    box-shadow:0 30px 80px -40px rgba(0,0,0,.8);
+  }
+
+  /* ── title bar — quiet ─────────────────────────────────────── */
+  .titlebar{display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--line)}
+  .lights{display:flex;gap:7px}
+  .lights i{width:11px;height:11px;border-radius:50%;display:block;background:#2b2e34}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:13.5px;letter-spacing:.02em}
+  .brand .mark{width:17px;height:17px;border-radius:5px;border:1.5px solid var(--accent);
+    display:grid;place-items:center;font-size:10px;color:var(--accent)}
+  .seg{margin-left:auto;display:flex;gap:2px}
+  .seg button{all:unset;cursor:pointer;font-size:12.5px;color:var(--dim);padding:5px 12px;border-radius:8px;transition:.12s}
+  .seg button:hover{color:var(--ink);background:var(--panel-2)}
+  .seg button.on{color:var(--ink);background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--line)}
+  .key{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:6px;margin-left:14px}
+  .key b{color:var(--ink);font-weight:600}
+
+  /* ── body ──────────────────────────────────────────────────── */
+  .body{display:grid;grid-template-columns:208px 1fr;min-height:0}
+
+  /* left nav — labelled, not just icons (very understandable) */
+  .nav{border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:1px}
+  .nav .grp{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+    padding:14px 10px 6px;font-weight:600}
+  .nav a{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;color:var(--dim);
+    font-size:13.5px;text-decoration:none;cursor:pointer;transition:.12s}
+  .nav a:hover{background:var(--panel);color:var(--ink)}
+  .nav a.on{background:var(--panel-2);color:var(--ink)}
+  .nav a .i{width:18px;text-align:center;opacity:.85}
+  .nav a .ct{margin-left:auto;font-size:11px;color:var(--faint);background:var(--panel);
+    padding:1px 7px;border-radius:999px;border:1px solid var(--line)}
+  .nav a.on .dotlive{margin-left:auto;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .nav .sp{flex:1}
+
+  /* main column */
+  .main{display:flex;flex-direction:column;min-width:0;overflow:auto}
+
+  /* orchestrator — calm command surface (not a glowing hero) */
+  .orch{padding:30px 34px 22px;border-bottom:1px solid var(--line)}
+  .orch .row{display:flex;align-items:center;gap:14px}
+  .pet{width:40px;height:40px;border-radius:11px;flex:none;display:grid;place-items:center;font-size:18px;
+    background:var(--panel-2);border:1px solid var(--line);color:var(--accent)}
+  .orch h1{font-size:21px;font-weight:600;letter-spacing:-.01em}
+  .orch .lead{color:var(--dim);font-size:13.5px;margin-top:3px}
+  /* the talk/type bar */
+  .bar{margin-top:20px;display:flex;align-items:center;gap:12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+  .bar:focus-within{border-color:var(--accent)}
+  .bar .ph{flex:1;color:var(--faint);font-size:14px}
+  .bar .ph em{color:var(--dim);font-style:normal}
+  .bar .mic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;cursor:pointer;
+    background:var(--accent-soft);color:var(--accent);font-size:16px;border:1px solid rgba(77,182,172,.25)}
+  .bar kbd{font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-family:inherit}
+  .hint{margin-top:10px;font-size:12px;color:var(--faint)}
+  .hint b{color:var(--dim);font-weight:600}
+
+  /* content grid: fleet + work */
+  .grid{display:grid;grid-template-columns:1fr 320px;gap:0;flex:1;min-height:0}
+  .work{padding:22px 34px;display:flex;flex-direction:column;gap:18px;overflow:auto}
+  .aside{border-left:1px solid var(--line);padding:22px 20px;display:flex;flex-direction:column;gap:22px;overflow:auto}
+
+  .h{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:12px}
+
+  /* agent fleet — clean rows, not cards */
+  .agent{display:flex;align-items:center;gap:13px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+  .agent:last-child{border:none}
+  .agent .led{width:8px;height:8px;border-radius:50%;flex:none}
+  .agent .meta{flex:1;min-width:0}
+  .agent .nm{font-size:13.5px;font-weight:550}
+  .agent .nm .role{color:var(--faint);font-weight:400;margin-left:7px;font-size:12px}
+  .agent .task{font-size:12px;color:var(--dim);margin-top:2px}
+  .agent .pct{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .agent .track{width:90px;height:4px;border-radius:3px;background:var(--panel-2);overflow:hidden;flex:none}
+  .agent .track i{display:block;height:100%;background:var(--accent);border-radius:3px}
+  .l-run{background:var(--accent)} .l-idle{background:var(--faint)} .l-wait{background:var(--green)}
+
+  /* editor + terminal — flat, calm */
+  .panes{display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:200px}
+  .pane{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;background:var(--panel)}
+  .pane .ph2{display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid var(--line);font-size:12px;color:var(--dim)}
+  .pane .ph2 .tab{color:var(--ink)}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.8;padding:13px 15px;color:#c2c9d4}
+  .mono .k{color:#c98ac9}.mono .s{color:var(--green)}.mono .f{color:#7aa7d6}.mono .c{color:var(--faint)}
+  .mono .p{color:var(--accent)}.mono .ok{color:var(--green)}
+
+  /* aside cards — plain */
+  .kv{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--line-soft)}
+  .kv:last-child{border:none}
+  .kv span:last-child{color:var(--dim)}
+  .kv .tag{color:var(--accent);background:var(--accent-soft);border:1px solid rgba(77,182,172,.22);
+    padding:1px 9px;border-radius:999px;font-size:11.5px}
+  .task2{display:flex;align-items:center;gap:11px;font-size:13px;padding:8px 0}
+  .task2 .box{width:15px;height:15px;border-radius:5px;border:1.5px solid var(--faint);flex:none}
+  .task2.done .box{background:var(--accent);border-color:var(--accent)}
+  .task2.done span{color:var(--faint);text-decoration:line-through}
+
+  /* status bar — minimal */
+  .status{display:flex;align-items:center;gap:20px;padding:8px 16px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line)}
+  .status .live{color:var(--accent)} .status .r{margin-left:auto;display:flex;gap:18px}
+</style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- title bar -->
+    <div class="titlebar">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="brand"><span class="mark">S</span> Soryq</div>
+      <div class="seg">
+        <button class="on">Focus</button>
+        <button>Split</button>
+        <button>Canvas</button>
+        <button>Preview</button>
+      </div>
+      <div class="key">🔑 <b>your key</b> · no meter</div>
+    </div>
+
+    <!-- body -->
+    <div class="body">
+
+      <!-- left nav -->
+      <nav class="nav">
+        <a class="on">◆ <span>Orchestrator</span><span class="dotlive"></span></a>
+        <div class="grp">Workspace</div>
+        <a><span class="i">▤</span> Files</a>
+        <a><span class="i">⌕</span> Search</a>
+        <a><span class="i">⎇</span> Source control <span class="ct">3</span></a>
+        <a><span class="i">▦</span> Database</a>
+        <div class="grp">Agents</div>
+        <a><span class="i">⬡</span> Fleet <span class="ct">3</span></a>
+        <a><span class="i">☰</span> Task board</a>
+        <a><span class="i">✓</span> Review</a>
+        <div class="sp"></div>
+        <a><span class="i">◐</span> Theme</a>
+        <a><span class="i">⚙</span> Settings</a>
+      </nav>
+
+      <!-- main -->
+      <main class="main">
+
+        <!-- orchestrator: calm command surface -->
+        <section class="orch">
+          <div class="row">
+            <div class="pet">◠‿◠</div>
+            <div>
+              <h1>What should we work on?</h1>
+              <div class="lead">Talk or type — the orchestrator drives the workspace and your agents.</div>
+            </div>
+          </div>
+          <div class="bar">
+            <span class="ph"><em>Spin up a builder on the auth refactor and open /login in preview…</em></span>
+            <kbd>↵</kbd>
+            <div class="mic">🎙</div>
+          </div>
+          <div class="hint">Try: <b>“review the open PR”</b> · <b>“run the tests”</b> · <b>“split layout with preview”</b></div>
+        </section>
+
+        <!-- fleet + work -->
+        <div class="grid">
+          <div class="work">
+
+            <div>
+              <div class="h">Agent fleet · 3 running</div>
+              <div class="agent">
+                <span class="led l-run"></span>
+                <div class="meta">
+                  <div class="nm">Builder <span class="role">· auth-refactor</span></div>
+                  <div class="task">Refactoring login() and token verify</div>
+                </div>
+                <div class="track"><i style="width:72%"></i></div>
+                <div class="pct">72%</div>
+              </div>
+              <div class="agent">
+                <span class="led l-wait"></span>
+                <div class="meta">
+                  <div class="nm">Reviewer <span class="role">· PR #214</span></div>
+                  <div class="task">Waiting — needs your approval on diff</div>
+                </div>
+                <div class="track"><i style="width:100%;background:var(--green)"></i></div>
+                <div class="pct">done</div>
+              </div>
+              <div class="agent">
+                <span class="led l-idle"></span>
+                <div class="meta">
+                  <div class="nm">Scout <span class="role">· codebase map</span></div>
+                  <div class="task">Idle — ready for next task</div>
+                </div>
+                <div class="track"><i style="width:0%"></i></div>
+                <div class="pct">idle</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="h">Workspace</div>
+              <div class="panes">
+                <div class="pane">
+                  <div class="ph2"><span class="tab">auth.ts</span> · components.tsx</div>
+                  <div class="mono">
+<span class="c">// driven by the builder agent</span><br>
+<span class="k">export async function</span> <span class="f">login</span>(creds) {<br>
+&nbsp;&nbsp;<span class="k">const</span> token = <span class="k">await</span> <span class="f">verify</span>(creds)<br>
+&nbsp;&nbsp;<span class="k">return</span> { token, ok: <span class="k">true</span> }<br>
+}
+                  </div>
+                </div>
+                <div class="pane">
+                  <div class="ph2"><span class="tab">terminal</span> — zsh</div>
+                  <div class="mono">
+<span class="p">soryq</span> ❯ npm run dev<br>
+<span class="ok">✓</span> ready in 412ms<br>
+<span class="p">builder</span> ❯ writing auth.ts…<br>
+<span class="ok">✓</span> 3 files changed<br>
+<span class="p">soryq</span> ❯ <span style="opacity:.45">▋</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- aside -->
+          <aside class="aside">
+            <div>
+              <div class="h">Session</div>
+              <div class="kv"><span>Provider</span><span class="tag">your key · local</span></div>
+              <div class="kv"><span>Model</span><span>claude-opus-4-8</span></div>
+              <div class="kv"><span>Voice</span><span>on-device · offline</span></div>
+              <div class="kv"><span>Spend</span><span>no meter</span></div>
+            </div>
+            <div>
+              <div class="h">Tasks</div>
+              <div class="task2 done"><span class="box"></span><span>Scaffold auth module</span></div>
+              <div class="task2"><span class="box"></span><span>Refactor login()</span></div>
+              <div class="task2"><span class="box"></span><span>Review PR #214</span></div>
+              <div class="task2"><span class="box"></span><span>Wire preview to /login</span></div>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+
+    <!-- status -->
+    <div class="status">
+      <span class="live">●</span> native · Tauri 2
+      <span>cold start 0.41s</span>
+      <span>RAM 64 MB</span>
+      <div class="r">
+        <span>🎙 offline voice</span>
+        <span>◆ orchestrator ready</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

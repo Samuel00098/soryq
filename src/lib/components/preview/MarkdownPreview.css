@@ -1,0 +1,176 @@
+/* Styles for MarkdownPreview.tsx — extracted from the original CSS. The
+   `:global(...)` wrappers are dropped: this is a plain (already global)
+   stylesheet, so `.markdown-body h1` etc. target the dangerouslySetInnerHTML
+   content directly. */
+
+.markdown-container {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  /* Transparent so the frosted editor surface (and any background image)
+     shows through; inner code/quote blocks provide their own light fill. */
+  background: transparent;
+  color: var(--text-primary);
+  padding: 2.5rem 2rem;
+}
+
+.markdown-container .markdown-body {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.62;
+}
+
+/* Headings */
+.markdown-container .markdown-body h1,
+.markdown-container .markdown-body h2,
+.markdown-container .markdown-body h3,
+.markdown-container .markdown-body h4,
+.markdown-container .markdown-body h5,
+.markdown-container .markdown-body h6 {
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.markdown-container .markdown-body h1 {
+  font-size: 2.2rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+  margin-top: 0;
+}
+
+.markdown-container .markdown-body h2 {
+  font-size: 1.6rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+
+.markdown-container .markdown-body h3 {
+  font-size: 1.3rem;
+}
+
+.markdown-container .markdown-body h4 {
+  font-size: 1.15rem;
+}
+
+/* Content Elements */
+.markdown-container .markdown-body p {
+  margin-top: 0;
+  margin-bottom: 1.2rem;
+  color: var(--text-secondary);
+}
+
+.markdown-container .markdown-body a {
+  color: var(--accent-hover);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.markdown-container .markdown-body a:hover {
+  text-decoration: underline;
+  color: var(--accent);
+}
+
+.markdown-container .markdown-body ul,
+.markdown-container .markdown-body ol {
+  margin-top: 0;
+  margin-bottom: 1.2rem;
+  padding-left: 2rem;
+  color: var(--text-secondary);
+}
+
+.markdown-container .markdown-body li {
+  margin-top: 0.3rem;
+}
+
+.markdown-container .markdown-body blockquote {
+  margin: 1.8rem 0;
+  padding: 0.6rem 1.2rem;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  font-style: italic;
+}
+
+.markdown-container .markdown-body blockquote p {
+  margin: 0;
+}
+
+/* Code blocks */
+.markdown-container .markdown-body pre {
+  margin-top: 1.2rem;
+  margin-bottom: 1.2rem;
+  padding: 1.1rem;
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.markdown-container .markdown-body code {
+  font-family: var(--editor-font-family, 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace);
+  font-size: 88%;
+  background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.markdown-container .markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 90%;
+  color: inherit;
+  border-radius: 0;
+}
+
+/* Tables */
+.markdown-container .markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.2rem;
+  margin-bottom: 1.2rem;
+}
+
+.markdown-container .markdown-body th,
+.markdown-container .markdown-body td {
+  border: 1px solid var(--border);
+  padding: 0.7rem 1.1rem;
+  text-align: left;
+}
+
+.markdown-container .markdown-body th {
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.markdown-container .markdown-body td {
+  color: var(--text-secondary);
+}
+
+.markdown-container .markdown-body tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+/* Other elements */
+.markdown-container .markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 1.8rem 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.markdown-container .markdown-body hr {
+  height: 1px;
+  background: var(--border);
+  border: none;
+  margin: 2.2rem 0;
+}

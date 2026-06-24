@@ -12,22 +12,22 @@
   isolation: isolate;
 }
 
-.type-cat {
+.pet-avatar-wrapper .type-cat {
   --accent: #f59e0b;
   --pet-glow-color: #fbbf24;
 }
 
-.type-slime {
+.pet-avatar-wrapper .type-slime {
   --accent: #14b8a6;
   --pet-glow-color: #5eead4;
 }
 
-.type-robo {
+.pet-avatar-wrapper .type-robo {
   --accent: #60a5fa;
   --pet-glow-color: #a78bfa;
 }
 
-.pet-glow {
+.pet-avatar-wrapper .pet-glow {
   position: absolute;
   inset: 16%;
   z-index: -1;
@@ -41,7 +41,7 @@
   pointer-events: none;
 }
 
-.pet-svg {
+.pet-avatar-wrapper .pet-svg {
   display: block;
   max-width: 150px;
   max-height: 150px;
@@ -50,22 +50,22 @@
   will-change: transform;
 }
 
-.pet-ground-shadow {
+.pet-avatar-wrapper .pet-ground-shadow {
   fill: rgba(0, 0, 0, 0.16);
 }
 
-.status-happy .pet-glow,
-.status-commit .pet-glow {
+.pet-avatar-wrapper .status-happy .pet-glow,
+.pet-avatar-wrapper .status-commit .pet-glow {
   animation: glow-pulse 0.9s ease-in-out infinite alternate;
   opacity: 0.9;
 }
 
-.status-typing .pet-glow {
+.pet-avatar-wrapper .status-typing .pet-glow {
   opacity: 0.78;
   filter: blur(8px);
 }
 
-.status-sleep .pet-glow {
+.pet-avatar-wrapper .status-sleep .pet-glow {
   opacity: 0.34;
 }
 
@@ -115,84 +115,84 @@
 /* ─── State Animation Mapping ────────── */
 
 /* Slime State Animations */
-.slime-body {
+.pet-avatar-wrapper .slime-body {
   transform-origin: bottom center;
 }
-.status-idle .slime-body {
+.pet-avatar-wrapper .status-idle .slime-body {
   animation: breathing 2s ease-in-out infinite;
 }
-.status-typing .slime-body {
+.pet-avatar-wrapper .status-typing .slime-body {
   animation: intense-bounce 0.25s ease-in-out infinite;
 }
-.status-sleep .slime-body {
+.pet-avatar-wrapper .status-sleep .slime-body {
   animation: breathing 3.5s ease-in-out infinite;
   opacity: 0.85;
 }
-.status-commit .slime-svg,
-.status-happy .slime-svg {
+.pet-avatar-wrapper .status-commit .slime-svg,
+.pet-avatar-wrapper .status-happy .slime-svg {
   animation: spin-jump 0.8s cubic-bezier(0.25, 1, 0.5, 1) infinite;
 }
-.status-eating .slime-body {
+.pet-avatar-wrapper .status-eating .slime-body {
   animation: breathing 0.8s ease-in-out infinite;
 }
 
 /* Cat State Animations */
-.cat-head, .cat-body, .cat-tail {
+.pet-avatar-wrapper .cat-head, .pet-avatar-wrapper .cat-body, .pet-avatar-wrapper .cat-tail {
   transform-origin: bottom center;
 }
-.status-idle .cat-head {
+.pet-avatar-wrapper .status-idle .cat-head {
   animation: bounce 2.5s ease-in-out infinite;
 }
-.status-idle .cat-tail {
+.pet-avatar-wrapper .status-idle .cat-tail {
   animation: tail-wag 1.5s ease-in-out infinite;
 }
-.status-typing .cat-head {
+.pet-avatar-wrapper .status-typing .cat-head {
   animation: bounce 0.4s ease-in-out infinite;
 }
-.status-typing .paw-left {
+.pet-avatar-wrapper .status-typing .paw-left {
   animation: type-paw 0.15s ease-in-out infinite alternate;
 }
-.status-typing .paw-right {
+.pet-avatar-wrapper .status-typing .paw-right {
   animation: type-paw 0.15s ease-in-out infinite alternate-reverse;
 }
-.status-sleep .cat-head, .status-sleep .cat-body {
+.pet-avatar-wrapper .status-sleep .cat-head, .pet-avatar-wrapper .status-sleep .cat-body {
   animation: breathing 4s ease-in-out infinite;
   opacity: 0.8;
 }
-.status-commit .cat-svg,
-.status-happy .cat-svg {
+.pet-avatar-wrapper .status-commit .cat-svg,
+.pet-avatar-wrapper .status-happy .cat-svg {
   animation: intense-bounce 0.55s ease-in-out infinite;
 }
 
 /* Robo State Animations */
-.robo-body {
+.pet-avatar-wrapper .robo-body {
   transform-origin: bottom center;
 }
-.status-idle .robo-svg {
+.pet-avatar-wrapper .status-idle .robo-svg {
   animation: float 2.5s ease-in-out infinite;
 }
-.status-typing .robo-svg {
+.pet-avatar-wrapper .status-typing .robo-svg {
   animation: float 0.8s ease-in-out infinite;
 }
-.status-typing .typing-symbols {
+.pet-avatar-wrapper .status-typing .typing-symbols {
   animation: bounce 0.3s ease infinite;
 }
-.status-sleep .robo-svg {
+.pet-avatar-wrapper .status-sleep .robo-svg {
   animation: float 4.5s ease-in-out infinite;
   opacity: 0.75;
 }
-.status-commit .robo-body,
-.status-happy .robo-body {
+.pet-avatar-wrapper .status-commit .robo-body,
+.pet-avatar-wrapper .status-happy .robo-body {
   animation: spin-jump 0.8s cubic-bezier(0.25, 1, 0.5, 1) 1;
 }
 
 /* Accessories follow head/body transforms */
-.pet-accessory {
+.pet-avatar-wrapper .pet-accessory {
   transform-origin: bottom center;
 }
 
 /* Floating Zzz animations */
-.zzz-container {
+.pet-avatar-wrapper .zzz-container {
   position: absolute;
   top: 10px;
   right: 25px;
@@ -202,7 +202,7 @@
   pointer-events: none;
 }
 
-.zzz {
+.pet-avatar-wrapper .zzz {
   font-family: 'Outfit', sans-serif;
   font-weight: bold;
   color: var(--text-muted);
@@ -211,9 +211,9 @@
   animation: zzz-float 3s infinite linear;
 }
 
-.z1 { animation-delay: 0s; }
-.z2 { animation-delay: 1s; font-size: 13px; }
-.z3 { animation-delay: 2s; }
+.pet-avatar-wrapper .z1 { animation-delay: 0s; }
+.pet-avatar-wrapper .z2 { animation-delay: 1s; font-size: 13px; }
+.pet-avatar-wrapper .z3 { animation-delay: 2s; }
 
 @keyframes zzz-float {
   0% { transform: translate(0, 10px) scale(0.8); opacity: 0; }
@@ -227,10 +227,10 @@
   0% { transform: translateY(-20px); opacity: 1; }
   100% { transform: translateY(35px); opacity: 0; }
 }
-.food-particle {
+.pet-avatar-wrapper .food-particle {
   animation: food-fall 1s linear infinite;
 }
-.cat-food {
+.pet-avatar-wrapper .cat-food {
   animation: food-fall 0.8s linear infinite;
   transform-origin: center;
 }
@@ -242,11 +242,11 @@
   80% { opacity: 0.8; }
   100% { transform: translateY(-15px); opacity: 0; }
 }
-.robo-binary {
+.pet-avatar-wrapper .robo-binary {
   animation: binary-rise 1.2s ease-in-out infinite;
   opacity: 0;
 }
-.b1 { animation-delay: 0s; }
-.b2 { animation-delay: 0.3s; }
-.b3 { animation-delay: 0.6s; }
-.b4 { animation-delay: 0.9s; }
+.pet-avatar-wrapper .b1 { animation-delay: 0s; }
+.pet-avatar-wrapper .b2 { animation-delay: 0.3s; }
+.pet-avatar-wrapper .b3 { animation-delay: 0.6s; }
+.pet-avatar-wrapper .b4 { animation-delay: 0.9s; }

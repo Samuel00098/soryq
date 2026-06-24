@@ -177,6 +177,22 @@ pub fn run() {
             commands::preview::preview_open_in_browser,
             commands::preview::preview_capture_screenshot,
             commands::preview::preview_clear_browsing_data,
+            commands::mobile::mobile_platform,
+            commands::mobile::android_check,
+            commands::mobile::android_list_devices,
+            commands::mobile::android_list_avds,
+            commands::mobile::android_launch_avd,
+            commands::mobile::android_screencap,
+            commands::mobile::android_tap,
+            commands::mobile::android_swipe,
+            commands::mobile::android_key,
+            commands::mobile::android_text,
+            commands::mobile::ios_available,
+            commands::mobile::ios_list_simulators,
+            commands::mobile::ios_boot,
+            commands::mobile::ios_shutdown,
+            commands::mobile::ios_open_simulator,
+            commands::mobile::ios_screenshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running forge application");
