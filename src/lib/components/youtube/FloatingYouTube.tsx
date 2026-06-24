@@ -253,8 +253,18 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
         onPointerDown={startMove}
         onDoubleClick={() => setState((s) => {
           const nextMinimized = !s.minimized;
-          const nextState = { ...s, minimized: nextMinimized };
-          return nextMinimized ? nextState : clampToViewportFull(nextState);
+          if (nextMinimized) {
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            return {
+              ...s,
+              minimized: true,
+              x: Math.max(16, vw - s.width - 24),
+              y: Math.max(16, vh - 40 - 96),
+            };
+          } else {
+            return clampToViewportFull({ ...s, minimized: false });
+          }
         })}
       >
         <span className="fy-title">
@@ -284,8 +294,18 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
             className="fy-control fy-minimize"
             onClick={() => setState((s) => {
               const nextMinimized = !s.minimized;
-              const nextState = { ...s, minimized: nextMinimized };
-              return nextMinimized ? nextState : clampToViewportFull(nextState);
+              if (nextMinimized) {
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+                return {
+                  ...s,
+                  minimized: true,
+                  x: Math.max(16, vw - s.width - 24),
+                  y: Math.max(16, vh - 40 - 96),
+                };
+              } else {
+                return clampToViewportFull({ ...s, minimized: false });
+              }
             })}
             title={minimized ? 'Restore player' : 'Minimize player'}
             aria-label={minimized ? 'Restore player' : 'Minimize player'}
