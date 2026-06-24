@@ -27,7 +27,6 @@ const PANEL_FLAGS: Array<{ flag: keyof LayoutState; label: string }> = [
   { flag: 'dbVisible', label: 'db' },
   { flag: 'containersVisible', label: 'containers' },
   { flag: 'toolboxVisible', label: 'toolbox' },
-  { flag: 'petVisible', label: 'pet' },
 ];
 
 /** Every view the assistant may `navigate` to (matches layout's known views). */
@@ -41,10 +40,6 @@ export const NAVIGABLE_VIEWS = [
   'db',
   'containers',
   'toolbox',
-  'pet',
-  'youtube',
-  'android',
-  'ios',
   'settings',
 ] as const;
 

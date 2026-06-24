@@ -55,7 +55,6 @@ import { kotlin, csharp } from '@codemirror/legacy-modes/mode/clike';
 import { toml } from '@codemirror/legacy-modes/mode/toml';
 
 import { updateContent, updateCursorPosition, jumpToLine, activeSelection } from '$lib/stores/editor';
-import { devpet } from '$lib/stores/devpet';
 import { activeProject } from '$lib/stores/workspace';
 import {
   fontSize,
@@ -270,9 +269,6 @@ export default function CodeEditor({ filePath, initialContent, language }: CodeE
             update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
               insertedChars += inserted.length;
             });
-            if (insertedChars > 0) {
-              devpet.onType(insertedChars);
-            }
           }
           if (update.selectionSet) {
             const sel = update.state.selection.main;
