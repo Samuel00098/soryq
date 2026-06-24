@@ -79,7 +79,10 @@ export default function YouTubePanel() {
 
   const currentVideoId = state.current?.videoId ?? null;
   const currentPlaylistId = state.current?.playlistId ?? null;
-  const playbackKey = currentPlaylistId || currentVideoId;
+  const playbackKey =
+    currentPlaylistId && currentVideoId
+      ? `${currentPlaylistId}_${currentVideoId}`
+      : currentPlaylistId || currentVideoId;
   const hasPlayer = Boolean(playbackKey);
   const hasPlaylist = Boolean(currentPlaylistId);
 
@@ -226,8 +229,8 @@ export default function YouTubePanel() {
   }
 
   const isNarrow = dimensions.width > 0 && dimensions.width < 500;
-  const isShort = dimensions.height > 0 && dimensions.height < 340;
-  const isMiniHeight = dimensions.height > 0 && dimensions.height < 220;
+  const isShort = dimensions.height > 0 && dimensions.height < 450;
+  const isMiniHeight = dimensions.height > 0 && dimensions.height < 250;
 
   const sizeClasses = [
     isNarrow ? 'yt-width-narrow' : '',

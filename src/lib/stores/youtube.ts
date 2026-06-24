@@ -447,7 +447,7 @@ async function musicSearch(query: string, filter: MusicFilter): Promise<YouTubeR
       title,
       channel,
       thumbnail: findThumbnail(item),
-      type: playlistId ? (filter === 'albums' ? 'album' : 'playlist') : 'song',
+      type: isList ? (filter === 'albums' ? 'album' : 'playlist') : 'song',
     });
     if (results.length >= 24) break;
   }

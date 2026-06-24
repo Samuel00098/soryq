@@ -764,3 +764,109 @@
 .youtube-panel.yt-height-mini .yt-music {
   padding: 8px 12px;
 }
+
+/* --- Album / Playlist Tracklist ----------------------------------------- */
+.youtube-panel .yt-album-tracklist-loading {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 16px;
+  text-align: center;
+}
+
+.youtube-panel .yt-album-tracklist {
+  width: 100%;
+  max-width: 360px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.youtube-panel.yt-height-short .yt-album-tracklist {
+  flex: 1 1 0;
+  min-width: 180px;
+  max-width: none;
+  margin-top: 0;
+  border-top: none;
+  border-left: 1px solid var(--border);
+  padding-top: 0;
+  padding-left: 16px;
+  max-height: 100%;
+}
+
+.youtube-panel.yt-height-mini .yt-album-tracklist {
+  display: none;
+}
+
+.youtube-panel .yt-tracklist-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.youtube-panel .yt-tracklist-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.youtube-panel .yt-track-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 100ms ease;
+}
+
+.youtube-panel .yt-track-row:hover {
+  background: var(--bg-hover);
+}
+
+.youtube-panel .yt-track-row.active {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.youtube-panel .yt-track-num {
+  flex: 0 0 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.youtube-panel .yt-track-row.active .yt-track-num {
+  color: var(--accent);
+}
+
+.youtube-panel .yt-track-title {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.youtube-panel .yt-track-duration {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
