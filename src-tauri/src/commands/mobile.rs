@@ -356,14 +356,16 @@ pub async fn android_key(serial: String, keycode: i32) -> Result<(), String> {
 /// Type a string of text into the focused field.
 #[tauri::command]
 pub async fn android_text(serial: String, text: String) -> Result<(), String> {
-    // `input text` treats spaces specially; encode them as %s and escape a few
-    // shell-significant characters so the text arrives intact.
-    let encoded = text
-        .replace(' ', "%s")
-        .replace('\'', "")
-        .replace('"', "")
-        .replace('&', "");
-    adb_shell(&serial, &["input", "text", &encoded])
+    // `adb shell input text <arg>` is interpreted by the *device's* shell, so any
+    // metacharacter in `text` (`;`, `$`, backtick, `|`, newline, …) would be
+    // parsed by sh rather than typed. Encode spaces as %s (what `input text`
+    // expects), then single-quote the whole argument for the device shell —
+    // escaping embedded single quotes via the `'\''` idiom — so every character
+    // reaches `input text` literally. (The host side never invokes a shell: adb
+    // is run via Command::args, i.e. a raw argv.)
+    let encoded = text.replace(' ', "%s");
+    let quoted = format!("'{}'", encoded.replace('\'', "'\\''"));
+    adb_shell(&serial, &["input", "text", &quoted])
 }
 
 // ---------------------------------------------------------------------------
