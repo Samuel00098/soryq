@@ -159,6 +159,31 @@ export function commitInternalNavigation(url: string) {
   commitNavigation(url, false);
 }
 
+/**
+ * Replace the active tab's *current* history entry in place — no new entry, no
+ * reload. Used when a load we drove (typed URL, Back/Forward, refresh) lands on a
+ * different final URL than requested because the server issued a redirect: we
+ * rewrite the entry to the final URL instead of pushing a duplicate, matching how
+ * real browsers collapse a redirect's source out of session history. `loadUrl` is
+ * deliberately left untouched so this doesn't retrigger an iframe reload.
+ */
+export function replaceCurrentNavigation(url: string) {
+  setCurrentUrlStore(url);
+  replaceActiveTab((tab) => {
+    if (tab.history[tab.historyIndex] === url) {
+      return { ...tab, url, title: derivePreviewTabTitle(url) };
+    }
+    const history = tab.history.slice();
+    history[tab.historyIndex] = url;
+    return {
+      ...tab,
+      url,
+      title: derivePreviewTabTitle(url),
+      history,
+    };
+  });
+}
+
 export function goBackPreviewTab() {
   let nextUrl: string | null = null;
   replaceActiveTab((tab) => {

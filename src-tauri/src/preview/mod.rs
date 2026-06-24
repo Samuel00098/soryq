@@ -286,6 +286,97 @@ const SCROLL_SNIPPET: &str = r#"<script data-soryq-scroll-sync>
 })();
 </script>"#;
 
+const NAV_FLAG: &str = "soryq-nav-rewrite";
+// Navigation rewriter injected into *external* proxied pages only. The proxy
+// serves external sites under its own loopback origin
+// (http://127.0.0.1:{proxy_port}/proxy/{scheme}/{host}/...) and strips their
+// X-Frame-Options/CSP so they can render inside the preview iframe. But the
+// links *inside* those pages still point at absolute/protocol-relative URLs
+// (e.g. DuckDuckGo results link to //duckduckgo.com/l/?uddg=<real-site>), so a
+// plain click navigates the iframe straight out to the real internet — where the
+// destination's X-Frame-Options then blocks it ("refused to connect"). This
+// interceptor rewrites in-page link clicks and form submits back through the
+// proxy so navigation stays on the proxy origin (where embedding guards are
+// stripped). It also unwraps DuckDuckGo's /l/?uddg= redirect to land directly on
+// the destination instead of chasing the tracker hop. Posts to '*'-free; it only
+// rewrites same-document navigations and never touches the parent window.
+const NAV_SNIPPET: &str = r#"<script data-soryq-nav-rewrite>
+(() => {
+    if (window.__soryqNavRewrite) return;
+    window.__soryqNavRewrite = true;
+    const proxyOrigin = location.origin;
+    const unwrap = (u) => {
+        // DuckDuckGo wraps each result in //duckduckgo.com/l/?uddg=<real-url>.
+        // Decode it so we proxy the real destination directly (clean address bar,
+        // one fewer redirect hop).
+        if (/(^|\.)duckduckgo\.com$/i.test(u.hostname) && u.pathname === '/l/') {
+            const uddg = u.searchParams.get('uddg');
+            if (uddg) { try { return new URL(uddg); } catch (e) {} }
+        }
+        return u;
+    };
+    const toProxy = (href) => {
+        let u;
+        try { u = new URL(href, location.href); } catch (e) { return null; }
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+        if (u.origin === proxyOrigin) return null; // already proxied / same-origin
+        u = unwrap(u);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+        const scheme = u.protocol.replace(':', '');
+        return proxyOrigin + '/proxy/' + scheme + '/' + u.host + u.pathname + u.search + u.hash;
+    };
+    document.addEventListener('click', (event) => {
+        if (event.defaultPrevented || event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
+        if (!anchor) return;
+        const proxied = toProxy(anchor.getAttribute('href'));
+        if (!proxied) return;
+        event.preventDefault();
+        window.location.href = proxied;
+    }, true);
+    document.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (!form || typeof form.getAttribute !== 'function') return;
+        let u;
+        try { u = new URL(form.getAttribute('action') || location.href, location.href); } catch (e) { return; }
+        if (u.origin === proxyOrigin) return; // already lands on the proxy
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+        const scheme = u.protocol.replace(':', '');
+        // GET forms ignore the action's query string (the browser rebuilds it from
+        // the fields), so dropping u.search here is correct; the proxied path is
+        // enough to keep the submission on the proxy origin.
+        form.action = proxyOrigin + '/proxy/' + scheme + '/' + u.host + u.pathname;
+    }, true);
+
+    // Report the page's *real* (external) URL to the app shell so the address bar
+    // and Back/Forward history track navigation like a real browser. The iframe is
+    // cross-origin to the app shell, so the parent cannot read our location
+    // directly — postMessage is the only channel. On the first load we trust the
+    // server-injected <meta name="soryq-location"> (it holds the post-redirect
+    // URL the proxy actually fetched); for in-page history changes we decode our
+    // own proxy URL instead, since the meta only reflects the initial load.
+    const decodeSelf = () => {
+        const m = location.pathname.match(/^\/proxy\/(https?)\/([^/]+)(\/.*)?$/);
+        if (!m) return '';
+        return m[1] + '://' + m[2] + (m[3] || '') + location.search + location.hash;
+    };
+    const report = (url) => {
+        if (!url) return;
+        try { parent.postMessage({ type: 'forge-preview:location', url: url }, '*'); } catch (e) {}
+    };
+    const reportInitial = () => {
+        const meta = document.querySelector('meta[name="soryq-location"]');
+        report(meta && meta.content ? meta.content : decodeSelf());
+    };
+    const reportDynamic = () => report(decodeSelf());
+    if (document.readyState !== 'loading') reportInitial();
+    else document.addEventListener('DOMContentLoaded', reportInitial);
+    window.addEventListener('popstate', reportDynamic);
+    window.addEventListener('hashchange', reportDynamic);
+})();
+</script>"#;
+
 #[derive(Clone)]
 pub struct ProxyState {
     pub target_port: Arc<Mutex<u16>>,
@@ -1240,6 +1331,10 @@ async fn build_preview_response(
 
     let status = res.status();
     let headers = res.headers().clone();
+    // The final URL after any redirects the client followed. For external pages
+    // this is the URL the address bar should show; we hand it to the page via a
+    // meta tag so the injected reporter can post it back to the app shell.
+    let final_url = res.url().to_string();
 
     if is_html {
         let body_bytes = match res.bytes().await {
@@ -1258,6 +1353,18 @@ async fn build_preview_response(
         // The scroll-position bridge is harmless and useful everywhere, so inject
         // it into both local dev and external pages.
         let injected = inject_scroll_script(&injected);
+        // The navigation rewriter keeps in-page links/forms on the proxy origin so
+        // clicked results (e.g. DuckDuckGo) actually load instead of escaping the
+        // proxy and being blocked by the destination's X-Frame-Options, and it
+        // reports the page's real URL back to the address bar. Only external pages
+        // need it; local dev navigation is already same-origin. The location meta
+        // carries the post-redirect URL so the address bar reflects the final site.
+        let injected = if strip_embed_headers {
+            let injected = inject_location_meta(&injected, &final_url);
+            inject_nav_rewrite_script(&injected)
+        } else {
+            injected
+        };
 
         let mut builder = Response::builder().status(status);
         for (key, value) in headers.iter() {
@@ -1326,6 +1433,69 @@ fn inject_inspector_script(html: &str) -> String {
     }
 
     format!("{}{}", injection, html)
+}
+
+fn html_escape_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Embed the page's real (post-redirect) URL as a meta tag so the injected
+/// reporter can hand it to the app shell's address bar. Inserting before
+/// `</head>` keeps it in the head where it parses before any body script runs.
+fn inject_location_meta(html: &str, final_url: &str) -> String {
+    if html.contains("name=\"soryq-location\"") {
+        return html.to_string();
+    }
+    let meta = format!(
+        "<meta name=\"soryq-location\" content=\"{}\">",
+        html_escape_attr(final_url)
+    );
+
+    if let Some(index) = html.rfind("</head>") {
+        let mut output = String::with_capacity(html.len() + meta.len() + 8);
+        output.push_str(&html[..index]);
+        output.push_str(&meta);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    if let Some(index) = html.find("</body>") {
+        let mut output = String::with_capacity(html.len() + meta.len() + 8);
+        output.push_str(&html[..index]);
+        output.push_str(&meta);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    format!("{}{}", meta, html)
+}
+
+fn inject_nav_rewrite_script(html: &str) -> String {
+    if html.contains(NAV_FLAG) {
+        return html.to_string();
+    }
+
+    if let Some(index) = html.rfind("</body>") {
+        let mut output = String::with_capacity(html.len() + NAV_SNIPPET.len() + 8);
+        output.push_str(&html[..index]);
+        output.push_str(NAV_SNIPPET);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    if let Some(index) = html.rfind("</head>") {
+        let mut output = String::with_capacity(html.len() + NAV_SNIPPET.len() + 8);
+        output.push_str(&html[..index]);
+        output.push_str(NAV_SNIPPET);
+        output.push_str(&html[index..]);
+        return output;
+    }
+
+    format!("{}{}", html, NAV_SNIPPET)
 }
 
 fn inject_scroll_script(html: &str) -> String {

@@ -25,6 +25,7 @@ import {
   localDevProxyKey,
   navigatePreviewTab,
   commitInternalNavigation,
+  replaceCurrentNavigation,
   goBackPreviewTab,
   goForwardPreviewTab,
   createBlankPreviewBrowserTab,
@@ -358,6 +359,16 @@ export default function PreviewPanel() {
   const portRef = useRef(port);
   portRef.current = port;
 
+  // Tabs whose current load was driven by us (typed URL, Back/Forward, refresh)
+  // rather than by an in-page link click. The next location report for such a tab
+  // *replaces* the current history entry (so a server redirect collapses into the
+  // entry we drove, like a real browser) instead of pushing a new one.
+  const drivenLoadTabsRef = useRef<Set<string>>(new Set());
+  const markDrivenLoad = useCallback(() => {
+    const id = activeTabRef.current?.id;
+    if (id) drivenLoadTabsRef.current.add(id);
+  }, []);
+
   const ensureTabLoadState = useCallback(
     (tabId: string) => tabLoadState[tabId] ?? DEFAULT_TAB_LOAD_STATE,
     [tabLoadState],
@@ -561,11 +572,12 @@ export default function PreviewPanel() {
         // triggering the iframe src binding, so buildIframeSrc sees the port set.
         await ensureProxyRunning();
       }
+      markDrivenLoad();
       navigatePreviewTab(normalized);
       setInputUrl(normalized);
       startLoadFeedback();
     },
-    [startLoadFeedback],
+    [startLoadFeedback, markDrivenLoad],
   );
 
   const handleNavigate = useCallback(
@@ -586,24 +598,27 @@ export default function PreviewPanel() {
 
   const goBack = useCallback(() => {
     if (!canGoBack) return;
+    markDrivenLoad();
     goBackPreviewTab();
     setInputUrl(currentUrl as unknown as string);
     startLoadFeedback();
-  }, [canGoBack, startLoadFeedback]);
+  }, [canGoBack, startLoadFeedback, markDrivenLoad]);
 
   const goForward = useCallback(() => {
     if (!canGoForward) return;
+    markDrivenLoad();
     goForwardPreviewTab();
     startLoadFeedback();
-  }, [canGoForward, startLoadFeedback]);
+  }, [canGoForward, startLoadFeedback, markDrivenLoad]);
 
   const refresh = useCallback(() => {
     const activeIframe = getActiveIframeElement();
     if (activeIframe) {
+      markDrivenLoad();
       startLoadFeedback(activeTabRef.current?.id);
       activeIframe.src = activeIframe.src;
     }
-  }, [getActiveIframeElement, startLoadFeedback]);
+  }, [getActiveIframeElement, startLoadFeedback, markDrivenLoad]);
 
   const clearBrowsingData = useCallback(async () => {
     if (clearingData) return;
@@ -848,6 +863,7 @@ export default function PreviewPanel() {
   const handleIframeError = useCallback(
     (tabId: string) => {
       clearLoadFeedbackTimer();
+      drivenLoadTabsRef.current.delete(tabId);
       updateTabLoadState(tabId, { isLoading: false, slowLoad: false, iframeError: true });
     },
     [clearLoadFeedbackTimer, updateTabLoadState],
@@ -861,6 +877,37 @@ export default function PreviewPanel() {
       const sourceTabId = Object.entries(iframeElementsRef.current).find(
         ([, iframe]) => iframe?.contentWindow === event.source,
       )?.[0];
+
+      // Address-bar / history bridge: external pages (served from the background
+      // proxy) post their real URL on every load and in-page history change.
+      // Because the iframe is cross-origin to the app shell, this postMessage is
+      // the only reliable way to keep the address bar and Back/Forward in sync
+      // with where the page has actually navigated.
+      if (event.data.type === 'forge-preview:location') {
+        if (!sourceTabId) return;
+        const expectedOrigin = proxyPortRef.current
+          ? `http://127.0.0.1:${proxyPortRef.current}`
+          : null;
+        if (!expectedOrigin || event.origin !== expectedOrigin) return;
+        const reported = typeof event.data.url === 'string' ? event.data.url : '';
+        if (!/^https?:\/\//i.test(reported)) return;
+        // Only the active tab owns the visible address bar.
+        if (activeTabRef.current?.id !== sourceTabId) return;
+        const wasDriven = drivenLoadTabsRef.current.delete(sourceTabId);
+        if (reported === activeTabRef.current?.url) return; // already accurate
+        if (wasDriven) {
+          // A load we initiated (typed URL, Back/Forward, refresh) landed on a
+          // redirected URL — collapse it into the current entry instead of
+          // pushing a duplicate, the way a real browser hides redirect sources.
+          replaceCurrentNavigation(reported);
+        } else {
+          // An in-page navigation (clicked link / submitted form) — push a new
+          // history entry so Back returns to the page the user came from.
+          commitInternalNavigation(reported);
+        }
+        setInputUrl(reported);
+        return;
+      }
 
       // Scroll-position bridge: the iframe is cross-origin, so the page itself
       // reports its scroll offset (and asks to have it restored on load) via the
