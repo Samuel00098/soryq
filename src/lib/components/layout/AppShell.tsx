@@ -233,40 +233,12 @@ function computeGalleryGrid<T extends string>(
 }
 
 function getFreeformCoordinates(count: number): Array<{ col: number; row: number }> {
-  const predefined = [
-    { col: 0, row: 0 },   // 1
-    { col: -1, row: 0 },  // 2
-    { col: 0, row: 1 },   // 3
-    { col: -1, row: 1 },  // 4
-    { col: -2, row: 0 },  // 5
-    { col: -1, row: 2 },  // 6
-    { col: -2, row: 1 },  // 7
-    { col: 0, row: 2 },   // 8
-    { col: -3, row: 0 },  // 9
-    { col: -2, row: 2 },  // 10
-    { col: -1, row: 3 },  // 11
-    { col: 0, row: 3 },   // 12
-    { col: -4, row: 0 },  // 13
-    { col: -3, row: 1 },  // 14
-    { col: -2, row: 3 },  // 15
-    { col: -1, row: 4 },  // 16
-    { col: 0, row: 4 },   // 17
-  ];
-
-  if (count <= predefined.length) {
-    return predefined.slice(0, count);
-  }
-
-  const res = [...predefined];
-  let col = -5;
-  let row = 0;
-  while (res.length < count) {
-    res.push({ col, row });
-    row += 1;
-    if (row > 4) {
-      row = 0;
-      col -= 1;
-    }
+  const res: Array<{ col: number; row: number }> = [];
+  const colOrder = [0, -1, 1]; // Center, Left, Right
+  for (let i = 0; i < count; i++) {
+    const row = Math.floor(i / 3);
+    const colIdx = i % 3;
+    res.push({ col: colOrder[colIdx], row });
   }
   return res;
 }
@@ -285,47 +257,39 @@ function computeFreeformGrid<T extends string>(
   const coords = getFreeformCoordinates(count);
   const sizeOf = (room: T) => sizes[room] ?? defaultSize;
 
-  let minCol = 0;
-  let maxRow = 0;
-  coords.forEach((coord) => {
-    if (coord.col < minCol) minCol = coord.col;
-    if (coord.row > maxRow) maxRow = coord.row;
-  });
-
-  const colCount = Math.abs(minCol) + 1;
-  const rowCount = maxRow + 1;
-
-  const colWidth = new Array<number>(colCount).fill(0);
-  const rowHeight = new Array<number>(rowCount).fill(0);
+  // Compute column widths and row heights
+  const colWidths: Record<number, number> = { [-1]: 0, [0]: 0, [1]: 0 };
+  const maxRow = Math.max(0, ...coords.map(c => c.row));
+  const rowHeights = new Array<number>(maxRow + 1).fill(0);
 
   rooms.forEach((room, i) => {
     const { col, row } = coords[i];
     const { width, height } = sizeOf(room);
-    const colIdx = Math.abs(col);
-    colWidth[colIdx] = Math.max(colWidth[colIdx], width);
-    rowHeight[row] = Math.max(rowHeight[row], height);
+    colWidths[col] = Math.max(colWidths[col] || 0, width);
+    rowHeights[row] = Math.max(rowHeights[row], height);
   });
 
-  const colX = new Array<number>(colCount).fill(0);
-  for (let c = 1; c < colCount; c += 1) {
-    colX[c] = colX[c - 1] - colWidth[c] - CANVAS_TILE_GAP;
+  // Calculate colX (centers relative to col 0)
+  const colX: Record<number, number> = { 0: 0 };
+  colX[1] = (colWidths[0] || GALLERY_DEFAULT_WIDTH) / 2 + (colWidths[1] || GALLERY_DEFAULT_WIDTH) / 2 + CANVAS_TILE_GAP;
+  colX[-1] = -((colWidths[0] || GALLERY_DEFAULT_WIDTH) / 2 + (colWidths[-1] || GALLERY_DEFAULT_WIDTH) / 2 + CANVAS_TILE_GAP);
+
+  // Calculate rowY (top of each row)
+  const rowY = new Array<number>(maxRow + 1).fill(0);
+  for (let r = 1; r <= maxRow; r += 1) {
+    rowY[r] = rowY[r - 1] + (rowHeights[r - 1] || GALLERY_DEFAULT_HEIGHT) + CANVAS_TILE_GAP;
   }
 
-  const rowY = new Array<number>(rowCount).fill(0);
-  for (let r = 1; r < rowCount; r += 1) {
-    rowY[r] = rowY[r - 1] + rowHeight[r - 1] + CANVAS_TILE_GAP;
-  }
-
+  // Anchor row 0 center vertically around centerY
   const firstRoom = rooms[0];
   const firstSize = sizeOf(firstRoom);
-  const offsetX = centerX - firstSize.width / 2;
   const offsetY = centerY - firstSize.height / 2;
 
   rooms.forEach((room, i) => {
     const { col, row } = coords[i];
-    const colIdx = Math.abs(col);
+    const roomSize = sizeOf(room);
     out[room] = {
-      x: offsetX + colX[colIdx],
+      x: centerX + colX[col] - roomSize.width / 2,
       y: offsetY + rowY[row],
     };
   });
@@ -796,13 +760,15 @@ export default function AppShell() {
     });
 
     let minCol = 0;
+    let maxCol = 0;
     let maxRow = 0;
     coords.forEach((coord) => {
       if (coord.col < minCol) minCol = coord.col;
+      if (coord.col > maxCol) maxCol = coord.col;
       if (coord.row > maxRow) maxRow = coord.row;
     });
 
-    const colCount = Math.abs(minCol) + 1;
+    const colCount = maxCol - minCol + 1;
     const rowCount = maxRow + 1;
 
     const pad = 16;
@@ -1092,12 +1058,14 @@ export default function AppShell() {
       const initialCount = orderedVisibleRooms.length;
       const coords = getFreeformCoordinates(initialCount);
       let minCol = 0;
+      let maxCol = 0;
       let maxRow = 0;
       coords.forEach((coord) => {
         if (coord.col < minCol) minCol = coord.col;
+        if (coord.col > maxCol) maxCol = coord.col;
         if (coord.row > maxRow) maxRow = coord.row;
       });
-      const colCount = Math.abs(minCol) + 1;
+      const colCount = maxCol - minCol + 1;
       const rowCount = maxRow + 1;
 
       const pad = 16;
@@ -1177,42 +1145,36 @@ export default function AppShell() {
           return getFreeformCoordinates(idx + 1)[idx];
         });
 
-        let minCol = 0;
-        let maxRow = 0;
-        coords.forEach((coord) => {
-          if (coord.col < minCol) minCol = coord.col;
-          if (coord.row > maxRow) maxRow = coord.row;
-        });
-        const colCount = Math.abs(minCol) + 1;
-        const rowCount = maxRow + 1;
-
-        const colWidth = new Array<number>(colCount).fill(0);
-        const rowHeight = new Array<number>(rowCount).fill(0);
+        // Compute column widths and row heights for the cluster
+        const colWidths: Record<number, number> = { [-1]: 0, [0]: 0, [1]: 0 };
+        const maxRow = Math.max(0, ...coords.map(c => c.row));
+        const rowHeights = new Array<number>(maxRow + 1).fill(0);
 
         roomsInCluster.forEach((r, i) => {
           const coord = coords[i];
           const rSize = gallerySizes[r] ?? getRoomDefaultSizeHelper(r, nextClusters);
-          const colIdx = Math.abs(coord.col);
-          colWidth[colIdx] = Math.max(colWidth[colIdx], rSize.width);
-          rowHeight[coord.row] = Math.max(rowHeight[coord.row], rSize.height);
+          colWidths[coord.col] = Math.max(colWidths[coord.col] || 0, rSize.width);
+          rowHeights[coord.row] = Math.max(rowHeights[coord.row], rSize.height);
         });
 
-        const colX = new Array<number>(colCount).fill(0);
-        for (let c = 1; c < colCount; c += 1) {
-          colX[c] = colX[c - 1] - colWidth[c] - CANVAS_TILE_GAP;
-        }
+        const colX: Record<number, number> = { 0: 0 };
+        colX[1] = (colWidths[0] || GALLERY_DEFAULT_WIDTH) / 2 + (colWidths[1] || GALLERY_DEFAULT_WIDTH) / 2 + CANVAS_TILE_GAP;
+        colX[-1] = -((colWidths[0] || GALLERY_DEFAULT_WIDTH) / 2 + (colWidths[-1] || GALLERY_DEFAULT_WIDTH) / 2 + CANVAS_TILE_GAP);
 
-        const rowY = new Array<number>(rowCount).fill(0);
-        for (let r = 1; r < rowCount; r += 1) {
-          rowY[r] = rowY[r - 1] + rowHeight[r - 1] + CANVAS_TILE_GAP;
+        const rowY = new Array<number>(maxRow + 1).fill(0);
+        for (let r = 1; r <= maxRow; r += 1) {
+          rowY[r] = rowY[r - 1] + (rowHeights[r - 1] || GALLERY_DEFAULT_HEIGHT) + CANVAS_TILE_GAP;
         }
 
         const newCoords = getFreeformCoordinates(newLocalIndex + 1)[newLocalIndex];
         const anchorCoords = getFreeformCoordinates(anchorLocalIndex + 1)[anchorLocalIndex];
 
-        const idealXNew = colX[Math.abs(newCoords.col)];
+        const newRoomSize = gallerySizes[room] ?? getRoomDefaultSizeHelper(room, nextClusters);
+        const anchorRoomSize = gallerySizes[anchorRoom] ?? getRoomDefaultSizeHelper(anchorRoom, nextClusters);
+
+        const idealXNew = colX[newCoords.col] - newRoomSize.width / 2;
         const idealYNew = rowY[newCoords.row];
-        const idealXAnchor = colX[Math.abs(anchorCoords.col)];
+        const idealXAnchor = colX[anchorCoords.col] - anchorRoomSize.width / 2;
         const idealYAnchor = rowY[anchorCoords.row];
 
         nextPositions[room] = {
@@ -2204,12 +2166,14 @@ export default function AppShell() {
     const initialCount = orderedVisibleRooms.length;
     const coords = getFreeformCoordinates(initialCount);
     let minCol = 0;
+    let maxCol = 0;
     let maxRow = 0;
     coords.forEach((coord) => {
       if (coord.col < minCol) minCol = coord.col;
+      if (coord.col > maxCol) maxCol = coord.col;
       if (coord.row > maxRow) maxRow = coord.row;
     });
-    const colCount = Math.abs(minCol) + 1;
+    const colCount = maxCol - minCol + 1;
     const rowCount = maxRow + 1;
 
     const pad = 16;
@@ -2915,16 +2879,21 @@ export default function AppShell() {
     }
 
     if (ambientLayout === 'preview') {
-      // The live app preview is the stage; the terminal rides alongside so you can
-      // watch the dev server / run commands while testing.
+      // The live app preview is the stage; other open and non-minimized panels
+      // (like the terminal and running agents) stack alongside.
+      const secondaryRooms = visibleRooms.filter((room) => room !== 'preview');
       return (
         <>
           <div className="focused-room">
             {renderRoomFrame('preview', true)}
           </div>
-          {terminalRoomOpen && (
-            <div className="ambient-secondary-room">
-              {renderRoomFrame('terminal', true)}
+          {secondaryRooms.length > 0 && (
+            <div className="ambient-secondary-container">
+              {secondaryRooms.map((room) => (
+                <div key={room} className="ambient-secondary-room">
+                  {renderRoomFrame(room, true)}
+                </div>
+              ))}
             </div>
           )}
           {renderMinimizedRooms()}
@@ -2979,7 +2948,7 @@ export default function AppShell() {
             <div className={`app-body rooms-workspace${resizing ? ' resizing' : ''}`}>
               {resizing && <div className={`resize-overlay${auxRowResizing ? ' row-resize' : ''}`} />}
 
-              <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}${ambientLayout === 'preview' && !terminalRoomOpen ? ' preview-solo' : ''}`} aria-label="Soryq ambient layout">
+              <main ref={roomsTableRef} className={`rooms-table ambient-${ambientLayout}${layoutSwitching ? ' layout-switching' : ''}${ambientLayout === 'preview' && visibleRooms.filter((room) => room !== 'preview').length === 0 ? ' preview-solo' : ''}`} aria-label="Soryq ambient layout">
                 {renderAmbientLayout()}
               </main>
 

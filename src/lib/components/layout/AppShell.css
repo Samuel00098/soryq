@@ -271,6 +271,20 @@
   transition: opacity 0.24s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.app-shell .ambient-secondary-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.app-shell .ambient-secondary-container .ambient-secondary-room {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
 /* Freeform "Canvas" mode — a window screen, not a drawing surface. The viewport
    clips and captures pan/zoom gestures; the world inside it is translated/scaled
    so window panels can sit at any coordinate. The surface itself is plain so it
@@ -1691,6 +1705,14 @@
 
   .app-shell .ambient-secondary-room {
     min-height: 220px;
+  }
+
+  .app-shell .ambient-secondary-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 220px;
+    height: auto;
   }
 
   .app-shell .room-stack {
