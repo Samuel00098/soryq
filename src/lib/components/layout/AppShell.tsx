@@ -1010,7 +1010,7 @@ export default function AppShell() {
     const missing = orderedVisibleRooms.filter((room) => !(room in currentPositions));
     if (missing.length === 0) {
       // Check if we need to clean up deleted rooms from states
-      const activeKeys = new Set(orderedVisibleRooms);
+      const activeKeys = new Set<string>(orderedVisibleRooms);
       let needsCleanup = false;
       Object.keys(currentPositions).forEach(key => {
         if (!activeKeys.has(key)) needsCleanup = true;
@@ -1043,12 +1043,12 @@ export default function AppShell() {
     const nextClusters = { ...currentClusters };
 
     // Clean up closed rooms first
-    const activeKeys = new Set(orderedVisibleRooms);
+    const activeKeys = new Set<string>(orderedVisibleRooms);
     Object.keys(nextPositions).forEach(key => {
-      if (!activeKeys.has(key)) delete nextPositions[key];
+      if (!activeKeys.has(key)) delete nextPositions[key as RoomId];
     });
     Object.keys(nextClusters).forEach(key => {
-      if (!activeKeys.has(key)) delete nextClusters[key];
+      if (!activeKeys.has(key)) delete nextClusters[key as RoomId];
     });
 
     const placedCount = Object.keys(nextPositions).length;
@@ -1095,7 +1095,7 @@ export default function AppShell() {
 
     // Otherwise, place missing rooms one by one.
     missing.forEach((room) => {
-      let anchorRoom: string | null = null;
+      let anchorRoom: RoomId | null = null;
       const viewport = canvasViewportRef.current;
       if (viewport) {
         const viewportRect = viewport.getBoundingClientRect();
@@ -1126,7 +1126,7 @@ export default function AppShell() {
         // Count how many rooms are currently in this cluster
         const clusterRooms = Object.keys(nextClusters).filter(
           (r) => nextClusters[r]?.anchorRoomId === anchorRoomId
-        );
+        ) as RoomId[];
         const newLocalIndex = clusterRooms.length;
 
         // Assign cluster info first
@@ -2717,18 +2717,18 @@ export default function AppShell() {
   function switchAmbientLayout(nextLayout: AmbientLayout) {
     if (nextLayout === ambientLayout) return;
 
-    // Preview mode tests the live web app: make sure the preview browser and a
-    // terminal are open and un-minimized, with the preview focused.
+    // Preview mode tests the live web app: make sure the preview browser is open
+    // and focused. The terminal starts minimized by default so it stays out of
+    // the way.
     if (nextLayout === 'preview') {
       if (!layoutState.previewVisible) {
         persistLayoutPatch({ previewVisible: true, activeView: 'preview', lastAuxView: 'preview' });
       }
       setTerminalRoomOpen(true);
       setMinimizedRooms((current) => {
-        if (!current.has('preview') && !current.has('terminal')) return current;
         const next = new Set(current);
         next.delete('preview');
-        next.delete('terminal');
+        next.add('terminal');
         return next;
       });
       setFocusedRoom('preview');
