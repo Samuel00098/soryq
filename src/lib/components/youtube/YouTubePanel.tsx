@@ -225,9 +225,9 @@ export default function YouTubePanel() {
     }
   }
 
-  const isNarrow = dimensions.width > 0 && dimensions.width < 420;
-  const isShort = dimensions.height > 0 && dimensions.height < 290;
-  const isMiniHeight = dimensions.height > 0 && dimensions.height < 200;
+  const isNarrow = dimensions.width > 0 && dimensions.width < 500;
+  const isShort = dimensions.height > 0 && dimensions.height < 340;
+  const isMiniHeight = dimensions.height > 0 && dimensions.height < 220;
 
   const sizeClasses = [
     isNarrow ? 'yt-width-narrow' : '',
