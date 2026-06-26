@@ -153,19 +153,24 @@ export function applyInterfaceFrost(transparency: number): void {
       root.classList.remove('solid-theme');
       const t = Math.min(100, Math.max(0, transparency)) / 100;
 
-      const base = 0.88 - t * 0.74;
-      const chrome = Math.min(0.96, base + 0.1);
-      const surface = Math.min(0.98, base + 0.2);
+      // Make the glass layers thinner (more transparent) to let colors show,
+      // while preserving a beautiful, rich frosting effect.
+      const base = 0.78 - t * 0.58;
+      const chrome = Math.min(0.92, base + 0.08);
+      const surface = Math.min(0.95, base + 0.18);
 
-      const FROST_MAX = 40;
-      const blur = t <= 0.4
-        ? FROST_MAX
-        : FROST_MAX * (1 - (t - 0.4) / 0.6);
+      // Apple's liquid glass relies on deep blur to maintain text readability.
+      // We scale the blur *upwards* as transparency increases, from 25px to 45px.
+      const blur = 25 + t * 20;
+      
+      // We also boost saturation (from 160% up to 240%) to make backgrounds pop.
+      const saturate = 160 + t * 80;
 
       root.style.setProperty('--frost-base', base.toFixed(3));
       root.style.setProperty('--frost-chrome', chrome.toFixed(3));
       root.style.setProperty('--frost-surface', surface.toFixed(3));
       root.style.setProperty('--glass-blur', `${blur.toFixed(1)}px`);
+      root.style.setProperty('--glass-saturate', `${saturate.toFixed(0)}%`);
     }
     lastFrostRun = Date.now();
     frostTimeout = null;

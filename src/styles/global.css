@@ -189,19 +189,19 @@
   /* ── Bento Grid & Glassmorphism ─────────── */
   --bento-gap:       12px;
   --bento-padding:   12px;
-  --bento-radius:    12px;
+  --bento-radius:    16px;
 
   /* ── Liquid Glass (Apple-inspired) ───────── */
-  --glass-blur:        35px;
-  --glass-saturate:    180%;
-  --glass-rim:         rgba(255, 255, 255, 0.10);
-  --glass-rim-strong:  rgba(255, 255, 255, 0.18);
-  --glass-shadow:      0 20px 48px -12px rgba(0, 0, 0, 0.50);
-  --glass-glow:        inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --glass-blur:        40px;
+  --glass-saturate:    210%;
+  --glass-rim:         rgba(255, 255, 255, 0.12);
+  --glass-rim-strong:  rgba(255, 255, 255, 0.24);
+  --glass-shadow:      0 24px 50px -12px rgba(0, 0, 0, 0.45);
+  --glass-glow:        inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   /* Frost opacity hierarchy — base < chrome < content */
-  --frost-base:        0.48;
-  --frost-chrome:      0.58;
-  --frost-surface:     0.68;
+  --frost-base:        0.35;
+  --frost-chrome:      0.45;
+  --frost-surface:     0.55;
 
   /* ── TitleBar ───────────────────────────── */
   --titlebar-bg:     #121216;
@@ -496,24 +496,31 @@ input:focus {
 
 /* ── Liquid Glass Cards (Apple-inspired Bento) ───────── */
 .bento-card {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.04) 0%, transparent 40%, rgba(255, 255, 255, 0.01) 100%), 
-              rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-chrome, 0.58));
-  backdrop-filter: blur(var(--glass-blur, 35px)) saturate(var(--glass-saturate, 180%));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 35px)) saturate(var(--glass-saturate, 180%));
-  border: 1px solid var(--border);
-  border-radius: var(--bento-radius, 12px);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 25%, transparent 60%, rgba(255, 255, 255, 0.01) 100%), 
+              rgba(var(--bg-primary-rgb, 24, 24, 30), var(--frost-chrome, 0.45));
+  backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--bento-radius, 16px);
   box-shadow: 
-    var(--glass-glow, inset 0 0 0 1px rgba(255, 255, 255, 0.03)),
-    inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.10)),
-    var(--glass-shadow, 0 20px 48px -12px rgba(0, 0, 0, 0.50));
+    var(--glass-glow, inset 0 0 0 1px rgba(255, 255, 255, 0.04)),
+    inset 0 1px 0 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.24)),
+    inset 0 -1px 0 0 rgba(0, 0, 0, 0.15),
+    var(--glass-shadow, 0 24px 50px -12px rgba(0, 0, 0, 0.45));
   overflow: hidden;
-  transition: border-color 0.22s cubic-bezier(0.4, 0, 0.2, 1), 
-              box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-              background-color 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color 0.28s cubic-bezier(0.16, 1, 0.3, 1), 
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .bento-card:hover {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 
+    var(--glass-glow, inset 0 0 0 1px rgba(255, 255, 255, 0.04)),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.32),
+    inset 0 -1px 0 0 rgba(0, 0, 0, 0.20),
+    0 28px 60px -10px rgba(0, 0, 0, 0.55);
 }
 
 :root.light-theme .bento-card:hover {
@@ -524,10 +531,11 @@ input:focus {
 .bento-card.active-glow {
   border-color: color-mix(in srgb, var(--accent) 70%, transparent);
   box-shadow: 
-    var(--glass-glow, inset 0 0 0 1px rgba(255, 255, 255, 0.03)),
-    inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.10)),
-    0 0 18px var(--accent-glow, rgba(6, 182, 212, 0.15)),
-    var(--glass-shadow, 0 20px 48px -12px rgba(0, 0, 0, 0.50));
+    var(--glass-glow, inset 0 0 0 1px rgba(255, 255, 255, 0.04)),
+    inset 0 1px 0 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.24)),
+    inset 0 -1px 0 0 rgba(0, 0, 0, 0.15),
+    0 0 18px var(--accent-glow, rgba(10, 132, 255, 0.18)),
+    var(--glass-shadow, 0 24px 50px -12px rgba(0, 0, 0, 0.45));
 }
 
 /* Solid theme fallback */
@@ -662,5 +670,42 @@ textarea,
   .svt-btn {
     transition: none !important;
   }
+}
+
+/* ── Apple-style Typography Overrides for UI Elements ── */
+button,
+input,
+select,
+textarea,
+.titlebar,
+.utility-drawer,
+.statusbar,
+.global-tooltip,
+.bento-card,
+.recent-list,
+.welcome h1,
+.welcome h2,
+.welcome h3,
+.welcome p,
+.welcome-card,
+.file-node,
+.nav-btn,
+.wc-btn,
+.icon-btn,
+.provider-card-subtitle,
+.provider-card-title,
+.voice-input-provider-status {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+.cm-editor,
+.cm-editor *,
+.xterm-rows,
+.xterm-rows *,
+pre,
+code,
+kbd,
+samp {
+  font-family: var(--editor-font-family, monospace) !important;
 }
 

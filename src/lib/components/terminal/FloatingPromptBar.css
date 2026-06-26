@@ -41,8 +41,8 @@
   justify-content: center;
   background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
   color: var(--accent);
-  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
   box-shadow: var(--glass-shadow, 0 20px 44px -18px rgba(0, 0, 0, 0.6)), inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13));
   transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -77,8 +77,8 @@
   border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
   border-radius: 16px;
   background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
-  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
   box-shadow: var(--glass-shadow, 0 24px 60px -20px rgba(0, 0, 0, 0.65)), inset 0 1px 0 var(--glass-rim-strong, rgba(255, 255, 255, 0.13));
   overflow: hidden;
 }
@@ -186,8 +186,8 @@
   background:
     linear-gradient(180deg, color-mix(in srgb, white 7%, transparent), transparent 62%),
     color-mix(in srgb, var(--bg-secondary) 84%, transparent);
-  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
+  backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 40px)) saturate(var(--glass-saturate, 210%));
   box-shadow:
     0 22px 50px -24px rgba(0, 0, 0, 0.72),
     0 10px 22px -18px color-mix(in srgb, var(--accent) 34%, transparent),
