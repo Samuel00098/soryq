@@ -3,6 +3,14 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.6] - 2026-06-26
+
+### Added
+
+- **Go to YouTube shortcut** — assigned a default key binding of `Ctrl+Shift+Y` to toggle the YouTube panel
+- **Missing shortcut handlers** — keyboard shortcuts for `openDailyNote` (`Ctrl+Shift+D`), `toggleSketch` (`Ctrl+Shift+N`), `canvasZoomIn` (`Alt+=`), `canvasZoomOut` (`Alt+-`), and `canvasResetZoom` (`Alt+0`) are now correctly hooked up and executed
+- **Default shortcuts configuration** — added the missing `cycleAmbientLayout` shortcut mapping (`Ctrl+Alt+L`) to the initialized user shortcuts list
+
 ## [v0.4.5] - 2026-06-26
 
 ### Fixed
