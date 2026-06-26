@@ -1,25 +1,19 @@
-/* Styles for WorkspaceSwitcher.tsx — extracted verbatim from the original
-   component's \3c style> block; class names unchanged. */
+/* WorkspaceSwitcher dropdown — aligned with the shared Dropdown aesthetic */
 
 .ws-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+  gap: 3px;
   height: 26px;
   flex-shrink: 0;
-  width: auto;
 }
 
 .ws-header .ws-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  max-width: 140px;
-  height: 26px;
-  padding: 0 6px;
+  gap: 5px;
+  height: 24px;
+  padding: 0 5px;
   border-radius: 6px;
   background: transparent;
   border: none;
@@ -51,16 +45,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  max-width: 100px;
 }
 
 .ws-header .ws-caret {
   flex-shrink: 0;
   opacity: 0.55;
-  transition: transform 0.15s;
+  transition: transform 0.18s ease, opacity 0.15s;
 }
 
 .ws-header .ws-trigger.open .ws-caret {
   transform: rotate(180deg);
+  opacity: 0.9;
 }
 
 .ws-header .ws-rename-btn {
@@ -96,30 +92,45 @@
   outline: none;
   width: 100px;
   box-sizing: border-box;
-  height: 24px;
+  height: 22px;
 }
 
-/* ── Popup menu ── */
-.ws-header .ws-menu {
-  position: fixed;
-  z-index: 9000;
-  max-width: 320px;
-  background: rgba(var(--bg-primary-rgb, 24, 24, 30), 0.88);
-  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(var(--glass-saturate, 135%));
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--glass-shadow, 0 8px 24px rgba(0, 0, 0, 0.35)), inset 0 1px 0 var(--glass-rim, rgba(255, 255, 255, 0.07));
-  padding: 4px;
-  animation: ws-menu-in 0.1s ease;
+/* ── Popup menu (portaled to body) ── */
+
+.ws-menu {
+  z-index: 10000;
+  transform-origin: top;
+  background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 12px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.26);
+  overflow: hidden;
+  animation: ws-menu-in 0.13s ease;
+  overscroll-behavior: contain;
+}
+
+.ws-menu.drop-up {
+  transform-origin: bottom;
+  animation: ws-menu-up 0.13s ease;
 }
 
 @keyframes ws-menu-in {
-  from { opacity: 0; transform: scale(0.97) translateY(-4px); }
-  to   { opacity: 1; transform: scale(1)    translateY(0);    }
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.ws-header .ws-menu-label {
+@keyframes ws-menu-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ws-menu-label {
   padding: 6px 10px 4px;
   font-size: 9.5px;
   font-weight: 700;
@@ -127,40 +138,54 @@
   text-transform: uppercase;
   color: var(--text-muted);
   opacity: 0.6;
+  flex-shrink: 0;
 }
 
-.ws-header .ws-menu-list {
+.ws-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   max-height: 280px;
   overflow-y: auto;
   scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10px, black calc(100% - 10px), transparent 100%);
 }
 
-.ws-header .ws-menu-item {
+.ws-menu-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 11px;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
   background: transparent;
   border: none;
   text-align: left;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.12s, color 0.12s;
 }
 
-.ws-header .ws-menu-item:hover {
+.ws-menu-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.ws-header .ws-menu-item.active {
+.ws-menu-item.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
   color: var(--text-primary);
 }
 
-.ws-header .ws-menu-name {
+.ws-menu-item .ws-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.ws-menu-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -168,19 +193,23 @@
   min-width: 0;
 }
 
-.ws-header .ws-check {
+.ws-check {
   flex-shrink: 0;
   color: var(--accent);
 }
 
-.ws-header .ws-menu-sep {
+.ws-menu-sep {
   height: 1px;
   background: var(--border-subtle);
-  margin: 4px 6px;
+  margin: 3px 6px;
+  flex-shrink: 0;
 }
 
-.ws-header .ws-menu-new {
+.ws-menu-new {
   color: var(--text-muted);
 }
 
-.ws-header .ws-menu-new svg { flex-shrink: 0; opacity: 0.7; }
+.ws-menu-new svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}

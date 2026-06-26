@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import {
   recentWorkspaces,
   activeWorkspaceId,
@@ -22,32 +23,46 @@ export default function WorkspaceSwitcher() {
   const workspace = useStore(activeWorkspace);
 
   const [open, setOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0, w: 200 });
+  const [dropUp, setDropUp] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
   const triggerEl = useRef<HTMLButtonElement | null>(null);
+  const menuEl = useRef<HTMLDivElement | null>(null);
 
-  // Inline rename state.
   const [editing, setEditing] = useState(false);
   const [tempName, setTempName] = useState('');
 
-  // openWorkspace() moves the active workspace to the front of recentWorkspaces
-  // (for the Welcome screen's "recent" list). Keep the popup list in a stable
-  // creation order so entries don't reshuffle when you switch between them.
-  // Workspace ids are `ws-${Date.now()}`, so they sort chronologically.
   const orderedWorkspaces = useMemo(
     () => [...workspaces].sort((a, b) => a.id.localeCompare(b.id)),
     [workspaces],
   );
 
-  function toggleMenu() {
-    if (open) {
-      setOpen(false);
-      return;
+  const updatePlacement = useCallback(() => {
+    if (!triggerEl.current) return;
+    const r = triggerEl.current.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom;
+    const above = r.top;
+    const willDropUp = below < 200 && above > below;
+    setDropUp(willDropUp);
+
+    const maxHeight = Math.max(160, Math.min(280, (willDropUp ? above : below) - 16));
+    const next: CSSProperties = {
+      position: 'fixed',
+      left: `${r.left}px`,
+      minWidth: `${Math.max(r.width, 200)}px`,
+      maxHeight,
+    };
+    if (willDropUp) {
+      next.bottom = `${window.innerHeight - r.top + 6}px`;
+    } else {
+      next.top = `${r.bottom + 6}px`;
     }
-    if (triggerEl.current) {
-      const rect = triggerEl.current.getBoundingClientRect();
-      setMenuPos({ x: rect.left, y: rect.bottom + 4, w: Math.max(rect.width, 200) });
-    }
-    setOpen(true);
+    setMenuStyle(next);
+  }, []);
+
+  function toggleMenu(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!open) updatePlacement();
+    setOpen((o) => !o);
   }
 
   async function handleSwitch(id: string) {
@@ -61,7 +76,6 @@ export default function WorkspaceSwitcher() {
     newWorkspacePromptOpen.set(true);
   }
 
-  // ── Rename ──
   function startRename(e: React.MouseEvent) {
     e.stopPropagation();
     if (workspace) {
@@ -83,28 +97,29 @@ export default function WorkspaceSwitcher() {
     else if (e.key === 'Escape') setEditing(false);
   }
 
-  // Dismiss popup on outside click / Escape.
   useEffect(() => {
     if (!open) return;
-    const dismiss = () => setOpen(false);
+    const handlePointer = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerEl.current?.contains(target)) return;
+      if (menuEl.current?.contains(target)) return;
+      setOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
-    document.addEventListener('click', dismiss);
-    document.addEventListener('contextmenu', dismiss);
+    const reposition = () => updatePlacement();
+    document.addEventListener('mousedown', handlePointer);
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('click', dismiss);
-      document.removeEventListener('contextmenu', dismiss);
+      document.removeEventListener('mousedown', handlePointer);
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
-
-  const menuStyle: CSSProperties = {
-    top: `${menuPos.y}px`,
-    left: `${menuPos.x}px`,
-    minWidth: `${menuPos.w}px`,
-  };
+  }, [open, updatePlacement]);
 
   return (
     <>
@@ -125,25 +140,22 @@ export default function WorkspaceSwitcher() {
             <button
               ref={triggerEl}
               className={`ws-trigger${open ? ' open' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleMenu();
-              }}
+              onClick={toggleMenu}
               title="Switch workspace"
             >
               <span
                 className="ws-dot"
                 style={{ background: wsColor(workspace?.name ?? 'Workspace') }}
-              ></span>
+              />
               <span className="ws-trigger-name">{workspace?.name ?? 'Workspace'}</span>
               <svg
                 className="ws-caret"
-                width="13"
-                height="13"
+                width="11"
+                height="11"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2.6"
+                strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
@@ -152,12 +164,12 @@ export default function WorkspaceSwitcher() {
             </button>
             <button className="ws-rename-btn" onClick={startRename} title="Rename workspace">
               <svg
-                width="13"
-                height="13"
+                width="12"
+                height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2.2"
+                strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
@@ -169,13 +181,12 @@ export default function WorkspaceSwitcher() {
         )}
       </div>
 
-      {open && (
+      {open && createPortal(
         <div
-          className="ws-menu"
+          ref={menuEl}
+          className={`ws-menu${dropUp ? ' drop-up' : ''}`}
           role="menu"
-          tabIndex={-1}
           style={menuStyle}
-          onClick={(e) => e.stopPropagation()}
         >
           <div className="ws-menu-label">Workspaces</div>
           <div className="ws-menu-list">
@@ -185,7 +196,7 @@ export default function WorkspaceSwitcher() {
                 className={`ws-menu-item${workspaceId === ws.id ? ' active' : ''}`}
                 onClick={() => handleSwitch(ws.id)}
               >
-                <span className="ws-dot" style={{ background: wsColor(ws.name) }}></span>
+                <span className="ws-dot" style={{ background: wsColor(ws.name) }} />
                 <span className="ws-menu-name">{ws.name}</span>
                 {workspaceId === ws.id && (
                   <svg
@@ -195,7 +206,7 @@ export default function WorkspaceSwitcher() {
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2.6"
+                    strokeWidth="2.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
@@ -205,7 +216,7 @@ export default function WorkspaceSwitcher() {
               </button>
             ))}
           </div>
-          <div className="ws-menu-sep"></div>
+          <div className="ws-menu-sep" />
           <button className="ws-menu-item ws-menu-new" onClick={handleNew}>
             <svg
               width="12"
@@ -213,7 +224,7 @@ export default function WorkspaceSwitcher() {
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2.6"
+              strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
@@ -222,7 +233,8 @@ export default function WorkspaceSwitcher() {
             </svg>
             <span>New workspace</span>
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
