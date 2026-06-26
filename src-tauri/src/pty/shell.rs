@@ -12,16 +12,16 @@ pub fn available_shells() -> Vec<ShellConfig> {
 
     if cfg!(target_os = "windows") {
         // PowerShell 7 (pwsh)
-        if which("pwsh").is_some() {
+        if let Some(path) = which("pwsh") {
             shells.push(ShellConfig {
-                program: "pwsh".into(),
+                program: path,
                 args: vec!["-NoLogo".into(), "-NoProfile".into()],
             });
         }
         // Windows PowerShell 5
-        if which("powershell").is_some() || which("powershell.exe").is_some() {
+        if let Some(path) = which("powershell").or_else(|| which("powershell.exe")) {
             shells.push(ShellConfig {
-                program: "powershell".into(),
+                program: path,
                 args: vec!["-NoLogo".into(), "-NoProfile".into()],
             });
         }
@@ -129,10 +129,13 @@ pub fn detect_shell() -> ShellConfig {
     // `available_shells()` so users can still select it explicitly.
     #[cfg(target_os = "windows")]
     {
-        if let Some(pwsh) = shells
-            .iter()
-            .find(|s| s.program.eq_ignore_ascii_case("pwsh"))
-        {
+        if let Some(pwsh) = shells.iter().find(|s| {
+            Path::new(&s.program)
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .map(|stem| stem.eq_ignore_ascii_case("pwsh"))
+                .unwrap_or(false)
+        }) {
             return pwsh.clone();
         }
         if let Some(cmd) = shells.iter().find(|s| {
