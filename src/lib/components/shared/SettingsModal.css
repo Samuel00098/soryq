@@ -14,9 +14,9 @@
   align-items: center;
   justify-content: center;
   padding: 28px;
-  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
+  backdrop-filter: blur(var(--glass-blur, 35px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 35px));
   overscroll-behavior: none;
 }
 

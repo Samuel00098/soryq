@@ -12,6 +12,7 @@
   color: var(--text-secondary);
   user-select: none;
   gap: 16px;
+  animation: ew-fade-in 0.4s ease-out both;
 }
 
 .empty-workspace .illustration-container {
@@ -24,6 +25,29 @@
   background: rgba(0, 0, 0, 0.15);
   border: 1px dashed var(--border);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s;
+  animation: ew-slide-up 0.35s ease-out 0.05s both;
+}
+
+.empty-workspace .empty-title {
+  animation: ew-slide-up 0.35s ease-out 0.1s both;
+}
+
+.empty-workspace .empty-desc {
+  animation: ew-slide-up 0.35s ease-out 0.15s both;
+}
+
+.empty-workspace .add-folder-btn {
+  animation: ew-slide-up 0.35s ease-out 0.2s both;
+}
+
+@keyframes ew-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ew-slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .empty-workspace:hover .illustration-container {

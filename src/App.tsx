@@ -21,10 +21,8 @@ import {
   initializeWorkspaces,
   saveProjectState,
   activeProjectId,
-  activeProject,
 } from '$lib/stores/workspace';
 import { usePermissionsStore } from '$lib/stores/zustand/permissions';
-import { openDailyNote } from '$lib/stores/dailyNote';
 import { loadThemes } from '$lib/stores/theme';
 import { initDefaultCommands } from '$lib/stores/commandpalette';
 import { requestNotificationPermission } from '$lib/stores/notification';
@@ -108,14 +106,6 @@ export default function App() {
     const unsubBgOpacity = backgroundImageOpacity.subscribe(applyAppearanceLive);
     const unsubBgBlur = backgroundImageBlur.subscribe(applyAppearanceLive);
 
-    let lastDailyProjectId: string | null = null;
-    const unsubDailyNote = activeProject.subscribe((project) => {
-      if (project && project.id !== lastDailyProjectId) {
-        lastDailyProjectId = project.id;
-        openDailyNote(project).catch(() => {});
-      }
-    });
-
     let unlistenClose: (() => void) | undefined;
     if (isTauriRuntime()) {
       const win = getCurrentWindow();
@@ -174,7 +164,6 @@ export default function App() {
       unsubscribeZoom();
       unlistenClose?.();
       unsubscribeShortcuts();
-      unsubDailyNote();
       unsubFrost();
       unsubBgEnabled();
       unsubBgOpacity();

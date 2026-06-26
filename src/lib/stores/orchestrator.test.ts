@@ -81,7 +81,7 @@ const sessionHasRunningProcess = vi.hoisted(() => vi.fn((s: MockLiveSession) => 
   const role = (s as { role?: string | null }).role?.toLowerCase();
   return !!role && (role === 'server' || role === 'build');
 }));
-const NAVIGABLE_VIEWS = vi.hoisted(() => ['editor', 'terminal', 'preview', 'review', 'http', 'tasks', 'db', 'containers', 'toolbox', 'pet', 'settings']);
+const NAVIGABLE_VIEWS = vi.hoisted(() => ['editor', 'terminal', 'preview', 'review', 'http', 'tasks', 'db', 'containers', 'toolbox', 'settings']);
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('$lib/services/orchestrator-brain', () => ({ routeOrchestratorRequest }));

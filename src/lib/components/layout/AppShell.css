@@ -947,8 +947,8 @@
     color-mix(in srgb, var(--bg-primary) 44%, transparent);
   color: var(--text-secondary);
   text-align: left;
-  backdrop-filter: blur(12px) saturate(1.08);
-  -webkit-backdrop-filter: blur(12px) saturate(1.08);
+  backdrop-filter: blur(var(--glass-blur, 35px)) saturate(var(--glass-saturate, 180%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 35px)) saturate(var(--glass-saturate, 180%));
   box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
   animation: shell-chip-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
   transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
@@ -1097,8 +1097,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-  backdrop-filter: blur(12px) saturate(1.08);
-  -webkit-backdrop-filter: blur(12px) saturate(1.08);
+  backdrop-filter: blur(var(--glass-blur, 35px)) saturate(var(--glass-saturate, 180%));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 35px)) saturate(var(--glass-saturate, 180%));
   animation: shell-chip-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
   transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease, transform 0.16s ease;
 }
@@ -1776,6 +1776,38 @@
   .app-shell .composer-strip .prompt-hint {
     display: none;
   }
+}
+
+.app-shell .project-switching-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: ps-fade-in 0.2s ease-out both;
+  pointer-events: none;
+}
+
+.app-shell .project-switching-overlay::after {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ps-spin 0.6s linear infinite;
+  opacity: 0.5;
+}
+
+@keyframes ps-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ps-spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {

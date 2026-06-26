@@ -77,6 +77,31 @@ This release is a large rebuild of the Soryq interface on React, with a new infi
 
 - **Mobile device shell quoting** — the `android_text` input is now safely escaped before being passed to the device shell, preventing shell injection on Android targets.
 
+### Added
+
+- **Terminal WebGL renderer** — a new three-way renderer selector (DOM / Canvas / WebGL) replaces the old toggle. WebGL is now the default for reliable GPU-accelerated rendering on Windows WebView2. Existing users are migrated automatically from the broken `'dom'` default.
+- **Auto-focus fresh agents** — newly spawned agent sessions are automatically focused in the main room so you see agent activity immediately.
+- **Layout transition terminal refit** — layout transitions dispatch a `pane-resize-end` event so xterm instances re-measure after promotion from small cards to full-screen, fixing a blank-band gap.
+- **Project switching spinner** — a loading overlay appears during project switches for clear visual feedback.
+- **YouTube album tracklist** — the floating YouTube player now renders an interactive tracklist with a now-playing indicator and click-to-navigate tracks for albums and playlists.
+- **Empty workspace entrance animation** — the empty workspace view fades and slides in with staggered timing for a smoother first-open feel.
+- **Restore-project toast** — a brief toast now indicates whether a workspace was restored from a previous session or started fresh.
+
+### Changed
+
+- **Liquid glass redesign** — the UI glass aesthetic has been deepened across all surfaces: backdrop blur raised to 35px and saturation to 180% (Apple visionOS-style). Glass CSS variables are now centralized (`--glass-blur`, `--glass-saturate`, `--glass-glow`, `--glass-shadow`) and consistently applied across AppShell chips, command palette, settings modal, dropdowns, and workspace switcher. The frost curve was updated for richer opacity at high transparency.
+- **Removed DevPet** — the virtual pet feature has been removed entirely (editor, status bar, source control, command palette, orchestrator context, settings, layout). You no longer need to feed a pixel creature to type.
+- **Default terminal renderer switched to WebGL** — the fallback `'dom'` renderer left terminals blank on Windows; the default is now `'webgl'` with an automatic one-time migration for existing settings.
+- **File explorer auto-collapses on open** — opening a file from the explorer now collapses the left sidebar, giving the editor full room.
+- **Preview panel cleaned up** — removed the inline terminal toggle from the preview panel; the browser "Web" button now uses `navigateTo` to ensure the background proxy starts before navigation.
+- **Clean slate for fresh projects** — new projects no longer auto-create an editor or terminal session; you get a clean blank workspace.
+- **Removed redundant views** — pet, android, and iOS views removed from the orchestrator's navigable views list and from the layout type system.
+
+### Fixed
+
+- **Terminal blank on Windows** — fixed transparent terminal rendering on Windows WebView2 by defaulting the renderer to WebGL, which composites reliably over the pane's backdrop-filter blur.
+- **Sketch proxy race** — Excalidraw tab creation now waits for `ensureProxyRunning()` before navigating, preventing a blank iframe.
+
 ## [v0.4.3] - 2026-06-16
 
 ### Fixed

@@ -340,10 +340,7 @@ const VIEW_TERMS: Array<{ view: string; re: RegExp }> = [
   { view: 'db', re: /\b(database|db)\b/i },
   { view: 'containers', re: /\b(containers?|docker)\b/i },
   { view: 'toolbox', re: /\btoolbox\b/i },
-  { view: 'pet', re: /\bpet\b/i },
   { view: 'youtube', re: /\b(youtube|yt)\b/i },
-  { view: 'android', re: /\b(android|adb|emulator)\b/i },
-  { view: 'ios', re: /\b(ios|iphone|simulator|simctl)\b/i },
 ];
 
 /**

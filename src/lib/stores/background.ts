@@ -148,18 +148,19 @@ export function applyInterfaceFrost(transparency: number): void {
       root.style.setProperty('--frost-chrome', '1.000');
       root.style.setProperty('--frost-surface', '1.000');
       root.style.setProperty('--glass-blur', '0px');
+      root.style.setProperty('--glass-saturate', '100%');
     } else {
       root.classList.remove('solid-theme');
       const t = Math.min(100, Math.max(0, transparency)) / 100;
 
-      const base = 0.9 - t * 0.78;
-      const chrome = Math.min(0.98, base + 0.1);
-      const surface = Math.min(0.99, base + 0.2);
+      const base = 0.88 - t * 0.74;
+      const chrome = Math.min(0.96, base + 0.1);
+      const surface = Math.min(0.98, base + 0.2);
 
-      const FROST_MAX = 32;
-      const blur = t <= 0.5
+      const FROST_MAX = 40;
+      const blur = t <= 0.4
         ? FROST_MAX
-        : FROST_MAX * (1 - (t - 0.5) / 0.5);
+        : FROST_MAX * (1 - (t - 0.4) / 0.6);
 
       root.style.setProperty('--frost-base', base.toFixed(3));
       root.style.setProperty('--frost-chrome', chrome.toFixed(3));

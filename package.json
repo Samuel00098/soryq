@@ -42,6 +42,7 @@
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.10",
     "@xterm/addon-web-links": "^0.11",
+    "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5",
     "codemirror": "^6.0.2",
     "codemirror-languageserver": "^1.22.0",

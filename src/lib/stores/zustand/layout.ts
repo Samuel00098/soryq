@@ -94,6 +94,7 @@ interface LayoutActions {
   setActiveView: (view: ActiveView) => void;
   showTerminal: () => void;
   toggleSidebar: () => void;
+  setSidebarVisible: (visible: boolean) => void;
   toggleEditorVisible: () => void;
   togglePreviewVisible: () => void;
   toggleReviewVisible: () => void;
@@ -192,6 +193,15 @@ export const useLayoutStore = create<LayoutState & LayoutActions>((set, getState
   toggleSidebar: () => {
     set((s) => {
       const next: LayoutState = { ...s, sidebarVisible: !s.sidebarVisible };
+      persistLayout(next);
+      return next;
+    });
+  },
+
+  setSidebarVisible: (visible: boolean) => {
+    set((s) => {
+      if (s.sidebarVisible === visible) return s;
+      const next: LayoutState = { ...s, sidebarVisible: visible };
       persistLayout(next);
       return next;
     });

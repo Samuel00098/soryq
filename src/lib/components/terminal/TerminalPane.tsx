@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { get } from '$lib/stores/storeCompat';
 import { Terminal } from '@xterm/xterm';
 import { CanvasAddon } from '@xterm/addon-canvas';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
@@ -169,6 +170,7 @@ export default function TerminalPane({
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const canvasAddonRef = useRef<CanvasAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
   const hoveredTerminalLinkRef = useRef<string | null>(null);
   const oscSequenceRemainderRef = useRef('');
   const fitRafRef = useRef<number | null>(null);
@@ -318,12 +320,46 @@ export default function TerminalPane({
     } catch {}
   }
 
+  // The terminal text layer always paints on an OPAQUE surface. WebView2 on
+  // Windows can't reliably composite a transparent glyph/canvas layer over the
+  // pane's backdrop-filter blur (content paints then vanishes — the "blank
+  // terminal" bug), and WebGL additionally thins text on a transparent bg
+  // (xterm.js #4212/#2252). The frosted-glass look lives on the pane frame and
+  // titlebar instead; the content area reads as a solid inset, like a native
+  // terminal. Kept as a helper so every renderer switch reasserts it.
+  function terminalBackground() {
+    const theme = get(activeTheme);
+    const colors = theme?.colors || {};
+    const isLight = theme?.type === 'light';
+    return colors['editor-bg'] || colors['bg-primary'] || (isLight ? '#ffffff' : '#111116');
+  }
+
+  function applyRendererBackground() {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.allowTransparency = false;
+    term.options.theme = {
+      ...term.options.theme,
+      background: terminalBackground(),
+    };
+  }
+
   function applyTerminalRenderer() {
     const term = termRef.current;
     if (!term) return;
 
-    if (renderer === 'canvas') {
-      if (canvasAddonRef.current) return;
+    // Only one GPU addon may be loaded at a time — tear down any that no longer
+    // matches the requested renderer before loading the new one.
+    if (renderer !== 'canvas' && canvasAddonRef.current) {
+      canvasAddonRef.current.dispose();
+      canvasAddonRef.current = null;
+    }
+    if (renderer !== 'webgl' && webglAddonRef.current) {
+      webglAddonRef.current.dispose();
+      webglAddonRef.current = null;
+    }
+
+    if (renderer === 'canvas' && !canvasAddonRef.current) {
       try {
         const canvasAddon = new CanvasAddon();
         canvasAddonRef.current = canvasAddon;
@@ -336,11 +372,30 @@ export default function TerminalPane({
         showToast('Canvas renderer unavailable; using DOM renderer.', 'warning');
         return;
       }
-    } else if (canvasAddonRef.current) {
-      canvasAddonRef.current.dispose();
-      canvasAddonRef.current = null;
+    } else if (renderer === 'webgl' && !webglAddonRef.current) {
+      try {
+        const webglAddon = new WebglAddon();
+        // The GPU context can be evicted by the OS/WebView; fall back to DOM
+        // rather than leaving a dead, blank canvas behind.
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose();
+          webglAddonRef.current = null;
+          terminalRenderer.set('canvas');
+          showToast('Terminal GPU context lost; switched to canvas renderer.', 'warning');
+        });
+        webglAddonRef.current = webglAddon;
+        term.loadAddon(webglAddon);
+      } catch (error) {
+        console.error('Failed to enable WebGL terminal renderer', error);
+        webglAddonRef.current?.dispose();
+        webglAddonRef.current = null;
+        terminalRenderer.set('canvas');
+        showToast('WebGL renderer unavailable; using canvas renderer.', 'warning');
+        return;
+      }
     }
 
+    applyRendererBackground();
     scheduleFit();
     requestAnimationFrame(() => forceRedraw());
   }
@@ -385,10 +440,24 @@ export default function TerminalPane({
       term.refresh(0, term.rows - 1);
 
       // Second pass after one settled frame — canvas addon needs an extra cycle after dimension
-      // change before its internal draw state is correct.
+      // change before its internal draw state is correct. Crucially we re-measure
+      // and re-fit here: the first fit can run before the pane's flex layout has
+      // settled (especially for the 2nd/3rd agent pane), latching a too-small
+      // row count that leaves an empty band below the content. If the settled
+      // size differs, fit again so xterm fills the pane.
       setTimeout(() => {
         const t = termRef.current;
-        if (!t) return;
+        const fa = fitAddonRef.current;
+        if (!t || !fa) return;
+        const settled = fa.proposeDimensions();
+        if (
+          settled &&
+          settled.cols >= MIN_COLS &&
+          settled.rows >= MIN_ROWS &&
+          (settled.cols !== t.cols || settled.rows !== t.rows)
+        ) {
+          fa.fit();
+        }
         (t as any).clearTextureAtlas?.();
         t.refresh(0, t.rows - 1);
       }, 60);
@@ -622,19 +691,23 @@ export default function TerminalPane({
     const initialColors = get(activeTheme)?.colors || {};
     const initialSyntax = get(activeTheme)?.syntax || {};
     const isLight = get(activeTheme)?.type === 'light';
+    // The text layer always paints on an opaque surface — WebView2 can't reliably
+    // composite a transparent glyph layer over the pane's backdrop-filter blur,
+    // and WebGL thins text on transparency. The glass look lives on the pane
+    // frame/titlebar; the content reads as a solid inset (see applyRendererBackground).
+    const initialBackground =
+      initialColors['editor-bg'] || initialColors['bg-primary'] || (isLight ? '#ffffff' : '#1a1a1f');
 
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: get(terminalCursorStyle),
-      // Transparent terminal so the frosted glass pane (and ambient backdrop)
-      // shows through — the premium "Warp" look. DOM renderer handles this for free.
-      allowTransparency: true,
+      allowTransparency: false,
       scrollback: get(terminalScrollback),
       fontSize: get(terminalFontSize),
       fontFamily: get(resolvedFontFamily),
       windowsPty,
       theme: {
-        background: 'rgba(0, 0, 0, 0)',
+        background: initialBackground,
         foreground: initialColors['text-primary'] || (isLight ? '#1f2328' : '#e6edf3'),
         cursor: initialColors['accent'] || (isLight ? '#0f766e' : '#7c6af7'),
         cursorAccent: initialColors['editor-bg'] || initialColors['bg-primary'] || (isLight ? '#ffffff' : '#1a1a1f'),
@@ -844,10 +917,14 @@ export default function TerminalPane({
       container.removeEventListener('mouseup', handleTerminalLinkMouseUp, true);
       unregisterDataCallback(sessionId);
       unregisterExitCallback(sessionId);
+      // Dispose the WebGL addon before the terminal so its GPU context is
+      // released cleanly rather than leaked.
+      webglAddonRef.current?.dispose();
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
       canvasAddonRef.current = null;
+      webglAddonRef.current = null;
     };
     // Intentionally mirrors mount/unmount: this effect runs once
     // per mounted session and tears down fully on unmount. Reactive prop/store
@@ -915,8 +992,9 @@ export default function TerminalPane({
       const colors = activeThemeValue.colors;
       const syntax = activeThemeValue.syntax;
       const isLight = activeThemeValue.type === 'light';
+      term.options.allowTransparency = false;
       term.options.theme = {
-        background: 'rgba(0, 0, 0, 0)',
+        background: colors['editor-bg'] || colors['bg-primary'] || (isLight ? '#ffffff' : '#111116'),
         foreground: colors['text-primary'] || (isLight ? '#1f2328' : '#e6edf3'),
         cursor: colors['accent'] || (isLight ? '#0f766e' : '#7c6af7'),
         cursorAccent: colors['editor-bg'] || colors['bg-primary'] || (isLight ? '#ffffff' : '#111116'),

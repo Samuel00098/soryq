@@ -141,12 +141,6 @@ export function initDefaultCommands() {
       action: () => setActiveView('settings'),
     },
     {
-      id: 'view.pet',
-      name: 'Go to Pet Playground',
-      category: 'View',
-      action: () => setActiveView('pet'),
-    },
-    {
       id: 'terminal.new',
       name: 'New Terminal',
       category: 'Terminal',

@@ -1778,11 +1778,16 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
                       ariaLabel="Terminal cursor"
                     />
                   </SettingRow>
-                  <SettingRow title="Canvas renderer" detail="Faster GPU rendering; disable if terminal glitches">
-                    <Toggle
-                      label="Toggle canvas renderer"
-                      checked={renderer === 'canvas'}
-                      onChange={(on) => terminalRenderer.set(on ? 'canvas' : 'dom')}
+                  <SettingRow title="Renderer" detail="WebGL is fastest (GPU); use DOM if the terminal glitches. WebGL uses an opaque background.">
+                    <SelectField
+                      value={renderer}
+                      options={[
+                        { id: 'dom', label: 'DOM' },
+                        { id: 'canvas', label: 'Canvas' },
+                        { id: 'webgl', label: 'WebGL' },
+                      ]}
+                      onChange={(value) => terminalRenderer.set(value as 'webgl' | 'canvas' | 'dom')}
+                      ariaLabel="Terminal renderer"
                     />
                   </SettingRow>
                   <SettingRow title="Scrollback" detail={`${scrollback.toLocaleString()} lines`}>

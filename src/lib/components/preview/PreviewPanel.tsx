@@ -33,7 +33,6 @@ import {
   closePreviewBrowserTab,
 } from '$lib/stores/preview';
 import { showToast } from '$lib/stores/notification';
-import { terminalRoomOpen } from '$lib/stores/layout';
 import {
   browsingHistory,
   recordHistoryVisit,
@@ -321,7 +320,6 @@ export default function PreviewPanel() {
   const isConnectingValue = useStore(isConnecting);
   const browsingHistoryValue = useStore(browsingHistory);
   const project = useStore(activeProject);
-  const terminalOpenValue = useStore(terminalRoomOpen);
 
   const iframeElementsRef = useRef<Record<string, HTMLIFrameElement | undefined>>({});
   const previewContentRef = useRef<HTMLDivElement>(null);
@@ -1524,19 +1522,6 @@ export default function PreviewPanel() {
               </>
             )}
           </button>
-
-          <button
-            className={`terminal-toggle-btn${terminalOpenValue ? ' active' : ''}`}
-            onClick={() => terminalRoomOpen.set(!terminalOpenValue)}
-            title={terminalOpenValue ? 'Close workspace terminal' : 'Open terminal alongside for agents'}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="18" rx="3" />
-              <polyline points="8,9 4,12 8,15" />
-              <line x1="12" y1="15" x2="20" y2="15" />
-            </svg>
-            <span className="proxy-btn-text">{terminalOpenValue ? 'Terminal: On' : 'Terminal: Off'}</span>
-          </button>
         </div>
       </div>
 
@@ -1702,8 +1687,11 @@ export default function PreviewPanel() {
               <button
                 className="action-btn web-btn"
                 onClick={() => {
-                  navigatePreviewTab('https://html.duckduckgo.com/html/');
-                  setInputUrl('https://html.duckduckgo.com/html/');
+                  // Route through navigateTo (not raw navigatePreviewTab) so the
+                  // background proxy is started BEFORE the URL is set. External
+                  // pages only render through the proxy; without this the page
+                  // stays blank until a later effect happens to start it.
+                  void navigateTo('https://html.duckduckgo.com/html/');
                 }}
                 title="Open browser"
               >

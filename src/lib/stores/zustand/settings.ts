@@ -52,7 +52,6 @@ function mergeDefaultShortcuts(initial: KeyboardShortcut[]): KeyboardShortcut[] 
     { id: 'goToDb', label: 'Go to Database Explorer', keys: 'Ctrl+Shift+B' },
     { id: 'goToContainers', label: 'Go to Containers', keys: 'Ctrl+Shift+C' },
     { id: 'goToToolbox', label: 'Go to Dev Toolbox', keys: 'Ctrl+Shift+X' },
-    { id: 'goToPet', label: 'Go to DevPet', keys: 'Ctrl+Shift+Z' },
     { id: 'openSearch', label: 'Search in Files', keys: 'Ctrl+Shift+F' },
     { id: 'openEnvManager', label: 'Environment Manager', keys: 'Ctrl+Shift+E' },
     { id: 'saveFile', label: 'Save File', keys: 'Ctrl+S' },
@@ -143,6 +142,18 @@ function migrateLegacySettings() {
   const ttsModelMap = persistentValue('voiceConversationTtsModelByProvider', {}) as Record<string, string>;
   if (ttsModelMap.google === 'gemini-3.1-flash-tts-preview') {
     persistValue('voiceConversationTtsModelByProvider', { ...ttsModelMap, google: 'gemini-2.5-flash-preview-tts' });
+  }
+
+  // The terminal renderer default was 'dom', which on Windows WebView2 leaves the
+  // terminal blank (a transparent glyph layer can't composite over the pane's
+  // backdrop-filter blur). WebGL on an opaque surface renders reliably. Move
+  // existing users off the legacy 'dom' default once; a later deliberate choice
+  // of 'dom' sets the sentinel too, so it won't be overridden again.
+  if (!localStorage.getItem('forge_terminalRendererMigrated')) {
+    if (localStorage.getItem('forge_setting_terminalRenderer') === JSON.stringify('dom')) {
+      persistValue('terminalRenderer', 'webgl');
+    }
+    localStorage.setItem('forge_terminalRendererMigrated', '1');
   }
 }
 
@@ -260,7 +271,6 @@ const defaults: SettingsValues = {
     { id: 'goToDb', label: 'Go to Database Explorer', keys: 'Ctrl+Shift+B' },
     { id: 'goToContainers', label: 'Go to Containers', keys: 'Ctrl+Shift+C' },
     { id: 'goToToolbox', label: 'Go to Dev Toolbox', keys: 'Ctrl+Shift+X' },
-    { id: 'goToPet', label: 'Go to DevPet', keys: 'Ctrl+Shift+Z' },
     { id: 'openSearch', label: 'Search in Files', keys: 'Ctrl+Shift+F' },
     { id: 'openEnvManager', label: 'Environment Manager', keys: 'Ctrl+Shift+E' },
     { id: 'saveFile', label: 'Save File', keys: 'Ctrl+S' },

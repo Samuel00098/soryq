@@ -59,6 +59,7 @@ export const layout: Writable<LayoutState> = {
 export const settingsOpen = writable(false);
 export const quickCaptureOpen = writable(false);
 export const envManagerOpen = writable(false);
+export const terminalRoomOpen = writable(false);
 
 // Mirror the modal flags out of Zustand for non-React (writable) consumers.
 useLayoutStore.subscribe((state) => {
@@ -79,6 +80,7 @@ export function closeQuickCapture() { withTransition(() => { useLayoutStore.getS
 export function openEnvManager() { withTransition(() => { useLayoutStore.getState().openEnvManager(); }); }
 export function closeEnvManager() { withTransition(() => { useLayoutStore.getState().closeEnvManager(); }); }
 export function toggleSidebar() { withTransition(() => { useLayoutStore.getState().toggleSidebar(); }); }
+export function setSidebarVisible(visible: boolean) { withTransition(() => { useLayoutStore.getState().setSidebarVisible(visible); }); }
 export function setActiveView(view: ActiveView) { withTransition(() => { useLayoutStore.getState().setActiveView(view); }); }
 export function showTerminal() { withTransition(() => { useLayoutStore.getState().showTerminal(); }); }
 export function toggleEditorVisible() { withTransition(() => { useLayoutStore.getState().toggleEditorVisible(); }); }
@@ -91,10 +93,7 @@ export function toggleContainersVisible() { withTransition(() => { useLayoutStor
 export function toggleToolboxVisible() { withTransition(() => { useLayoutStore.getState().toggleToolboxVisible(); }); }
 export function setRightDrawerTool(tool: import('./zustand/layout').RightDrawerTool | null) { withTransition(() => { useLayoutStore.getState().setRightDrawerTool(tool); }); }
 export function setRightDrawerWidth(width: number) { useLayoutStore.getState().setRightDrawerWidth(width); }
-export function togglePetVisible() { withTransition(() => { useLayoutStore.getState().togglePetVisible(); }); }
 export function toggleYoutubeVisible() { withTransition(() => { useLayoutStore.getState().toggleYoutubeVisible(); }); }
-export function toggleAndroidVisible() { withTransition(() => { useLayoutStore.getState().toggleAndroidVisible(); }); }
-export function toggleIosVisible() { withTransition(() => { useLayoutStore.getState().toggleIosVisible(); }); }
 export function toggleOrchestratorVisible() { withTransition(() => { useLayoutStore.getState().toggleOrchestratorVisible(); }); }
 export function toggleTerminal() { withTransition(() => { useLayoutStore.getState().toggleTerminal(); }); }
 export function setSidebarTab(tab: SidebarTab) { withTransition(() => { useLayoutStore.getState().setSidebarTab(tab); }); }

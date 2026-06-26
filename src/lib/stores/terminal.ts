@@ -4,7 +4,6 @@ import { terminalShell } from '$lib/stores/settings';
 import { showToast } from '$lib/stores/notification';
 import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
 import { agentReadsRulesFile, ensureAgentRulesFiles } from '$lib/services/orchestrator/agent-rules-file';
-import { devpet } from '$lib/stores/devpet';
 import { getCustomAgents } from '$lib/stores/customAgents';
 import { removeTaskWorktree, type WorktreeInfo } from '$lib/services/orchestrator/worktree-manager';
 
@@ -897,14 +896,6 @@ export function writeToSession(id: number, data: string) {
   if (pty) {
     processSessionInput(id, data);
     pty.write(data).catch((err) => console.error('Failed to write to terminal:', err));
-
-    const session = findSessionAnyProject(id);
-    if (session && !session.ownerTaskId) {
-      const cleanChars = data.replace(/[\x00-\x1F\x7F]/g, '');
-      if (cleanChars.length > 0) {
-        devpet.onType(cleanChars.length);
-      }
-    }
   }
 }
 

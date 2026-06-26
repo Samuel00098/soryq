@@ -47,11 +47,10 @@ import {
   openEnvManager,
   terminalRoomOpen as terminalRoomOpenStore,
 } from '$lib/stores/layout';
-import { openDailyNote } from '$lib/stores/dailyNote';
 import { openProject } from '$lib/stores/workspace';
 import { toggleCommandPalette } from '$lib/stores/commandpalette';
 import { saveActiveFile, formatActiveFile } from '$lib/stores/editor';
-import { startProxy, stopProxy, createPreviewBrowserTab } from '$lib/stores/preview';
+import { startProxy, stopProxy, createPreviewBrowserTab, ensureProxyRunning } from '$lib/stores/preview';
 import { useSettingsStore } from '$lib/stores/zustand/settings';
 import { matchShortcut } from '$lib/stores/settings';
 import {
@@ -563,9 +562,23 @@ export default function AppShell() {
   // transition layered on top of that fights the glide and makes the rearrange
   // look broken (panels jump), so skip it in gallery mode and let the canvas
   // animate itself.
+  // Tell terminal panes to refit once a room focus / layout transition has
+  // settled. An agent's full-screen TUI (xterm) only redraws when its size
+  // actually changes, so without this an agent promoted into the focus screen
+  // keeps the size it had as a small side card and leaves an empty band. The
+  // double rAF lets the new DOM settle before TerminalPane re-measures.
+  function notifyPanesResized() {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        document.dispatchEvent(new CustomEvent('pane-resize-end'));
+      }),
+    );
+  }
+
   function withRoomTransition(action: () => void) {
     if (ambientLayout === 'gallery') action();
     else withTransition(action);
+    notifyPanesResized();
   }
 
   const layoutState = useLayoutStore();
@@ -717,6 +730,25 @@ export default function AppShell() {
     () => agentSessions.map((session) => `agent:${session.id}` as AgentRoomId),
     [agentSessions],
   );
+
+  // Auto-focus a freshly spawned agent so it opens in the focus screen. The
+  // first run only records the current agents, so restored/pre-existing agents
+  // on app startup don't steal focus from the default room.
+  const prevAgentRoomIdsRef = useRef<AgentRoomId[]>([]);
+  const agentFocusInitRef = useRef(false);
+  useEffect(() => {
+    if (!agentFocusInitRef.current) {
+      agentFocusInitRef.current = true;
+      prevAgentRoomIdsRef.current = agentRoomIds;
+      return;
+    }
+    const prev = prevAgentRoomIdsRef.current;
+    prevAgentRoomIdsRef.current = agentRoomIds;
+    const added = agentRoomIds.filter((id) => !prev.includes(id));
+    if (added.length === 0) return;
+    focusRoom(added[added.length - 1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRoomIds]);
 
   const openRooms = useMemo<RoomId[]>(
     () => [
@@ -1658,9 +1690,6 @@ export default function AppShell() {
         case 'quickCapture':
           openQuickCapture();
           break;
-        case 'openDailyNote':
-          if (project) openDailyNote(project, true).catch(() => {});
-          break;
         case 'launchVoiceMode':
           launchPromptBarVoiceMode();
           break;
@@ -2342,20 +2371,14 @@ export default function AppShell() {
       title: 'Sketch (Excalidraw)',
       active: false,
       onClick: () => {
+        // Start the embedding proxy first — excalidraw.com only renders through
+        // it, so creating the tab before the proxy is up leaves a blank frame.
+        void ensureProxyRunning();
         createPreviewBrowserTab('https://excalidraw.com');
         setPanelRoomOpen('preview', true);
       },
       icon: <Icon><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 9.5-9.5z" /></Icon>,
     },
-    ...(project
-      ? [{
-          id: 'daily-note',
-          title: "Open Today's Note (Ctrl+Shift+D)",
-          active: false,
-          onClick: () => openDailyNote(project, true).catch(() => {}),
-          icon: <Icon><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="8" y1="15" x2="16" y2="15" /></Icon>,
-        } satisfies ActivityItem]
-      : []),
   ];
 
   // Launcher buttons for the LEFT utility drawer's tools, grouped at the left
@@ -2771,6 +2794,7 @@ export default function AppShell() {
       layoutSwitchTimerRef.current = null;
     }
     setLayoutSwitching(false);
+    notifyPanesResized();
   }
 
   function switchAmbientLayout(nextLayout: AmbientLayout) {
@@ -3004,6 +3028,7 @@ export default function AppShell() {
       <div className="zoom-wrapper">
         {workspaceId ? (
           <div className="zoom-content">
+            {projectSwitching && <div className="project-switching-overlay" />}
             <div className={`app-body rooms-workspace${resizing ? ' resizing' : ''}`}>
               {resizing && <div className={`resize-overlay${auxRowResizing ? ' row-resize' : ''}`} />}
 

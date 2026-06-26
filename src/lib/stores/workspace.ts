@@ -5,7 +5,7 @@ import { sessions, activeSessionId, gridLayout, paneAssignments, activePaneIndex
 import { targetPort, proxyPort, proxyStarted, currentUrl, preferredLocalHost, parseLocalPreviewUrl, previewTabs, activePreviewTabId, restorePreviewTabsState, resetPreviewTabsState, setPreferredLocalHost, setTargetPort, type PreviewTab } from './preview';
 import { expandedPaths, selectedPath, selectedPaths } from './explorer';
 import { resetSettingsToDefault } from './settings';
-import { resetLayoutToDefault, layout, sanitiseActiveView, sanitiseSidebarTab } from './layout';
+import { resetLayoutToDefault, layout, sanitiseActiveView, sanitiseSidebarTab, terminalRoomOpen } from './layout';
 import { layoutSnapshot, requestAmbientLayout, type AmbientLayout } from './layoutControl';
 import { isTauriRuntime } from '$lib/utils/tauri';
 import { useWorkspaceStore } from './zustand/workspace';
@@ -561,7 +561,8 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
       }
 
       if (persisted) {
-        if (persisted.openFiles.length > 0) {
+        const hadEditorFiles = persisted.openFiles.length > 0;
+        if (hadEditorFiles) {
           if (generation !== restoreProjectStateGeneration) return;
           await restoreEditorFiles(persisted.openFiles, persisted.activeFile);
           expandedPaths.set(new Set(persisted.expandedPaths));
@@ -582,6 +583,12 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
             proxyStarted.set(persisted.preview.proxyStarted);
           }
         }
+
+        const hadTerminalPanes = persisted.terminalPanes && persisted.terminalPanes.some((p) => p.hasSession);
+        const toastLabel = hadEditorFiles || hadTerminalPanes ? 'Restored' : 'Started';
+        const { showToast } = await import('./notification');
+        if (generation !== restoreProjectStateGeneration) return;
+        showToast(`${toastLabel} ${projectId.slice(0, 8)}`, 'info', 2000);
       }
 
       if (generation !== restoreProjectStateGeneration) return;
@@ -680,10 +687,14 @@ export async function restoreProjectState(projectId: string, rootPath: string) {
           }
         } else {
           if (generation !== restoreProjectStateGeneration) return;
-          await createTerminalSession(rootPath);
+          // Fresh project — keep the workspace pristine. No auto-terminal,
+          // no editor. The user sees a clean blank canvas.
         }
       }
     }
+    // Always show terminal focused with editor alongside
+    terminalRoomOpen.set(true);
+    layout.update((l) => ({ ...l, activeView: 'terminal', editorVisible: true }));
   } finally {
     isRestoringProjectState = false;
     isProjectSwitching.set(false);

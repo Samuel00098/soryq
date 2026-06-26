@@ -408,6 +408,10 @@ export async function toggleNode(node: FileNode) {
     selectedPath.set(node.entry.path);
     const { openFile } = await import('./editor');
     openFile(node.entry.path);
+    // Collapse the left file-explorer drawer so the opened file gets the room.
+    // The left nav rail stays, so the explorer is one click away to reopen.
+    const { setSidebarVisible } = await import('./layout');
+    setSidebarVisible(false);
     return;
   }
 

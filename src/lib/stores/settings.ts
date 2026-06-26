@@ -970,7 +970,6 @@ export const shortcutActions: ShortcutAction[] = [
   { id: 'goToDb',         label: 'Go to Database Explorer', category: 'View' },
   { id: 'goToContainers', label: 'Go to Containers',   category: 'View' },
   { id: 'goToToolbox',    label: 'Go to Dev Toolbox',  category: 'View' },
-  { id: 'goToPet',        label: 'Go to DevPet',       category: 'View' },
   { id: 'openSearch',     label: 'Search in Files', category: 'View' },
   { id: 'openEnvManager', label: 'Environment Manager', category: 'Workspace' },
   { id: 'saveFile',       label: 'Save File',       category: 'File' },
@@ -1006,7 +1005,6 @@ export const defaultShortcuts: KeyboardShortcut[] = [
   { id: 'goToDb',         label: 'Go to Database Explorer', keys: 'Ctrl+Shift+B' },
   { id: 'goToContainers', label: 'Go to Containers',   keys: 'Ctrl+Shift+C' },
   { id: 'goToToolbox',    label: 'Go to Dev Toolbox',  keys: 'Ctrl+Shift+X' },
-  { id: 'goToPet',        label: 'Go to DevPet',       keys: 'Ctrl+Shift+Z' },
   { id: 'openSearch',     label: 'Search in Files', keys: 'Ctrl+Shift+F' },
   { id: 'openEnvManager', label: 'Environment Manager', keys: 'Ctrl+Shift+E' },
   { id: 'saveFile',       label: 'Save File',       keys: 'Ctrl+S' },
@@ -1141,7 +1139,7 @@ export const terminalShell = persistentWritable<string>('terminalShell', ''); //
 export const terminalCursorStyle = persistentWritable<'bar' | 'block' | 'underline'>('terminalCursorStyle', 'bar');
 export const terminalScrollback = persistentWritable('terminalScrollback', 5000);
 export const terminalFontSize = persistentWritable('terminalFontSize', 13);
-export const terminalRenderer = persistentWritable<'canvas' | 'dom'>('terminalRenderer', 'dom');
+export const terminalRenderer = persistentWritable<'webgl' | 'canvas' | 'dom'>('terminalRenderer', 'webgl');
 
 export function updateSetting(key: string, value: unknown) {
   switch (key) {
@@ -1177,7 +1175,7 @@ export function updateSetting(key: string, value: unknown) {
     case 'onboardingCompleted': onboardingCompleted.set(value as boolean); break;
     case 'terminalShell':    terminalShell.set(value as string); break;
     case 'terminalFontSize': terminalFontSize.set(value as number); break;
-    case 'terminalRenderer': terminalRenderer.set(value as 'canvas' | 'dom'); break;
+    case 'terminalRenderer': terminalRenderer.set(value as 'webgl' | 'canvas' | 'dom'); break;
   }
 }
 
@@ -1221,6 +1219,6 @@ export function resetSettingsToDefault() {
   terminalCursorStyle.set('bar');
   terminalScrollback.set(5000);
   terminalFontSize.set(13);
-  terminalRenderer.set('dom');
+  terminalRenderer.set('webgl');
 }
 

@@ -532,6 +532,48 @@ export default function YouTubePanel() {
                   </div>
                 </div>
               </div>
+
+              {state.albumLoading && (
+                <div className="yt-album-tracklist-loading">
+                  Loading album tracks...
+                </div>
+              )}
+              {!state.albumLoading && state.albumTracks && state.albumTracks.length > 0 && (
+                <div className="yt-album-tracklist scrollable">
+                  <div className="yt-tracklist-header">
+                    {state.current?.type === 'album' ? 'Album Tracks' : 'Playlist Songs'}
+                  </div>
+                  <div className="yt-tracklist-rows">
+                    {state.albumTracks.map((track, index) => {
+                      const isCurrent = trackDetails?.videoId === track.videoId;
+                      return (
+                        <button
+                          key={track.videoId}
+                          className={`yt-track-row${isCurrent ? ' active' : ''}`}
+                          onClick={() => {
+                            const p = playerRef.current;
+                            if (p && (p as any).playVideoAt) {
+                              (p as any).playVideoAt(index);
+                            }
+                          }}
+                        >
+                          <span className="yt-track-num">
+                            {isCurrent ? (
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            ) : (
+                              index + 1
+                            )}
+                          </span>
+                          <span className="yt-track-title" title={track.title}>{track.title}</span>
+                          <span className="yt-track-duration">{track.channel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
