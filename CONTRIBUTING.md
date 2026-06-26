@@ -50,6 +50,6 @@ src/lib/services/     # Frontend services (voice, keychain, etc.)
 - TypeScript/React: Prettier defaults
 - Keep commits focused — one logical change per commit
 
-## Licence
+## License
 
-Soryq is proprietary software (see [LICENSE](LICENSE)). By contributing, you assign all right, title, and interest in your contributions to the copyright owner, Samuel Solesi, and agree they may be used under the project's proprietary terms.
+Soryq is open source under the **Apache License 2.0** (see [LICENSE](LICENSE)). By contributing, you agree that your contributions will be licensed under the same license.
