@@ -72,6 +72,8 @@ import { clampHorizontalScroll } from '$lib/actions/clampHorizontalScroll';
 import type { ActiveView, SidebarTab } from '$lib/types/layout';
 import type { RightDrawerTool } from '$lib/stores/layout';
 import { layoutControlCommand, publishLayoutSnapshot } from '$lib/stores/layoutControl';
+import { openDailyNote } from '$lib/stores/dailyNote';
+import { toggleSketchCanvas } from '$lib/stores/sketch';
 import './AppShell.css';
 
 type AuxPanelId =
@@ -1690,8 +1692,28 @@ export default function AppShell() {
         case 'quickCapture':
           openQuickCapture();
           break;
+        case 'openDailyNote':
+          if (project) {
+            void openDailyNote(project, true);
+          }
+          break;
+        case 'toggleSketch':
+          toggleSketchCanvas();
+          break;
         case 'launchVoiceMode':
           launchPromptBarVoiceMode();
+          break;
+        case 'canvasZoomIn':
+          if (ambientLayout !== 'gallery') switchAmbientLayout('gallery');
+          zoomCanvasBy(CANVAS_ZOOM_STEP);
+          break;
+        case 'canvasZoomOut':
+          if (ambientLayout !== 'gallery') switchAmbientLayout('gallery');
+          zoomCanvasBy(1 / CANVAS_ZOOM_STEP);
+          break;
+        case 'canvasResetZoom':
+          if (ambientLayout !== 'gallery') switchAmbientLayout('gallery');
+          setCanvasView({ x: 0, y: 0, zoom: 1 });
           break;
         case 'cycleAmbientLayout': {
           const MODE_ORDER: AmbientLayout[] = ['focus', 'split', 'gallery', 'preview'];
