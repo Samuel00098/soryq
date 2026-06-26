@@ -115,7 +115,7 @@ export default function YouTubePanel() {
           host: 'https://www.youtube-nocookie.com',
           videoId: currentVideoId || undefined,
           playerVars: {
-            autoplay: 1,
+            autoplay: 0,
             rel: 0,
             modestbranding: 1,
             start: currentPlaylistId ? undefined : startAt,
