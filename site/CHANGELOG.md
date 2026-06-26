@@ -3,7 +3,7 @@
 All notable changes to Soryq will be documented here.
 
 
-## [v0.4.4] - 2026-06-24
+## [v0.4.4] - 2026-06-26
 
 This release is a large rebuild of the Soryq interface on React, with a new infinite-canvas workspace, on-device voice, and a substantially upgraded Sketch Canvas and Settings experience.
 
@@ -25,6 +25,18 @@ This release is a large rebuild of the Soryq interface on React, with a new infi
 
 - **Smarter Settings** — model dropdowns gain an interactive search/filter input and live catalog loading (including for the inline-completion provider), agents moved to a dedicated Settings tab with live model fetching, and you can hide preset agents you don't use while keeping your custom CLI agents.
 
+- **Spatial canvas connections** — the infinite canvas now supports absolute staggered node placement with active connection paths drawn between related panels, plus a subtle flow animation that makes workspace topology visible at a glance.
+
+- **Sketch (Excalidraw) launcher in dock** — a new Sketch button in the dock bottom items launches the drawing canvas directly from the dock, and the preview layout panel is now centred for a cleaner workspace arrangement.
+
+- **DashboardShowcase design skeleton** — a new design system showcase that highlights the CNVS and BridgeSpace layout configurations, giving a visual overview of available workspace modes.
+
+- **Enlarged preview stage with terminal toggle** — the preview stage dimensions have been increased for a roomier browsing experience, and the terminal now initialises closed by default with an inline toggle to expand it when needed.
+
+- **YouTube music player enhancements** — the floating YouTube player now includes an album/playlist tracklist UI, adjusts short video height thresholds, adds full album playback support, and responsive breakpoints for the music player.
+
+- **External browsing feels native** — the preview panel now handles external URLs more naturally, making the embedded browsing experience behave closer to a real browser with proper navigation flows.
+
 ### Changed
 
 - **React interface rebuild** — the UI has been ported from Svelte to React, with a redesigned glassmorphic Settings modal (custom Dropdown components in place of native selects, interactive tab accents), a redesigned, centralized Welcome screen, a redesigned Assistant Orchestrator panel, and smooth global CSS View Transitions for layout and modal animations.
@@ -41,6 +53,12 @@ This release is a large rebuild of the Soryq interface on React, with a new infi
 
 - **Version bumped to 0.4.4** — app metadata and native package metadata now point at v0.4.4.
 
+- **Preview layout shows running agents** — the preview layout now displays running agents alongside the preview stage and terminal panel, keeping you informed of agent activity without switching views.
+
+- **Terminal minimizes by default in preview mode** — the workspace terminal now starts minimized when entering the preview layout, reducing visual clutter and keeping focus on what you're previewing.
+
+- **Unused components removed** — cleaned up legacy components (SketchCanvas, FloatingNotepad, RunHistoryPanel) that were superseded by newer implementations, reducing bundle size and maintenance surface.
+
 ### Fixed
 
 - **Voice agent audio glitches** — fixed the VAD startup click/pop, inline-code being dropped from TTS, and `flushSync` lifecycle warnings; VAD speech detection was refined with a 0.025 RMS threshold and consecutive-frame validation to cut false triggers.
@@ -50,6 +68,14 @@ This release is a large rebuild of the Soryq interface on React, with a new infi
 - **Layout & canvas stability** — resolved view-transition residue and layout-switch animation flicker via a global transition guard, fixed database tab switching, DevPet height queries, YouTube PIP resizing, duplicate-image double-rendering on the canvas, and a DevPet animation glitch on rapid clicks.
 
 - **Settings scrolling** — contained Settings scrolling and disabled the elastic overscroll bounce, and the settings modal now positions correctly below the title bar.
+
+- **Canvas panel gaps when count exceeds 4** — fixed spatial gaps and overlapping panels that appeared in the canvas layout when more than 4 panels were present.
+
+- **YouTube window positioning** — minimized YouTube windows now snap to the bottom-right corner automatically, and window position is restored correctly within the viewport when restoring from the dock.
+
+- **Terminal and agent panels only show with live preview** — these panels no longer persist when the preview is inactive, keeping the layout clean.
+
+- **Mobile device shell quoting** — the `android_text` input is now safely escaped before being passed to the device shell, preventing shell injection on Android targets.
 
 ## [v0.4.3] - 2026-06-16
 
