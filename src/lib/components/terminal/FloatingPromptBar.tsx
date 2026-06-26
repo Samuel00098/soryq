@@ -1502,28 +1502,6 @@ export default function FloatingPromptBar() {
                 Drop file to add as context
               </div>
             )}
-
-            {pastedImages.length > 0 && (
-              <div className="image-chips">
-                {pastedImages.map((img, i) => (
-                  <div className="image-chip" key={img.objectUrl}>
-                    <img
-                      src={img.objectUrl}
-                      alt="Pasted image"
-                      className="chip-thumb"
-                      onClick={() => setExpandedImage(img.objectUrl)}
-                      title="Click to view full size"
-                    />
-                    <button className="chip-remove" onClick={() => removeImage(i)} title="Remove image" aria-label="Remove image">
-                      <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
-                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {isVoiceActive && (
               <div className="voice-mode-inner">
                 {/* Stop Button */}
@@ -1809,6 +1787,27 @@ export default function FloatingPromptBar() {
                         <span className="target-auto-badge">auto</span>
                       )}
                     </button>
+                  ))}
+                </div>
+              )}
+
+              {pastedImages.length > 0 && (
+                <div className="image-chips">
+                  {pastedImages.map((img, i) => (
+                    <div className="image-chip" key={img.objectUrl}>
+                      <img
+                        src={img.objectUrl}
+                        alt="Pasted image"
+                        className="chip-thumb"
+                        onClick={() => setExpandedImage(img.objectUrl)}
+                        title="Click to view full size"
+                      />
+                      <button className="chip-remove" onClick={() => removeImage(i)} title="Remove image" aria-label="Remove image">
+                        <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
+                          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}

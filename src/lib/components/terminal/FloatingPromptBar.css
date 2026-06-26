@@ -635,20 +635,14 @@
 }
 
 .floating-prompt-shell .image-chips {
-  position: absolute;
-  bottom: calc(100% - 6px);
-  left: 20px;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px;
-  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 4px;
+  background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+  border-radius: 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  z-index: 10;
+  align-self: flex-start;
 }
 
 .floating-prompt-shell .image-chip {
@@ -661,19 +655,19 @@
 
 .floating-prompt-shell .chip-thumb {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   object-fit: cover;
-  border-radius: 5px;
+  border-radius: 4px;
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   cursor: pointer;
 }
 
 .floating-prompt-shell .image-chip:hover .chip-thumb {
   transform: scale(1.04);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .floating-prompt-shell .chip-label {
@@ -682,10 +676,10 @@
 
 .floating-prompt-shell .chip-remove {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 12px;
-  height: 12px;
+  top: -3px;
+  right: -3px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
