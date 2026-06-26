@@ -1792,44 +1792,45 @@ export default function FloatingPromptBar() {
                 </div>
               )}
 
-              {pastedImages.length > 0 && (
-                <div className="image-chips">
-                  {pastedImages.map((img, i) => (
-                    <div className="image-chip" key={img.objectUrl}>
-                      <img
-                        src={img.objectUrl}
-                        alt="Pasted image"
-                        className="chip-thumb"
-                        onClick={() => setExpandedImage(img.objectUrl)}
-                        title="Click to view full size"
-                      />
-                      <span className="chip-label">{img.name || 'image'}</span>
-                      <button className="chip-remove" onClick={() => removeImage(i)} title="Remove image" aria-label="Remove image">
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-                          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="prompt-input-row">
+                {pastedImages.length > 0 && (
+                  <div className="image-chips">
+                    {pastedImages.map((img, i) => (
+                      <div className="image-chip" key={img.objectUrl}>
+                        <img
+                          src={img.objectUrl}
+                          alt="Pasted image"
+                          className="chip-thumb"
+                          onClick={() => setExpandedImage(img.objectUrl)}
+                          title="Click to view full size"
+                        />
+                        <button className="chip-remove" onClick={() => removeImage(i)} title="Remove image" aria-label="Remove image">
+                          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
+                            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-              <textarea
-                ref={inputElRef}
-                value={inputValue}
-                className="prompt-input"
-                placeholder={
-                  isAgentMode
-                    ? ($activeProject ? 'Ask your agent…' : 'Open a project to use agent mode')
-                    : (canSend ? 'Prompt the active terminal...' : 'Open or focus a terminal to send prompts')
-                }
-                rows={1}
-                disabled={!canSend}
-                onChange={handleInput}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                onMouseDown={() => { setTargetPickerOpen(false); setHistoryOpen(false); }}
-              />
+                <textarea
+                  ref={inputElRef}
+                  value={inputValue}
+                  className="prompt-input"
+                  placeholder={
+                    isAgentMode
+                      ? ($activeProject ? 'Ask your agent…' : 'Open a project to use agent mode')
+                      : (canSend ? 'Prompt the active terminal...' : 'Open or focus a terminal to send prompts')
+                  }
+                  rows={1}
+                  disabled={!canSend}
+                  onChange={handleInput}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  onMouseDown={() => { setTargetPickerOpen(false); setHistoryOpen(false); }}
+                />
+              </div>
             </div>
 
             <button
