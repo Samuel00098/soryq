@@ -151,7 +151,7 @@ function StyledSelect<T extends string>({
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
   const [searchQuery, setSearchQuery] = useState('');
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLUListElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const selectedLabel = options.find((o) => o.id === value)?.label ?? value;
 
   const close = useCallback(() => setOpen(false), []);

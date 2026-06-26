@@ -352,7 +352,7 @@ function sanitisePersistedProjectState(raw: unknown): PersistedProjectState | nu
   if (r.preview && typeof r.preview === 'object') {
     const p = r.preview as Record<string, unknown>;
     const rawTabs = Array.isArray(p.tabs) ? p.tabs : [];
-    const tabs: PreviewTab[] = rawTabs.map((t: unknown) => {
+    const tabs: PreviewTab[] = rawTabs.map((t: unknown): PreviewTab | null => {
       if (!t || typeof t !== 'object') return null;
       const tab = t as Record<string, unknown>;
       return {

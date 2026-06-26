@@ -42,6 +42,10 @@ export type YouTubeState = {
   /** Playback position (seconds) of the current video, so the player resumes
    *  from where it was after a mode-switch remount reloads the iframe. */
   position: number;
+  /** True while fetching tracks for an album or playlist. */
+  albumLoading?: boolean;
+  /** Tracks belonging to the currently playing album/playlist. */
+  albumTracks?: YouTubeResult[];
 };
 
 const STORAGE_KEY = 'soryq_youtube';
@@ -87,6 +91,8 @@ export const youtubeState = writable<YouTubeState>({
   status: '',
   loading: false,
   position: initial.position,
+  albumLoading: false,
+  albumTracks: [],
 });
 
 function persist() {
