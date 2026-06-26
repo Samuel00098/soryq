@@ -37,6 +37,7 @@ export async function openPty(
   handlers: PtyHandlers,
   cwd?: string,
   shellProgram?: string,
+  env?: Record<string, string>,
 ): Promise<PtySession> {
   const onData = new Channel<ArrayBuffer>();
   const onExit = new Channel<number>();
@@ -79,6 +80,7 @@ export async function openPty(
     shellProgram: shellProgram ?? null,
     onData,
     onExit,
+    env: env ?? null,
   });
   backendId = id;
   // If the child exited during creation (before the id resolved), free it now

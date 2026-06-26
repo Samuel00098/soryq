@@ -233,14 +233,14 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
   }, [interacting]);
 
   const { minimized } = state;
-
+ 
   return (
     <section
       className={`floating-youtube${interacting ? ' fy-interacting' : ''}${minimized ? ' fy-minimized' : ''}`}
       style={{
         left: `${state.x}px`,
         top: `${state.y}px`,
-        width: `${state.width}px`,
+        width: minimized ? `${MIN_W}px` : `${state.width}px`,
         // When minimized the window collapses to its title bar — let height be
         // intrinsic rather than forcing the saved player height.
         ...(minimized ? {} : { height: `${state.height}px` }),
@@ -259,7 +259,7 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
             return {
               ...s,
               minimized: true,
-              x: Math.max(16, vw - s.width - 24),
+              x: Math.max(16, vw - MIN_W - 24),
               y: Math.max(16, vh - 40 - 96),
             };
           } else {
@@ -300,7 +300,7 @@ export default function FloatingYouTube({ onClose }: { onClose: () => void }) {
                 return {
                   ...s,
                   minimized: true,
-                  x: Math.max(16, vw - s.width - 24),
+                  x: Math.max(16, vw - MIN_W - 24),
                   y: Math.max(16, vh - 40 - 96),
                 };
               } else {

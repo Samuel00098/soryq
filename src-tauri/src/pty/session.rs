@@ -25,6 +25,7 @@ pub fn spawn(
     cwd: String,
     on_data: Channel<Response>,
     on_exit: Channel<i32>,
+    env: Option<std::collections::HashMap<String, String>>,
 ) -> Result<PtySession, String> {
     let pty_system = NativePtySystem::default();
 
@@ -42,6 +43,11 @@ pub fn spawn(
         cmd.arg(arg);
     }
     cmd.cwd(&cwd);
+    if let Some(env_vars) = env {
+        for (k, v) in env_vars {
+            cmd.env(k, v);
+        }
+    }
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
 

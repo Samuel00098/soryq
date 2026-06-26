@@ -6,6 +6,7 @@ import { buildAgentCharter } from '$lib/services/orchestrator/agent-charter';
 import { agentReadsRulesFile, ensureAgentRulesFiles } from '$lib/services/orchestrator/agent-rules-file';
 import { getCustomAgents } from '$lib/stores/customAgents';
 import { removeTaskWorktree, type WorktreeInfo } from '$lib/services/orchestrator/worktree-manager';
+import { activeTheme } from '$lib/stores/theme';
 
 export type TerminalSessionInfo = {
   id: number;
@@ -740,6 +741,14 @@ export async function createTerminalSession(
     }
 
     const resolvedCwd = cwd ?? terminalProjectRoots.get(owningProjectId);
+ 
+    const theme = get(activeTheme);
+    const isLight = theme?.type === 'light';
+    const env = {
+      CLAUDE_CODE_THEME: isLight ? 'light' : 'dark',
+      THEME: isLight ? 'light' : 'dark',
+      COLORFGBG: isLight ? '0;15' : '15;0',
+    };
 
     const ptyPromise = openPty(80, 24, {
       onData: (bytes) => {
@@ -781,7 +790,7 @@ export async function createTerminalSession(
           showToast(`${label} closed`, 'info', 3000, true);
         }
       },
-    }, resolvedCwd, get(terminalShell) || undefined);
+    }, resolvedCwd, get(terminalShell) || undefined, env);
 
     pty = await ptyPromise;
     ptyInstances.set(pty.id, pty);

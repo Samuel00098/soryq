@@ -48,6 +48,7 @@ pub fn terminal_create(
     shell_program: Option<String>,
     on_data: Channel<Response>,
     on_exit: Channel<i32>,
+    env: Option<std::collections::HashMap<String, String>>,
     state: State<AppState>,
 ) -> Result<u32, String> {
     let shell = match shell_program {
@@ -82,7 +83,7 @@ pub fn terminal_create(
         _ => shell::detect_shell(),
     };
     let clean_cwd = resolve_terminal_cwd(cwd, &state)?;
-    let pty_session = session::spawn(cols, rows, shell, clean_cwd, on_data, on_exit)?;
+    let pty_session = session::spawn(cols, rows, shell, clean_cwd, on_data, on_exit, env)?;
     let id = state.pty_manager.insert(pty_session);
     Ok(id)
 }
