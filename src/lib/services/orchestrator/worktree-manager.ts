@@ -79,8 +79,16 @@ export async function createTaskWorktree(args: {
       createdAt: Date.now(),
     };
   } catch (err) {
-    // Not a git repo / empty repo / git error — isolation is skipped, not fatal.
-    console.warn('Worktree isolation skipped; running agent in project root:', err);
+    const msg = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
+    // Not a git repo / empty repo — isolation is skipped, not fatal.
+    if (msg.includes('not a Git repository') || msg.includes('no commits yet') || msg.includes('Not a git worktree')) {
+      console.warn('Worktree isolation skipped; running agent in project root:', msg);
+    } else {
+      // Git unavailable, permission denied, or other unexpected failure.
+      // Log at error level so it's visible in devtools even during production
+      // builds — helps diagnose "worktree badge not showing" reports.
+      console.error('Worktree isolation failed (unexpected); running agent in project root:', msg);
+    }
     return null;
   }
 }

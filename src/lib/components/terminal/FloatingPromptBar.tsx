@@ -25,7 +25,7 @@ import {
   setSessionWorktree,
 } from '$lib/stores/terminal';
 import { getPresetRuns } from '$lib/stores/runs';
-import { customAgents } from '$lib/stores/customAgents';
+import { customAgents, removedPresetAgents } from '$lib/stores/customAgents';
 import { pickAssistantName } from '$lib/services/orchestrator/agent-names';
 import { createTaskWorktree, removeTaskWorktree } from '$lib/services/orchestrator/worktree-manager';
 import { applyOrchestratorAgentName } from '$lib/services/orchestrator/terminal-lease';
@@ -174,6 +174,7 @@ export default function FloatingPromptBar() {
   const $sessions = useStore(sessions);
   const $commandHistory = useStore(commandHistory);
   const $customAgents = useStore(customAgents);
+  const $removedPresetAgents = useStore(removedPresetAgents);
   const $activeProject = useStore(activeProject);
   const $orchestratorTasks = useStore(orchestratorTasks);
   const $chatMessages = useStore(chatMessages);
@@ -259,13 +260,14 @@ export default function FloatingPromptBar() {
       .slice(0, 160);
   }, [lastAssistantRaw]);
 
-  // Reading customAgents keeps this reactive: adding/removing a custom agent in
-  // Settings re-derives the spawn list. getPresetRuns merges built-ins + custom.
+  // Reading customAgents + removedPresetAgents keeps this reactive:
+  // adding/removing/hiding agents in Settings re-derives the spawn list.
   const spawnPresets = useMemo(() => {
     void $customAgents;
+    void $removedPresetAgents;
     if (!$activeProject) return [];
     return getPresetRuns($activeProject.id).filter((r) => r.isAgent);
-  }, [$customAgents, $activeProject]);
+  }, [$customAgents, $removedPresetAgents, $activeProject]);
 
   const activeTerminal = useMemo(
     () => $sessions.find((session) => session.id === $activeSessionId) ?? null,
@@ -798,7 +800,9 @@ export default function FloatingPromptBar() {
     }
 
     activateSessionInPane(target.id);
-    requestRoomControl('focus', 'terminal');
+    if (!target.agentPreset) {
+      requestRoomControl('focus', 'terminal');
+    }
     const taskSummary = summarizeTerminalTask(finalText);
     sendPromptToTarget(target.id, finalText, target.agentPreset);
     setSessionExecuting(target.id, true);
@@ -819,13 +823,15 @@ export default function FloatingPromptBar() {
     setIsExpanded(false);
     setHistoryOpen(false);
     resetHistoryCursor();
+    requestAnimationFrame(adjustInputHeight);
+    focusInput();
     showToast(
       `Sent to ${getSessionPromptTargetLabel(target, $sessions)}`,
       'info',
       undefined,
       true
     );
-  }, [isAgentMode, submitAgentMessage, inputValue, pastedImages, materializeAttachments, appendAttachmentPaths, resolvePromptTarget, sendPromptToTarget, $sessions, $activeProject, resetHistoryCursor]);
+  }, [isAgentMode, submitAgentMessage, inputValue, pastedImages, materializeAttachments, appendAttachmentPaths, resolvePromptTarget, sendPromptToTarget, $sessions, $activeProject, resetHistoryCursor, adjustInputHeight, focusInput]);
 
   const selectHistoryItem = useCallback((text: string) => {
     setInputValue(text);

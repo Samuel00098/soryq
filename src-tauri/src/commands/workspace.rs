@@ -96,6 +96,21 @@ pub(crate) fn git_base() -> Command {
     cmd
 }
 
+/// Check whether `git` is available on the system PATH. Returns the `--version`
+/// output on success, or a descriptive error explaining that git is not found.
+pub(crate) fn check_git_available() -> Result<String, String> {
+    match Command::new("git").arg("--version").output() {
+        Ok(out) if out.status.success() => {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        }
+        Ok(_) => Err("git --version exited with non-zero status".to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err("Git is not installed or not on the system PATH. Install Git for Windows (https://git-scm.com) and ensure it's in your PATH.".to_string())
+        }
+        Err(e) => Err(format!("Failed to run git --version: {e}")),
+    }
+}
+
 /// Run a git command in `root` and return its trimmed stdout on success, or None.
 fn git_capture(root: &std::path::Path, args: &[&str]) -> Option<String> {
     let out = git_base()
@@ -939,6 +954,13 @@ pub fn workspace_git_create_worktree(
     branch: String,
     state: State<AppState>,
 ) -> Result<WorktreeInfo, String> {
+
+    // Verify git is available before attempting any git operations. In production
+    // builds (packaged app), the PATH may differ from the dev environment, and
+    // `git` might not be resolvable. This gives a clear error instead of a cryptic
+    // "program not found" from Command::output.
+    check_git_available().map_err(|e| format!("Git not available: {e}"))?;
+
     let projects = state.workspace_manager.list_projects();
     let project = projects
         .iter()

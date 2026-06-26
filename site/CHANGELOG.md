@@ -3,6 +3,13 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.5] - 2026-06-26
+
+### Fixed
+
+- Spawn list reactivity — spawn picker now updates live when preset agents are hidden/restored
+- Worktree creation checks git availability upfront for clearer diagnostics
+
 ## [v0.4.4] - 2026-06-26
 
 This release is a large rebuild of the Soryq interface on React, with a new infinite-canvas workspace, on-device voice, and a substantially upgraded Sketch Canvas and Settings experience.
