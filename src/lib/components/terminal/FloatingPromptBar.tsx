@@ -222,6 +222,7 @@ export default function FloatingPromptBar() {
   const [isTtsSpeaking, setIsTtsSpeaking, isTtsSpeakingRef] = useSyncedState(false);
   const lastSpokenMessageKeyRef = useRef<string | null>(null);
   const [pastedImages, setPastedImages] = useState<PastedImage[]>([]);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   const hasPromptText = inputValue.trim().length > 0;
   const isActive = true;
@@ -803,10 +804,14 @@ export default function FloatingPromptBar() {
     if (!target.agentPreset) {
       requestRoomControl('focus', 'terminal');
     }
-    const taskSummary = summarizeTerminalTask(finalText);
+    const taskSummary = target.agentPreset ? summarizeTerminalTask(finalText) : '';
     sendPromptToTarget(target.id, finalText, target.agentPreset);
     setSessionExecuting(target.id, true);
-    setSessionTaskSummary(target.id, taskSummary || null);
+    if (target.agentPreset) {
+      setSessionTaskSummary(target.id, taskSummary || null);
+    } else {
+      setSessionTaskSummary(target.id, null);
+    }
     startCommandBlock(target.id, finalText);
     addRunEntry({
       command: finalText,
@@ -817,7 +822,9 @@ export default function FloatingPromptBar() {
       projectId: $activeProject?.id ?? '',
       startedAt: Date.now(),
     });
-    addHistoryEntry(finalText);
+    if (!target.agentPreset) {
+      addHistoryEntry(finalText);
+    }
 
     setInputValue('');
     setIsExpanded(false);
@@ -1789,7 +1796,13 @@ export default function FloatingPromptBar() {
                 <div className="image-chips">
                   {pastedImages.map((img, i) => (
                     <div className="image-chip" key={img.objectUrl}>
-                      <img src={img.objectUrl} alt="Pasted image" className="chip-thumb" />
+                      <img
+                        src={img.objectUrl}
+                        alt="Pasted image"
+                        className="chip-thumb"
+                        onClick={() => setExpandedImage(img.objectUrl)}
+                        title="Click to view full size"
+                      />
                       <span className="chip-label">{img.name || 'image'}</span>
                       <button className="chip-remove" onClick={() => removeImage(i)} title="Remove image" aria-label="Remove image">
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
@@ -1848,6 +1861,15 @@ export default function FloatingPromptBar() {
             <span className="bubble-waiting-badge">{waitingTaskCount}</span>
           )}
         </button>
+      )}
+
+      {expandedImage && (
+        <div className="image-preview-overlay" onClick={() => setExpandedImage(null)}>
+          <div className="image-preview-content" onClick={(e) => e.stopPropagation()}>
+            <img src={expandedImage} alt="Expanded preview" className="image-preview-img" />
+            <button className="image-preview-close" onClick={() => setExpandedImage(null)}>✕</button>
+          </div>
+        </div>
       )}
     </div>
   );
