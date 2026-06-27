@@ -3,12 +3,33 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.7] - 2026-06-27
+
+### Added
+
+- **Notification store tests** — added unit tests covering toast queue limits, desktop notification triggers, and Web/Browser Notification fallback behavior
+- **Updater store tests** — added unit tests covering update check status, progress tracking, and relaunch state
+
+### Fixed
+
+- **Notification wrapper refactor** — consolidated duplicate permission check state, window focus handlers, and fallback code between the Zustand store and Svelte compatibility wrapper
+- **Updater sync pop-up** — refactored the compatibility updater store to sync directly with the Zustand store, correcting the issue where update check triggers in the Settings Modal failed to propagate to the application's update banner
+
+## [v0.4.6] - 2026-06-26
+
+### Added
+
+- **Go to YouTube shortcut** — assigned a default key binding of `Ctrl+Shift+Y` to toggle the YouTube panel
+- **Missing shortcut handlers** — keyboard shortcuts for `openDailyNote` (`Ctrl+Shift+D`), `toggleSketch` (`Ctrl+Shift+N`), `canvasZoomIn` (`Alt+=`), `canvasZoomOut` (`Alt+-`), and `canvasResetZoom` (`Alt+0`) are now correctly hooked up and executed
+- **Default shortcuts configuration** — added the missing `cycleAmbientLayout` shortcut mapping (`Ctrl+Alt+L`) to the initialized user shortcuts list
+
 ## [v0.4.5] - 2026-06-26
 
 ### Fixed
 
-- Spawn list reactivity — spawn picker now updates live when preset agents are hidden/restored
-- Worktree creation checks git availability upfront for clearer diagnostics
+- **Spawn list reactivity** — the spawn picker now updates live when preset agents are hidden or restored in Settings (removedPresetAgents was missing from the dependency array)
+- **Worktree isolation diagnostics** — the Rust backend now checks that `git` is on the system PATH before attempting worktree creation, producing a clear error instead of a cryptic failure when it's not found; unexpected worktree failures are logged at `error` level in the frontend
+- **Worktree creation robustness** — `workspace_git_create_worktree` validates git availability upfront with `check_git_available()`, so the error surfaces immediately rather than deep into git plumbing
 
 ## [v0.4.4] - 2026-06-26
 

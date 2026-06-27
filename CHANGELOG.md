@@ -3,6 +3,18 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.7] - 2026-06-27
+
+### Added
+
+- **Notification store tests** — added unit tests covering toast queue limits, desktop notification triggers, and Web/Browser Notification fallback behavior
+- **Updater store tests** — added unit tests covering update check status, progress tracking, and relaunch state
+
+### Fixed
+
+- **Notification wrapper refactor** — consolidated duplicate permission check state, window focus handlers, and fallback code between the Zustand store and Svelte compatibility wrapper
+- **Updater sync pop-up** — refactored the compatibility updater store to sync directly with the Zustand store, correcting the issue where update check triggers in the Settings Modal failed to propagate to the application's update banner
+
 ## [v0.4.6] - 2026-06-26
 
 ### Added
