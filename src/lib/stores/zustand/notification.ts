@@ -27,6 +27,21 @@ interface NotificationState {
 
 let permissionGranted = false;
 
+/** Call once on app startup to prompt the user for notification permission. */
+export async function requestNotificationPermission() {
+  if (!get(notificationsEnabled)) return;
+
+  try {
+    permissionGranted = await isPermissionGranted();
+    if (!permissionGranted) {
+      permissionGranted = (await requestPermission()) === 'granted';
+    }
+  } catch (err) {
+    console.error('Failed to initialize notification permission:', err);
+  }
+}
+
+
 async function focusCurrentWindow() {
   try {
     const win = getCurrentWindow();
