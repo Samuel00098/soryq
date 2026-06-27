@@ -206,7 +206,7 @@ function createSettingsState() {
     terminalCursorStyle: persistentValue<'bar' | 'block' | 'underline'>('terminalCursorStyle', 'bar'),
     terminalScrollback: persistentValue('terminalScrollback', 5000),
     terminalFontSize: persistentValue('terminalFontSize', 13),
-    terminalRenderer: persistentValue<'canvas' | 'dom'>('terminalRenderer', 'dom'),
+    terminalRenderer: persistentValue<'webgl' | 'canvas' | 'dom'>('terminalRenderer', 'webgl'),
     showSnapshotsTab: persistentValue('showSnapshotsTab', false),
     voicePersonality: persistentValue('voicePersonality', 'helpful'),
   };
@@ -303,7 +303,7 @@ const defaults: SettingsValues = {
   terminalCursorStyle: 'bar',
   terminalScrollback: 5000,
   terminalFontSize: 13,
-  terminalRenderer: 'dom',
+  terminalRenderer: 'webgl',
   showSnapshotsTab: false,
   voicePersonality: 'helpful',
 };

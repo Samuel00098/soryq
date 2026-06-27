@@ -1189,8 +1189,16 @@ export function resetSettingsToDefault() {
   minimap.set(false);
   vimMode.set(false);
   enableLsp.set(true);
-  aiGhostTextEnabled.set(false);
   showHidden.set(false);
+  showSnapshotsTab.set(false);
+  notificationsEnabled.set(true);
+  closeBehavior.set('quit');
+  aiProvider.set('openrouter');
+  aiModelByProvider.set({});
+  aiBaseUrlByProvider.set({});
+  aiGhostTextEnabled.set(false);
+  aiCompletionProvider.set('groq');
+  aiCompletionModelByProvider.set({});
   voiceRefinementEnabled.set(false);
   voiceInputProvider.set('webspeech');
   voiceInputModelByProvider.set({});
@@ -1202,13 +1210,10 @@ export function resetSettingsToDefault() {
   voiceConversationTtsVoiceByProvider.set({});
   voiceReplyProvider.set('openrouter');
   ttsVoice.set('austin');
-  aiProvider.set('openrouter');
-  aiModelByProvider.set({});
-  aiBaseUrlByProvider.set({});
+  announceAgentCompletions.set(true);
   uiZoom.set(100);
   swipeNavigationEnabled.set(true);
   formatOnSave.set(true);
-  closeBehavior.set('quit');
   userShortcuts.set(defaultShortcuts);
   appearance.set('system');
   interfaceTransparency.set(0);
@@ -1222,5 +1227,6 @@ export function resetSettingsToDefault() {
   terminalScrollback.set(5000);
   terminalFontSize.set(13);
   terminalRenderer.set('webgl');
+  voicePersonality.set('helpful');
 }
 

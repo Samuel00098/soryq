@@ -502,7 +502,23 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
   }, []);
 
   const handleDeleteModel = useCallback(async (modelId: string) => {
-    if (!window.confirm('Are you sure you want to delete this model?')) return;
+    let confirmed = false;
+    if (isTauriRuntime()) {
+      try {
+        const { ask } = await import('@tauri-apps/plugin-dialog');
+        confirmed = await ask('Are you sure you want to delete this model?', {
+          title: 'Delete Model',
+          kind: 'warning',
+        });
+      } catch (err) {
+        console.error('Failed to show Tauri ask dialog:', err);
+        confirmed = window.confirm('Are you sure you want to delete this model?');
+      }
+    } else {
+      confirmed = window.confirm('Are you sure you want to delete this model?');
+    }
+
+    if (!confirmed) return;
     try {
       await invoke('delete_model', { modelId });
       showToast('Model deleted successfully', 'success');
@@ -1168,9 +1184,38 @@ export default function SettingsModal({ onclose }: SettingsModalProps) {
     setShowingCustomThemeEditor(false);
   }
 
-  function resetAllSettings() {
-    if (!window.confirm('Reset all settings to defaults?')) return;
+  async function resetAllSettings() {
+    let confirmed = false;
+    if (isTauriRuntime()) {
+      try {
+        const { ask } = await import('@tauri-apps/plugin-dialog');
+        confirmed = await ask('Reset all settings to defaults?', {
+          title: 'Reset Settings',
+          kind: 'warning',
+        });
+      } catch (err) {
+        console.error('Failed to show Tauri ask dialog:', err);
+        confirmed = window.confirm('Reset all settings to defaults?');
+      }
+    } else {
+      confirmed = window.confirm('Reset all settings to defaults?');
+    }
+
+    if (!confirmed) return;
+
     resetSettingsToDefault();
+    removedPresetAgents.set([]);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('forge_active_theme');
+    }
+    try {
+      const { loadThemes } = await import('$lib/stores/theme');
+      await loadThemes();
+    } catch (e) {
+      console.error('Failed to reload themes after reset:', e);
+    }
+
     showToast('Settings reset to defaults', 'success');
   }
 
