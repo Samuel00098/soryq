@@ -27,6 +27,14 @@ function syncWritable<T>(key: string, defaultValue: T): import('$lib/stores/stor
 export const activeTheme = syncWritable<Theme | null>('activeTheme', null);
 export const availableThemes = syncWritable<ThemeInfo[]>('availableThemes', []);
 
+/**
+ * Monotonically increasing counter that is bumped every time the user
+ * explicitly picks a theme (via switchPresetTheme or switchTheme). loadThemes
+ * checks this before and after its async Tauri invoke so that a backend
+ * response arriving after a user selection doesn't silently overwrite it.
+ */
+let userThemeVersion = 0;
+
 let mediaQueryList: MediaQueryList | null = null;
 const handleSystemThemeChange = (e: MediaQueryListEvent | MediaQueryList) => {
   const desiredTheme = e.matches ? 'forge-dark' : 'forge-light';
@@ -38,8 +46,14 @@ const handleSystemThemeChange = (e: MediaQueryListEvent | MediaQueryList) => {
 
 if (typeof window !== 'undefined') {
   let isAppearanceInitialLoad = true;
+  let lastAppearance: string | null = null;
 
   appearance.subscribe((value) => {
+    if (value === lastAppearance && !isAppearanceInitialLoad) {
+      return;
+    }
+    lastAppearance = value;
+
     if (mediaQueryList) {
       try {
         mediaQueryList.removeEventListener('change', handleSystemThemeChange);
@@ -76,8 +90,16 @@ if (typeof window !== 'undefined') {
 }
 
 export async function loadThemes() {
+  // Snapshot the version before any async work. If the user picks a theme
+  // while we are awaiting Tauri calls, our result is stale and we must not
+  // overwrite their explicit choice.
+  const versionAtStart = userThemeVersion;
+
+  const isStale = () => userThemeVersion !== versionAtStart;
+
   try {
     const themes = await invoke<ThemeInfo[]>('theme_list');
+    if (isStale()) return;
     availableThemes.set(themes);
 
     const savedThemeId = typeof window !== 'undefined' ? localStorage.getItem('forge_active_theme') : null;
@@ -85,6 +107,7 @@ export async function loadThemes() {
     if (savedThemeId) {
       const preset = presetThemes.find(t => t.id === savedThemeId);
       if (preset) {
+        if (isStale()) return;
         activeTheme.set(preset);
         currentPresetTheme.set(savedThemeId);
         applyThemeToCSS(preset);
@@ -93,6 +116,7 @@ export async function loadThemes() {
 
       try {
         const theme = await invoke<Theme>('theme_activate', { themeId: savedThemeId });
+        if (isStale()) return;
         activeTheme.set(theme);
         currentPresetTheme.set(null);
         applyThemeToCSS(theme);
@@ -103,6 +127,7 @@ export async function loadThemes() {
     }
 
     const theme = await invoke<Theme>('theme_get_active');
+    if (isStale()) return;
     activeTheme.set(theme);
     currentPresetTheme.set(null);
     applyThemeToCSS(theme);
@@ -112,6 +137,7 @@ export async function loadThemes() {
 }
 
 export async function switchTheme(themeId: string, showNotification = true) {
+  userThemeVersion++;
   try {
     const theme = await invoke<Theme>('theme_activate', { themeId });
     activeTheme.set(theme);
@@ -137,6 +163,8 @@ export function switchPresetTheme(themeId: string, showNotification = true) {
     showToast(`Theme "${themeId}" not found`, 'error');
     return;
   }
+  // Bump the version so any in-flight loadThemes() call knows its result is now stale.
+  userThemeVersion++;
   activeTheme.set(theme);
   currentPresetTheme.set(themeId);
   if (typeof window !== 'undefined') {
