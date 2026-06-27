@@ -3,6 +3,13 @@
 All notable changes to Soryq will be documented here.
 
 
+## [v0.4.8] - 2026-06-27
+
+### Changed
+
+- **Onboarding walkthrough redesign** — replaced generic checkmarks with 15 custom theme-aware feature icons, refined copywriting across all slides to make them benefit-focused, and replaced simplified illustrations with high-fidelity, interactive dashboard visuals (representing editors, terminals, LSP diagnostics, git graphs, and a command palette simulator).
+- **Theme picker spacing** — re-organized the starting theme picker into a clean, spacious 2-row, 3-column swatch grid.
+
 ## [v0.4.7] - 2026-06-27
 
 ### Added

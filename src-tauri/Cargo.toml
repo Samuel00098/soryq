@@ -1,6 +1,6 @@
 [package]
 name = "soryq"
-version = "0.4.7"
+version = "0.4.8"
 description = "A lightweight developer workspace built with Tauri 2, Rust, and React"
 authors = ["samue"]
 edition = "2021"
